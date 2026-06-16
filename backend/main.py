@@ -41,19 +41,31 @@ def health():
 
 @app.post("/api/scan-results")
 def receive_scan_results(data: dict, db: Session = Depends(get_db)):
+    from security_gate import evaluate_severity
+    
+    findings = data.get("findings", {})
+    gate_result = evaluate_severity(findings)
+    
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
         repo_name=data.get("repo_name", "unknown"),
         branch=data.get("branch", "main"),
         scan_type=data.get("scan_type", "trivy"),
         severity=data.get("severity", "unknown"),
-        findings=data.get("findings", {}),
-        action_taken="pending"
+        findings=findings,
+        action_taken=gate_result["action"]
     )
     db.add(scan)
     db.commit()
     db.refresh(scan)
-    return {"status": "saved", "id": scan.id}
+    
+    return {
+        "status": "processed",
+        "id": scan.id,
+        "action": gate_result["action"],
+        "reason": gate_result["reason"],
+        "vulnerabilities": gate_result["vulnerabilities"]
+    }
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
