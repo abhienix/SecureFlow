@@ -1,54 +1,54 @@
 import requests
 import json
-import os
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "qwen2.5:7b"
 
 def analyze_vulnerability(vuln: dict) -> dict:
-    prompt = f"""You are a security expert. Analyze this vulnerability and respond in this exact JSON format with no extra text:
+    prompt = f"""You are a security expert. Return only a JSON object with these exact keys:
+explanation, fix, risk_score, urgency
 
-{{
-  "explanation": "plain english explanation of what this vulnerability is",
-  "fix": "exact command or code change to fix this",
-  "risk_score": 8,
-  "urgency": "Immediate"
-}}
+CVE: {vuln.get('id')}
+Package: {vuln.get('package')}
+Severity: {vuln.get('severity')}
+Fix version: {vuln.get('fix')}
 
-Vulnerability:
-- CVE ID: {vuln.get('id', 'unknown')}
-- Package: {vuln.get('package', 'unknown')}
-- Severity: {vuln.get('severity', 'unknown')}
-- CVSS Score: {vuln.get('score', 0)}
-- Fix version: {vuln.get('fix', 'unknown')}
-- Description: {vuln.get('description', 'no description')}
-
-Respond with only the JSON object, no markdown, no extra text."""
+Return only valid JSON, nothing else."""
 
     try:
         response = requests.post(OLLAMA_URL, json={
             "model": MODEL,
             "prompt": prompt,
-            "stream": False
-        }, timeout=120)
+            "stream": False,
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 200
+            }
+        }, timeout=180)
 
+        print(f"Ollama status: {response.status_code}")
         raw = response.json().get("response", "").strip()
+        print(f"Ollama raw response: {raw[:100]}")
 
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
+        if not raw:
+            raise ValueError("empty response from Ollama")
 
-        return json.loads(raw)
+        if "```" in raw:
+            raw = raw.split("```")[1].split("```")[0]
+            if raw.startswith("json"):
+                raw = raw[4:]
+
+        return json.loads(raw.strip())
 
     except Exception as e:
         print(f"AI analysis error: {e}")
         return {
-            "explanation": f"Vulnerability in {vuln.get('package')} — {vuln.get('description', '')[:200]}",
-            "fix": f"Upgrade to version {vuln.get('fix', 'check vendor advisory')}",
+            "explanation": f"{vuln.get('package')} has a {vuln.get('severity')} vulnerability — {vuln.get('description', '')}",
+            "fix": f"Upgrade {vuln.get('package')} to version {vuln.get('fix')}",
             "risk_score": 8,
             "urgency": "High"
         }
+
 
 def analyze_scan(vulnerabilities: list) -> list:
     results = []
