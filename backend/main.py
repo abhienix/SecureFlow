@@ -15,7 +15,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="SecureFlow API", version="1.0.0")
+app = FastAPI(title="SecureFlow — AI-Powered Security Gate for CI/CD", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,21 +33,44 @@ def get_db():
 
 @app.get("/")
 def root():
-    return {"message": "SecureFlow API is running"}
+    return {"message": "SecureFlow — AI-Powered Security Gate for CI/CD"}
 
 @app.get("/health")
 def health():
     return {"status": "healthy"}
 
+@app.get("/api/metrics")
+def get_metrics(db: Session = Depends(get_db)):
+    scans = db.query(ScanResult).all()
+    total = len(scans)
+    blocked = len([s for s in scans if s.action_taken == "BLOCK"])
+    allowed = len([s for s in scans if s.action_taken == "ALLOW"])
+    critical = len([s for s in scans if s.severity == "CRITICAL"])
+    avg_risk = round(sum(s.risk_score or 0 for s in scans) / total, 1) if total else 0
+    block_rate = round(blocked / total * 100, 1) if total else 0
+
+    return {
+        "total_scans": total,
+        "blocked": blocked,
+        "allowed": allowed,
+        "critical_cves": critical,
+        "avg_risk_score": avg_risk,
+        "block_rate_percent": block_rate
+    }
+
 @app.post("/api/scan-results")
 def receive_scan_results(data: dict, db: Session = Depends(get_db)):
-    from security_gate import evaluate_severity
+    from policy_engine import evaluate_policy
     from claude_client import analyze_scan
     from slack_notifier import send_slack_alert
 
     findings = data.get("findings", {})
-    gate_result = evaluate_severity(findings)
+    repo_name = data.get("repo_name", "unknown")
 
+    # policy engine makes the decision
+    policy_result = evaluate_policy(findings, repo_name)
+
+    # extract vulnerabilities for AI
     vulnerabilities = []
     for result in findings.get("Results", []):
         for vuln in result.get("Vulnerabilities", []):
@@ -60,8 +83,11 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
                 "description": vuln.get("Description", "")[:300]
             })
 
+    print(f"policy result: {policy_result['action']} — {policy_result['reason']}")
+    print(f"policy used: {policy_result['policy_used']}")
     print(f"vulnerabilities extracted: {vulnerabilities}")
 
+    # AI analysis
     ai_results = []
     if vulnerabilities:
         ai_results = analyze_scan(vulnerabilities)
@@ -72,7 +98,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
 
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
-        repo_name=data.get("repo_name", "unknown"),
+        repo_name=repo_name,
         branch=data.get("branch", "main"),
         scan_type=data.get("scan_type", "trivy"),
         severity=data.get("severity", "unknown"),
@@ -80,22 +106,34 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         ai_explanation=ai_explanation,
         ai_fix=ai_fix,
         risk_score=risk_score,
-        action_taken=gate_result["action"]
+        action_taken=policy_result["action"]
     )
     db.add(scan)
     db.commit()
     db.refresh(scan)
 
-    send_slack_alert(data, ai_results, gate_result["action"], gate_result["reason"])
+    send_slack_alert(data, ai_results, policy_result["action"], policy_result["reason"])
 
     return {
         "status": "processed",
         "id": scan.id,
-        "action": gate_result["action"],
-        "reason": gate_result["reason"],
-        "ai_analysis": ai_results,
-        "vulnerabilities": gate_result["vulnerabilities"]
+        "action": policy_result["action"],
+        "reason": policy_result["reason"],
+        "policy_used": policy_result["policy_used"],
+        "blocked": policy_result["blocked"],
+        "warned": policy_result["warned"],
+        "allowlisted": policy_result["allowlisted"],
+        "ai_analysis": ai_results
     }
+
+@app.post("/api/scan-results/{scan_id}/feedback")
+def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db)):
+    scan = db.query(ScanResult).filter(ScanResult.id == scan_id).first()
+    if not scan:
+        return {"error": "scan not found"}
+    scan.ai_feedback = feedback.get("feedback")
+    db.commit()
+    return {"status": "feedback saved", "scan_id": scan_id}
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
