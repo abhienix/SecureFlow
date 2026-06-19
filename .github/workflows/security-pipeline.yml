@@ -54,9 +54,31 @@ jobs:
           name: trivy-results
           path: trivy-results.json
 
-      - name: Send Results to Backend
+      - name: Send Trivy results to backend
         run: |
-          curl -X POST ${{ secrets.BACKEND_URL }}/api/scan-results \
-            -H "Content-Type: application/json" \
-            -d @trivy-results.json
+          python3 -c "
+import json, urllib.request
+
+with open('trivy-results.json') as f:
+    trivy_data = json.load(f)
+
+payload = {
+    'repo_name': '${{ github.repository }}',
+    'commit_sha': '${{ github.sha }}',
+    'branch': '${{ github.ref_name }}',
+    'scan_type': 'trivy',
+    'severity': 'unknown',
+    'findings': trivy_data
+}
+
+data = json.dumps(payload).encode()
+req = urllib.request.Request(
+    '${{ secrets.BACKEND_URL }}/api/scan-results',
+    data=data,
+    headers={'Content-Type': 'application/json'},
+    method='POST'
+)
+with urllib.request.urlopen(req) as r:
+    print(r.read().decode())
+"
         continue-on-error: true
