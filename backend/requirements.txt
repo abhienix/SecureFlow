@@ -4,7 +4,7 @@ sqlalchemy==2.0.30
 psycopg2-binary==2.9.9
 celery==5.3.6
 redis==5.0.4
-anthropic==0.25.0
 python-dotenv==1.0.1
 requests==2.31.0
 pydantic==2.7.1
+prometheus-fastapi-instrumentator==6.1.0

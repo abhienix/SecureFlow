@@ -4,6 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from models import Base, ScanResult
 from dotenv import load_dotenv
+from prometheus_fastapi_instrumentator import Instrumentator
 import os
 
 load_dotenv()
@@ -16,6 +17,15 @@ SessionLocal = sessionmaker(bind=engine)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="SecureFlow — AI-Powered Security Gate for CI/CD", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+Instrumentator().instrument(app).expose(app)
 
 app.add_middleware(
     CORSMiddleware,

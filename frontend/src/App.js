@@ -28,6 +28,7 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pulse, setPulse] = useState(false);
+  const [feedback, setFeedback] = useState({});
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -39,7 +40,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // animated grid background
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -96,6 +96,17 @@ export default function App() {
     }
   };
 
+  const submitFeedback = async (scanId, type) => {
+    try {
+      await axios.post(`${API}/api/scan-results/${scanId}/feedback`, {
+        feedback: type
+      });
+      setFeedback(prev => ({ ...prev, [scanId]: type }));
+    } catch (err) {
+      console.error("feedback error:", err);
+    }
+  };
+
   const stats = {
     total: scans.length,
     blocked: scans.filter(s => s.action_taken === "BLOCK").length,
@@ -103,6 +114,9 @@ export default function App() {
     critical: scans.filter(s => s.severity === "CRITICAL").length,
     avgRisk: scans.length
       ? Math.round(scans.reduce((a, s) => a + (s.risk_score || 0), 0) / scans.length)
+      : 0,
+    acceptRate: scans.length
+      ? Math.round(Object.values(feedback).filter(f => f === "accept").length / scans.length * 100)
       : 0,
   };
 
@@ -128,7 +142,6 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: COLORS.bg, color: COLORS.text,
                   fontFamily: "'Segoe UI', monospace", position: "relative", overflow: "hidden" }}>
 
-      {/* animated background */}
       <canvas ref={canvasRef} style={{ position: "fixed", top: 0, left: 0,
                                         zIndex: 0, opacity: 0.6 }} />
 
@@ -148,7 +161,7 @@ export default function App() {
                 SECURE<span style={{ color: COLORS.cyan }}>FLOW</span>
               </div>
               <div style={{ fontSize: 11, color: COLORS.muted, letterSpacing: 2 }}>
-                AI-POWERED DEVSECOPS PIPELINE
+                AI-POWERED SECURITY GATE FOR CI/CD
               </div>
             </div>
           </div>
@@ -157,14 +170,13 @@ export default function App() {
                         borderRadius: 20, padding: "6px 14px", fontSize: 12 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%",
                           background: COLORS.green,
-                          boxShadow: `0 0 8px ${COLORS.green}`,
-                          animation: "pulse 2s infinite" }} />
+                          boxShadow: `0 0 8px ${COLORS.green}` }} />
             LIVE MONITORING
           </div>
         </div>
 
         {/* STAT CARDS */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)",
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)",
                       gap: 12, marginBottom: 20 }}>
           {[
             { icon: <Activity size={16}/>, label: "Total Scans", value: stats.total, color: COLORS.cyan },
@@ -172,6 +184,7 @@ export default function App() {
             { icon: <CheckCircle size={16}/>, label: "Allowed", value: stats.allowed, color: COLORS.green },
             { icon: <AlertTriangle size={16}/>, label: "Critical CVEs", value: stats.critical, color: COLORS.yellow },
             { icon: <Cpu size={16}/>, label: "Avg Risk Score", value: `${stats.avgRisk}/10`, color: COLORS.purple },
+            { icon: <CheckCircle size={16}/>, label: "AI Accept Rate", value: `${stats.acceptRate}%`, color: COLORS.cyan },
           ].map((s, i) => (
             <div key={i} style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`,
                                   borderRadius: 10, padding: "14px 16px",
@@ -181,12 +194,12 @@ export default function App() {
                  onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}>
               <div style={{ display: "flex", justifyContent: "space-between",
                             alignItems: "center", marginBottom: 8 }}>
-                <span style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1 }}>
+                <span style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>
                   {s.label.toUpperCase()}
                 </span>
                 <span style={{ color: s.color }}>{s.icon}</span>
               </div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: s.color,
+              <div style={{ fontSize: 26, fontWeight: 700, color: s.color,
                             textShadow: `0 0 20px ${s.color}40` }}>
                 {s.value}
               </div>
@@ -198,7 +211,6 @@ export default function App() {
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr",
                       gap: 12, marginBottom: 20 }}>
 
-          {/* area chart */}
           <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`,
                         borderRadius: 10, padding: 16 }}>
             <div style={{ fontSize: 12, color: COLORS.muted, letterSpacing: 1,
@@ -222,7 +234,6 @@ export default function App() {
             </ResponsiveContainer>
           </div>
 
-          {/* pie chart */}
           <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`,
                         borderRadius: 10, padding: 16 }}>
             <div style={{ fontSize: 12, color: COLORS.muted, letterSpacing: 1,
@@ -245,7 +256,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* bar chart */}
           <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`,
                         borderRadius: 10, padding: 16 }}>
             <div style={{ fontSize: 12, color: COLORS.muted, letterSpacing: 1,
@@ -269,12 +279,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* MAIN — scan list + detail */}
+        {/* MAIN */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 12 }}>
 
           {/* scan list */}
           <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`,
-                        borderRadius: 10, padding: 16, maxHeight: 380, overflowY: "auto" }}>
+                        borderRadius: 10, padding: 16, maxHeight: 420, overflowY: "auto" }}>
             <div style={{ fontSize: 12, color: COLORS.muted, letterSpacing: 1,
                           marginBottom: 12 }}>SCAN HISTORY</div>
             {loading && <div style={{ color: COLORS.muted }}>Loading...</div>}
@@ -296,14 +306,22 @@ export default function App() {
                     <GitBranch size={10} style={{ marginRight: 4 }}/>
                     {scan.commit_sha?.slice(0, 10) || "unknown"}
                   </span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px",
-                                 borderRadius: 4,
-                                 background: scan.action_taken === "BLOCK"
-                                   ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
-                                 color: scan.action_taken === "BLOCK" ? COLORS.red : COLORS.green,
-                                 border: `1px solid ${scan.action_taken === "BLOCK" ? COLORS.red : COLORS.green}` }}>
-                    {scan.action_taken}
-                  </span>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {feedback[scan.id] && (
+                      <span style={{ fontSize: 9, color: COLORS.muted }}>
+                        {feedback[scan.id] === "accept" ? "✓" :
+                         feedback[scan.id] === "reject" ? "✗" : "✎"}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px",
+                                   borderRadius: 4,
+                                   background: scan.action_taken === "BLOCK"
+                                     ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
+                                   color: scan.action_taken === "BLOCK" ? COLORS.red : COLORS.green,
+                                   border: `1px solid ${scan.action_taken === "BLOCK" ? COLORS.red : COLORS.green}` }}>
+                      {scan.action_taken}
+                    </span>
+                  </div>
                 </div>
                 <div style={{ display: "flex", gap: 10, fontSize: 11, color: COLORS.muted }}>
                   <span>{scan.repo_name}</span>
@@ -318,7 +336,7 @@ export default function App() {
 
           {/* detail panel */}
           <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`,
-                        borderRadius: 10, padding: 16, maxHeight: 380, overflowY: "auto" }}>
+                        borderRadius: 10, padding: 16, maxHeight: 420, overflowY: "auto" }}>
             {!selected ? (
               <div style={{ height: "100%", display: "flex", flexDirection: "column",
                             justifyContent: "center", alignItems: "center", color: COLORS.muted }}>
@@ -372,7 +390,7 @@ export default function App() {
                 {selected.ai_fix && (
                   <div style={{ background: "rgba(34,197,94,0.06)",
                                 border: `1px solid rgba(34,197,94,0.2)`,
-                                borderRadius: 8, padding: 12 }}>
+                                borderRadius: 8, padding: 12, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, color: COLORS.green, marginBottom: 6,
                                   letterSpacing: 1 }}>🔧 SUGGESTED FIX</div>
                     <div style={{ fontSize: 12, lineHeight: 1.7,
@@ -381,6 +399,53 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+                {/* feedback buttons */}
+                <div style={{ background: "rgba(168,85,247,0.06)",
+                              border: `1px solid rgba(168,85,247,0.2)`,
+                              borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 11, color: COLORS.purple, marginBottom: 10,
+                                letterSpacing: 1 }}>WAS THIS AI SUGGESTION HELPFUL?</div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    {[
+                      { type: "accept", label: "✓ Accept", color: COLORS.green },
+                      { type: "reject", label: "✗ Reject", color: COLORS.red },
+                      { type: "edit", label: "✎ Needs Edit", color: COLORS.yellow },
+                    ].map(({ type, label, color }) => (
+                      <button
+                        key={type}
+                        onClick={() => submitFeedback(selected.id, type)}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          border: `1px solid ${color}`,
+                          background: feedback[selected.id] === type
+                            ? `${color}25` : "transparent",
+                          color: color,
+                          cursor: "pointer",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          letterSpacing: 1,
+                          transition: "all 0.15s",
+                          transform: feedback[selected.id] === type ? "scale(1.05)" : "scale(1)"
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {feedback[selected.id] && (
+                    <div style={{ fontSize: 11, color: COLORS.muted }}>
+                      feedback saved —
+                      <span style={{ color:
+                        feedback[selected.id] === "accept" ? COLORS.green :
+                        feedback[selected.id] === "reject" ? COLORS.red : COLORS.yellow,
+                        marginLeft: 4 }}>
+                        {feedback[selected.id]}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
