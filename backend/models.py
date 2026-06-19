@@ -18,4 +18,6 @@ class ScanResult(Base):
     ai_fix = Column(Text, nullable=True)
     risk_score = Column(Integer, nullable=True)
     action_taken = Column(String, nullable=True)
+    ai_feedback = Column(String, nullable=True)
+    ai_feedback_note = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
