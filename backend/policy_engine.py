@@ -11,9 +11,9 @@ def load_policy():
 def get_repo_policy(repo_name: str) -> dict:
     policy = load_policy()
     repos = policy.get('repos', {})
-    if repo_name in repos:
-        repo_policy = repos[repo_name]
-        # merge with defaults
+    short_name = repo_name.split('/')[-1]
+    if short_name in repos:
+        repo_policy = repos[short_name]
         default = policy.get('default', {})
         return {**default, **repo_policy}
     return policy.get('default', {})
@@ -56,7 +56,6 @@ def evaluate_policy(findings: dict, repo_name: str) -> dict:
             for source in cvss_data.values():
                 cvss = max(cvss, source.get('V3Score', 0.0))
 
-        # check allowlist first
         allow_check = is_allowlisted(cve_id, repo_policy)
         if allow_check['allowlisted']:
             allowlisted.append({
@@ -86,10 +85,12 @@ def evaluate_policy(findings: dict, repo_name: str) -> dict:
     action = "BLOCK" if blocked else "ALLOW"
     reason = f"{len(blocked)} vulnerabilities triggered block policy" if blocked else "no policy violations found"
 
+    policy_used = repo_name.split('/')[-1] if repo_name.split('/')[-1] in load_policy().get('repos', {}) else "default"
+
     return {
         "action": action,
         "reason": reason,
-        "policy_used": repo_name if repo_name in load_policy().get('repos', {}) else "default",
+        "policy_used": policy_used,
         "blocked": blocked,
         "warned": warned,
         "allowlisted": allowlisted
