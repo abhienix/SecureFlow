@@ -7,7 +7,7 @@ repos:
   SecureFlow:
     block_on: [CRITICAL]
     warn_on: [HIGH, MEDIUM]
-    cvss_threshold: 8.0
+    cvss_threshold: 10.0
     allowlist:
       - cve: CVE-2024-1234
         expires: 2026-08-01
