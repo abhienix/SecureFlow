@@ -17,6 +17,36 @@ repos:
       - cve: CVE-2026-8376
         expires: 2026-09-01
         reason: "perl-base, no upstream fix available, OS-level package"
+      - cve: CVE-2018-20796
+        expires: 2026-12-01
+        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
+      - cve: CVE-2019-1010022
+        expires: 2026-12-01
+        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
+      - cve: CVE-2019-1010023
+        expires: 2026-12-01
+        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
+      - cve: CVE-2019-9192
+        expires: 2026-12-01
+        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
+      - cve: CVE-2025-69720
+        expires: 2026-12-01
+        reason: "libncursesw6/libtinfo6/ncurses, no upstream fix available, OS-level package"
+      - cve: CVE-2025-70873
+        expires: 2026-12-01
+        reason: "libsqlite3-0, no upstream fix available, OS-level package"
+      - cve: CVE-2026-42497
+        expires: 2026-12-01
+        reason: "perl-base, no upstream fix available, OS-level package"
+      - cve: CVE-2026-48962
+        expires: 2026-12-01
+        reason: "perl-base, no upstream fix available, OS-level package"
+      - cve: CVE-2026-9538
+        expires: 2026-12-01
+        reason: "perl-base, no upstream fix available, OS-level package"
+      - cve: CVE-2005-2541
+        expires: 2026-12-01
+        reason: "tar, known ancient issue, no upstream fix, OS-level package"
 notifications:
   slack: true
   on_block: true
