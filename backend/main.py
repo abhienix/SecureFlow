@@ -18,7 +18,7 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="SecureFlow — AI-Powered Security Gate for CI/CD", version="1.0.0")
 
-aapp.add_middleware(
+app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
