@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from models import Base, ScanResult
 from dotenv import load_dotenv
@@ -41,6 +41,12 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+@app.get("/api/migrate")
+def migrate(db: Session = Depends(get_db)):
+    db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
+    db.commit()
+    return {"status": "migrated"}
 
 @app.get("/api/metrics")
 def get_metrics(db: Session = Depends(get_db)):
@@ -87,7 +93,6 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     print(f"policy result: {policy_result['action']} — {policy_result['reason']}")
     print(f"vulnerabilities extracted: {len(vulnerabilities)}")
 
-    # AI analysis — gracefully skip if unavailable
     ai_results = []
     if vulnerabilities:
         try:
@@ -101,6 +106,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
 
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
+        commit_message=data.get("commit_message", ""),
         repo_name=repo_name,
         branch=data.get("branch", "main"),
         scan_type=data.get("scan_type", "trivy"),
