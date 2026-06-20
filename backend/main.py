@@ -114,8 +114,40 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
 
 @app.post("/api/scan-results")
 def receive_scan_results(data: dict, db: Session = Depends(get_db)):
-    findings = data.get("findings", {})
+    scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
+
+    # Code scans (Gitleaks + Semgrep) send severity and action directly
+    # — no image findings to parse, no policy engine needed
+    if scan_type == "code-scan":
+        scan = ScanResult(
+            commit_sha=data.get("commit_sha", "unknown"),
+            commit_message=data.get("commit_message", ""),
+            repo_name=repo_name,
+            branch=data.get("branch", "main"),
+            scan_type=scan_type,
+            severity=data.get("severity", "CLEAN"),
+            findings={},
+            ai_explanation="",
+            ai_fix="",
+            risk_score=None,
+            action_taken=data.get("action", "ALLOW"),
+        )
+        db.add(scan)
+        db.commit()
+        db.refresh(scan)
+
+        print(f"code-scan recorded: {scan.action_taken} — {data.get('reason', '')}")
+
+        return {
+            "status": "processed",
+            "id": scan.id,
+            "action": scan.action_taken,
+            "reason": data.get("reason", ""),
+        }
+
+    # Image scans (Trivy) — run through policy engine as before
+    findings = data.get("findings", {})
 
     policy_result = evaluate_policy(findings, repo_name)
     vulnerabilities = extract_vulnerabilities(findings)
@@ -133,14 +165,14 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     first_ai_result = ai_results[0] if ai_results else {}
     ai_explanation = first_ai_result.get("explanation", "")
     ai_fix = first_ai_result.get("fix", "")
-    risk_score = first_ai_result.get("risk_score", 0)
+    risk_score = first_ai_result.get("risk_score", None)
 
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
         commit_message=data.get("commit_message", ""),
         repo_name=repo_name,
         branch=data.get("branch", "main"),
-        scan_type=data.get("scan_type", "trivy"),
+        scan_type=scan_type,
         severity=policy_result["severity"],
         findings=findings,
         ai_explanation=ai_explanation,
