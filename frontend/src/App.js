@@ -451,10 +451,14 @@ export default function App() {
                       background: selected?.id === scan.id ? T.primarySoft : T.surface,
                     }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                        <span style={{ fontFamily: T.mono, fontSize: 12, color: T.primary, fontWeight: 600 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <span style={{ fontFamily: T.mono, fontSize: 11, color: T.primary, fontWeight: 600 }}>
                           <GitBranch size={10} style={{ marginRight: 4, verticalAlign: "middle" }} />
                           {scan.commit_sha?.slice(0, 10)}
                         </span>
+                        <span style={{ fontSize: 10, color: T.textLow }}>SHA · {scan.repo_name}</span>
+                      </div>
+
                         <div style={{ display: "flex", gap: 6 }}>
                           {scan.ai_explanation && <Tag tone="purple">AI</Tag>}
                           <Tag tone={scan.action_taken === "BLOCK" ? "danger" : "success"}>{scan.action_taken}</Tag>
@@ -487,7 +491,8 @@ export default function App() {
 
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 14 }}>
                         {[
-                          { label: "Commit", value: selected.commit_sha?.slice(0, 12), mono: true },
+                          { label: "Commit SHA", value: selected.commit_sha?.slice(0, 12), mono: true },
+                          { label: "Repo", value: selected.repo_name },
                           { label: "Branch", value: selected.branch },
                           { label: "Severity", value: selected.severity, tone: selected.severity === "CRITICAL" ? "danger" : "warning" },
                           { label: "Decision", value: selected.action_taken, tone: selected.action_taken === "BLOCK" ? "danger" : "success" },
