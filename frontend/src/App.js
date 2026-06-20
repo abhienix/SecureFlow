@@ -492,6 +492,7 @@ export default function App() {
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 14 }}>
                         {[
                           { label: "Commit SHA", value: selected.commit_sha?.slice(0, 12), mono: true },
+                          { label: "Commit Message", value: selected.commit_message },
                           { label: "Repo", value: selected.repo_name },
                           { label: "Branch", value: selected.branch },
                           { label: "Severity", value: selected.severity, tone: selected.severity === "CRITICAL" ? "danger" : "warning" },
