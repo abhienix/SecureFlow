@@ -1,742 +1,820 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line
+  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import {
   Shield, AlertTriangle, CheckCircle, XCircle, Activity,
-  Lock, Cpu, GitBranch, Bell, Zap, BarChart2, Layout,
-  ChevronRight, ExternalLink, RefreshCw, Terminal, Eye
+  Cpu, GitBranch, Bell, Zap, BarChart2, Layout,
+  ChevronRight, RefreshCw, Terminal, Eye, Search,
+  GitCommit, Clock, TrendingUp, Menu, X,
 } from "lucide-react";
 
-const API = "http://localhost:8000";
-const GRAFANA = "http://localhost:3001";
+const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
+// ── Design tokens ──────────────────────────────────────────────────────────
 const C = {
-  bg:       "#080D1A",
-  surface:  "#0D1424",
-  card:     "#111827",
-  cardHov:  "#141E30",
-  border:   "#1E2D45",
-  borderHi: "#2D4060",
-  indigo:   "#6366F1",
-  indigoLo: "rgba(99,102,241,0.12)",
-  emerald:  "#10B981",
-  red:      "#EF4444",
-  amber:    "#F59E0B",
-  purple:   "#8B5CF6",
-  pink:     "#EC4899",
-  slate:    "#94A3B8",
-  text:     "#F1F5F9",
-  textMid:  "#CBD5E1",
-  textLow:  "#475569",
-  mono:     "'JetBrains Mono', 'Fira Code', monospace",
+  white:        "#FFFFFF",
+  bg:           "#F8FAFC",
+  surface:      "#FFFFFF",
+  border:       "#E8EDF3",
+  borderStrong: "#CBD5E1",
+
+  ink:          "#0D1117",
+  inkMid:       "#4A5568",
+  inkLow:       "#94A3B8",
+  inkXlow:      "#C8D3DF",
+
+  blue:         "#2563EB",
+  blueSoft:     "#EFF6FF",
+  blueBorder:   "#BFDBFE",
+
+  green:        "#059669",
+  greenSoft:    "#ECFDF5",
+  greenBorder:  "#6EE7B7",
+
+  red:          "#DC2626",
+  redSoft:      "#FEF2F2",
+  redBorder:    "#FECACA",
+
+  amber:        "#D97706",
+  amberSoft:    "#FFFBEB",
+  amberBorder:  "#FDE68A",
+
+  violet:       "#7C3AED",
+  violetSoft:   "#F5F3FF",
+  violetBorder: "#DDD6FE",
+
+  mono: "'JetBrains Mono', 'Fira Mono', 'Consolas', monospace",
+  sans: "'Inter', 'Segoe UI', system-ui, sans-serif",
+
+  shadow:   "0 1px 2px rgba(13,17,23,0.06), 0 4px 16px rgba(13,17,23,0.04)",
+  shadowMd: "0 4px 24px rgba(13,17,23,0.08)",
 };
 
 const NAV = [
-  { id: "overview",  label: "Overview",    icon: Layout },
-  { id: "ai",        label: "AI Insights", icon: Zap,   badge: "NEW" },
-  { id: "alerts",    label: "Alerts",      icon: Bell },
-  { id: "metrics",   label: "Metrics",     icon: BarChart2 },
-  { id: "grafana",   label: "Grafana",     icon: Activity },
+  { id: "overview", label: "Overview",   icon: Layout   },
+  { id: "ai",       label: "AI Insights", icon: Zap,  badge: "AI" },
+  { id: "alerts",   label: "Alerts",     icon: Bell     },
+  { id: "metrics",  label: "Metrics",    icon: BarChart2 },
 ];
 
-function parsePrometheus(text) {
-  const m = {};
-  (text || "").split("\n").forEach(line => {
-    if (line.startsWith("#") || !line.trim()) return;
-    const match = line.match(/^([^\s{]+)(?:\{[^}]*\})?\s+([\d.e+\-]+)/);
-    if (match) { m[match[1]] = (m[match[1]] || 0) + parseFloat(match[2]); }
-  });
-  return m;
+// ── Helpers ────────────────────────────────────────────────────────────────
+function severityColor(s) {
+  if (s === "CRITICAL") return C.red;
+  if (s === "HIGH")     return C.amber;
+  if (s === "MEDIUM")   return C.blue;
+  return C.green;
+}
+function riskColor(n) {
+  if (n >= 8) return C.red;
+  if (n >= 5) return C.amber;
+  return C.green;
+}
+function fmt(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+function fmtTime(ts) {
+  if (!ts) return "";
+  return new Date(ts).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 }
 
-function Tag({ children, color = C.indigo, bg }) {
+// ── Micro components ───────────────────────────────────────────────────────
+function Badge({ children, color = C.blue, bg, border }) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      padding: "2px 8px", borderRadius: 4, fontSize: 10,
-      fontWeight: 700, letterSpacing: "0.08em",
-      color, border: `1px solid ${color}`,
-      background: bg || `${color}18`,
+      padding: "2px 8px", borderRadius: 99,
+      fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
+      color, background: bg || color + "14", border: `1px solid ${border || color + "33"}`,
+      whiteSpace: "nowrap",
     }}>{children}</span>
   );
 }
 
-function StatCard({ icon: Icon, label, value, color, sub }) {
+function Chip({ label, value, color }) {
   return (
     <div style={{
-      background: C.card, border: `1px solid ${C.border}`,
-      borderRadius: 12, padding: "18px 20px",
-      borderTop: `2px solid ${color}`,
-      transition: "border-color 0.2s, transform 0.2s",
-      cursor: "default",
-    }}
-    onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.transform = "translateY(-2px)"; }}
-    onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.transform = "translateY(0)"; }}>
+      display: "flex", flexDirection: "column", gap: 3,
+      padding: "10px 14px", borderRadius: 10,
+      background: C.bg, border: `1px solid ${C.border}`,
+      minWidth: 0,
+    }}>
+      <span style={{ fontSize: 10, color: C.inkLow, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: color || C.ink, fontFamily: value && String(value).length < 6 ? C.mono : C.sans }}>{value || "—"}</span>
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, color = C.blue, sub }) {
+  return (
+    <div style={{
+      background: C.white, border: `1px solid ${C.border}`,
+      borderRadius: 14, padding: "18px 20px", boxShadow: C.shadow,
+    }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-        <span style={{ fontSize: 11, color: C.slate, letterSpacing: "0.06em", fontWeight: 600 }}>
-          {label.toUpperCase()}
-        </span>
-        <div style={{ padding: 6, borderRadius: 8, background: `${color}15` }}>
-          <Icon size={14} color={color} />
+        <span style={{ fontSize: 11, color: C.inkMid, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>{label}</span>
+        <div style={{ padding: 8, borderRadius: 10, background: color + "12" }}>
+          <Icon size={16} color={color} strokeWidth={2} />
         </div>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: C.textLow, marginTop: 6 }}>{sub}</div>}
+      <div style={{ fontSize: 28, fontWeight: 800, color: C.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: C.inkLow, marginTop: 6 }}>{sub}</div>}
     </div>
   );
 }
 
-function SectionLabel({ children }) {
-  return (
-    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate,
-                  letterSpacing: "0.1em", marginBottom: 14 }}>
-      {children}
-    </div>
-  );
-}
-
-function AICard({ scan }) {
-  const isBlock = scan.action_taken === "BLOCK";
-  const riskColor = scan.risk_score >= 8 ? C.red : scan.risk_score >= 5 ? C.amber : C.emerald;
-
+function Card({ children, style }) {
   return (
     <div style={{
-      borderRadius: 12, padding: 1,
-      background: `linear-gradient(135deg, ${C.purple}, ${C.pink})`,
-      marginBottom: 16,
-      boxShadow: `0 0 24px rgba(139,92,246,0.2)`,
+      background: C.white, border: `1px solid ${C.border}`,
+      borderRadius: 14, padding: 20, boxShadow: C.shadow, ...style,
+    }}>{children}</div>
+  );
+}
+
+function SectionTitle({ children, right }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: C.inkLow, letterSpacing: "0.08em", textTransform: "uppercase" }}>{children}</span>
+      {right}
+    </div>
+  );
+}
+
+const TT = { background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11, color: C.ink, boxShadow: C.shadowMd };
+
+// ── AI Card ────────────────────────────────────────────────────────────────
+function AICard({ scan }) {
+  const [open, setOpen] = useState(false);
+  const blocked = scan.action_taken === "BLOCK";
+  const risk = scan.risk_score || 0;
+  return (
+    <div style={{
+      background: C.white, border: `1px solid ${C.border}`,
+      borderRadius: 14, overflow: "hidden", marginBottom: 12, boxShadow: C.shadow,
     }}>
       <div style={{
-        background: C.surface, borderRadius: 11, padding: "18px 20px",
-      }}>
-        {/* header row */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 800,
-              letterSpacing: "0.08em",
-              background: isBlock ? "rgba(239,68,68,0.12)" : "rgba(16,185,129,0.12)",
-              color: isBlock ? C.red : C.emerald,
-              border: `1px solid ${isBlock ? C.red : C.emerald}`,
-            }}>
-              {isBlock ? "🚨 BLOCKED" : "✅ ALLOWED"}
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "14px 18px", borderBottom: open ? `1px solid ${C.border}` : "none",
+        background: blocked ? C.redSoft : C.greenSoft,
+        cursor: "pointer", gap: 12, flexWrap: "wrap",
+      }} onClick={() => setOpen(!open)}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <Badge color={blocked ? C.red : C.green}>{blocked ? "BLOCKED" : "ALLOWED"}</Badge>
+          <span style={{ fontFamily: C.mono, fontSize: 12, color: C.inkMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {scan.commit_sha?.slice(0, 12)}
+          </span>
+          {scan.commit_message && (
+            <span style={{ fontSize: 12, color: C.inkMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>
+              — {scan.commit_message}
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+          <Badge color={riskColor(risk)}>Risk {risk}/10</Badge>
+          <Badge color={C.violet}>AI</Badge>
+          <ChevronRight size={14} color={C.inkLow} style={{ transform: open ? "rotate(90deg)" : "none", transition: "0.2s" }} />
+        </div>
+      </div>
+
+      {open && (
+        <div style={{ padding: "16px 18px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, marginBottom: 14 }}>
+            <Chip label="Repo"     value={scan.repo_name} />
+            <Chip label="Branch"   value={scan.branch} />
+            <Chip label="Severity" value={scan.severity} color={severityColor(scan.severity)} />
+            <Chip label="Scanner"  value={scan.scan_type?.toUpperCase()} />
+          </div>
+          {scan.ai_explanation && (
+            <div style={{ background: C.blueSoft, border: `1px solid ${C.blueBorder}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <Zap size={12} color={C.blue} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.blue }}>AI ANALYSIS</span>
+              </div>
+              <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.75 }}>{scan.ai_explanation}</div>
             </div>
-            <span style={{ fontFamily: C.mono, fontSize: 11, color: C.slate }}>
-              {scan.commit_sha?.slice(0, 12)}
+          )}
+          {scan.ai_fix && (
+            <div style={{ background: C.greenSoft, border: `1px solid ${C.greenBorder}`, borderRadius: 10, padding: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <Terminal size={12} color={C.green} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.green }}>REMEDIATION</span>
+              </div>
+              <div style={{ fontSize: 12, color: C.ink, lineHeight: 1.65, fontFamily: C.mono, whiteSpace: "pre-wrap" }}>{scan.ai_fix}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Scan row ───────────────────────────────────────────────────────────────
+function ScanRow({ scan, selected, onClick }) {
+  const blocked = scan.action_taken === "BLOCK";
+  const isSelected = selected?.id === scan.id;
+  return (
+    <div onClick={onClick} style={{
+      padding: "12px 14px", borderRadius: 10, marginBottom: 6, cursor: "pointer",
+      border: `1px solid ${isSelected ? C.blueBorder : C.border}`,
+      borderLeft: `3px solid ${blocked ? C.red : C.green}`,
+      background: isSelected ? C.blueSoft : C.white,
+      transition: "background 0.15s, border-color 0.15s",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 5 }}>
+        <div style={{ minWidth: 0, flex: 1, marginRight: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+            <GitCommit size={11} color={C.inkLow} />
+            <span style={{ fontFamily: C.mono, fontSize: 11, color: C.blue, fontWeight: 600 }}>
+              {scan.commit_sha?.slice(0, 10)}
             </span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{
-              fontSize: 13, fontWeight: 800, color: riskColor,
-              background: `${riskColor}15`, border: `1px solid ${riskColor}`,
-              borderRadius: 6, padding: "3px 10px"
-            }}>
-              Risk {scan.risk_score || 0}/10
+          {scan.commit_message && (
+            <div style={{ fontSize: 12, color: C.inkMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {scan.commit_message}
             </div>
-            <Tag color={C.purple}>AI ANALYZED</Tag>
-          </div>
+          )}
         </div>
-
-        {/* meta */}
-        <div style={{ display: "flex", gap: 16, marginBottom: 14 }}>
-          {[
-            { label: "REPO", value: scan.repo_name },
-            { label: "BRANCH", value: scan.branch },
-            { label: "SEVERITY", value: scan.severity, color: scan.severity === "CRITICAL" ? C.red : C.amber },
-            { label: "SCAN", value: scan.scan_type?.toUpperCase() },
-          ].map((m, i) => (
-            <div key={i}>
-              <div style={{ fontSize: 9, color: C.textLow, letterSpacing: "0.1em", marginBottom: 2 }}>{m.label}</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: m.color || C.textMid, fontFamily: C.mono }}>
-                {m.value || "—"}
-              </div>
-            </div>
-          ))}
+        <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+          {scan.ai_explanation && <Badge color={C.violet}>AI</Badge>}
+          <Badge color={blocked ? C.red : C.green}>{scan.action_taken}</Badge>
         </div>
-
-        {/* AI sections */}
-        {scan.ai_explanation && (
-          <div style={{
-            background: "rgba(99,102,241,0.06)", borderRadius: 8, padding: "12px 14px", marginBottom: 10,
-            borderLeft: `3px solid ${C.indigo}`,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-              <Zap size={11} color={C.indigo} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: C.indigo, letterSpacing: "0.08em" }}>
-                AI VULNERABILITY ANALYSIS
-              </span>
-            </div>
-            <div style={{ fontSize: 13, color: C.textMid, lineHeight: 1.7 }}>{scan.ai_explanation}</div>
-          </div>
-        )}
-
-        {scan.ai_fix && (
-          <div style={{
-            background: "rgba(16,185,129,0.06)", borderRadius: 8, padding: "12px 14px",
-            borderLeft: `3px solid ${C.emerald}`,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-              <Terminal size={11} color={C.emerald} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: C.emerald, letterSpacing: "0.08em" }}>
-                AI SUGGESTED REMEDIATION
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6, fontFamily: C.mono }}>{scan.ai_fix}</div>
-          </div>
-        )}
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: C.inkLow }}>{scan.repo_name}</span>
+        <span style={{ fontSize: 11, color: C.inkXlow }}>·</span>
+        <Badge color={severityColor(scan.severity)}>{scan.severity}</Badge>
+        <span style={{ fontSize: 11, color: C.inkXlow }}>·</span>
+        <span style={{ fontSize: 11, color: C.inkLow, display: "flex", alignItems: "center", gap: 3 }}>
+          <Clock size={10} />{fmt(scan.created_at)}
+        </span>
       </div>
     </div>
   );
 }
 
+// ── Main App ───────────────────────────────────────────────────────────────
 export default function App() {
-  const [tab, setTab] = useState("overview");
-  const [scans, setScans] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [promRaw, setPromRaw] = useState("");
-  const [feedback, setFeedback] = useState({});
+  const [tab,         setTab]         = useState("overview");
+  const [scans,       setScans]       = useState([]);
+  const [selected,    setSelected]    = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(null);
+  const [feedback,    setFeedback]    = useState({});
   const [lastUpdated, setLastUpdated] = useState(null);
-  const canvasRef = useRef(null);
+  const [search,      setSearch]      = useState("");
+  const [navOpen,     setNavOpen]     = useState(false);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/scan-results`);
+      const data = res.data || [];
+      setScans(data);
+      setSelected((prev) => prev ? data.find((s) => s.id === prev.id) || null : null);
+      setError(null);
+      setLastUpdated(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+    } catch {
+      setError("Cannot reach backend. Check that the API is running.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchAll();
-    const iv = setInterval(fetchAll, 8000);
+    const iv = setInterval(fetchAll, 10000);
     return () => clearInterval(iv);
-  }, []);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
-    resize();
-    window.addEventListener("resize", resize);
-    const pts = Array.from({ length: 50 }, () => ({
-      x: Math.random() * canvas.width, y: Math.random() * canvas.height,
-      vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25,
-      r: Math.random() * 1.2 + 0.4,
-    }));
-    let id;
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      pts.forEach(p => {
-        p.x += p.vx; p.y += p.vy;
-        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(99,102,241,0.35)"; ctx.fill();
-      });
-      pts.forEach((a, i) => pts.slice(i + 1).forEach(b => {
-        const d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (d < 100) {
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-          ctx.strokeStyle = `rgba(99,102,241,${0.12 * (1 - d / 100)})`;
-          ctx.lineWidth = 0.5; ctx.stroke();
-        }
-      }));
-      id = requestAnimationFrame(draw);
-    };
-    draw();
-    return () => { cancelAnimationFrame(id); window.removeEventListener("resize", resize); };
-  }, []);
-
-  const fetchAll = async () => {
-    try {
-      const [scanRes, promRes] = await Promise.allSettled([
-        axios.get(`${API}/api/scan-results`),
-        axios.get(`${API}/metrics`),
-      ]);
-      if (scanRes.status === "fulfilled") { setScans(scanRes.value.data); setLoading(false); }
-      if (promRes.status === "fulfilled") setPromRaw(promRes.value.data);
-      setLastUpdated(new Date().toLocaleTimeString());
-    } catch { setLoading(false); }
-  };
+  }, [fetchAll]);
 
   const submitFeedback = async (scanId, type) => {
     try {
       await axios.post(`${API}/api/scan-results/${scanId}/feedback`, { feedback: type });
-      setFeedback(p => ({ ...p, [scanId]: type }));
-    } catch {}
+      setFeedback((p) => ({ ...p, [scanId]: type }));
+    } catch {
+      setFeedback((p) => ({ ...p, [scanId]: "error" }));
+    }
   };
 
-  const pm = parsePrometheus(promRaw);
-
+  // ── Stats ────────────────────────────────────────────────────────────────
   const stats = {
-    total:    scans.length,
-    blocked:  scans.filter(s => s.action_taken === "BLOCK").length,
-    allowed:  scans.filter(s => s.action_taken === "ALLOW").length,
-    critical: scans.filter(s => s.severity === "CRITICAL").length,
-    avgRisk:  scans.length ? +(scans.reduce((a, s) => a + (s.risk_score || 0), 0) / scans.length).toFixed(1) : 0,
-    aiScanned: scans.filter(s => s.ai_explanation).length,
+    total:   scans.length,
+    blocked: scans.filter((s) => s.action_taken === "BLOCK").length,
+    allowed: scans.filter((s) => s.action_taken === "ALLOW").length,
+    critical: scans.filter((s) => s.severity === "CRITICAL").length,
+    high:    scans.filter((s) => s.severity === "HIGH").length,
+    avgRisk: scans.length
+      ? +(scans.reduce((a, s) => a + (s.risk_score || 0), 0) / scans.length).toFixed(1)
+      : 0,
+    aiScanned: scans.filter((s) => s.ai_explanation).length,
   };
 
-  const trendData = scans.slice(-12).reverse().map((s, i) => ({
-    i: `#${i + 1}`, risk: s.risk_score || 0,
-    sev: s.severity === "CRITICAL" ? 10 : s.severity === "HIGH" ? 7 : s.severity === "MEDIUM" ? 4 : 2,
+  const filtered = scans.filter((s) => {
+    const q = search.toLowerCase();
+    if (!q) return true;
+    return [s.repo_name, s.branch, s.commit_sha, s.severity, s.action_taken, s.commit_message]
+      .some((v) => String(v || "").toLowerCase().includes(q));
+  });
+
+  const trendData = [...scans].reverse().slice(-12).map((s, i) => ({
+    n: i + 1, risk: s.risk_score || 0,
   }));
 
   const sevData = [
-    { name: "CRIT", count: scans.filter(s => s.severity === "CRITICAL").length, color: C.red },
-    { name: "HIGH", count: scans.filter(s => s.severity === "HIGH").length, color: C.amber },
-    { name: "MED",  count: scans.filter(s => s.severity === "MEDIUM").length, color: C.indigo },
-    { name: "LOW",  count: scans.filter(s => s.severity === "LOW").length, color: C.emerald },
-  ];
+    { name: "Critical", v: stats.critical,                                              color: C.red   },
+    { name: "High",     v: scans.filter((s) => s.severity === "HIGH").length,           color: C.amber },
+    { name: "Medium",   v: scans.filter((s) => s.severity === "MEDIUM").length,         color: C.blue  },
+    { name: "Low",      v: scans.filter((s) => s.severity === "LOW").length,            color: C.green },
+    { name: "Unknown",  v: scans.filter((s) => s.severity === "unknown").length,        color: C.inkLow},
+  ].filter((d) => d.v > 0);
 
-  const totalReq = Math.round(pm["http_requests_total"] || 0);
-  const avgLatMs = pm["http_request_duration_highr_seconds_count"]
-    ? ((pm["http_request_duration_highr_seconds_sum"] || 0) / pm["http_request_duration_highr_seconds_count"] * 1000).toFixed(0)
-    : "—";
+  const gateData = [
+    { name: "Blocked", value: stats.blocked, color: C.red   },
+    { name: "Allowed", value: stats.allowed, color: C.green },
+  ].filter((d) => d.value > 0);
 
-  const tooltipStyle = {
-    background: C.surface, border: `1px solid ${C.border}`,
-    borderRadius: 8, fontSize: 11, color: C.text,
-  };
+  // ── Nav ──────────────────────────────────────────────────────────────────
+  const NavItems = () => (
+    <>
+      {NAV.map(({ id, label, icon: Icon, badge }) => {
+        const active = tab === id;
+        return (
+          <button key={id} onClick={() => { setTab(id); setNavOpen(false); }} style={{
+            display: "flex", alignItems: "center", gap: 10, width: "100%",
+            padding: "10px 12px", borderRadius: 10, border: "none", cursor: "pointer",
+            marginBottom: 2, textAlign: "left", fontSize: 13, fontWeight: active ? 700 : 500,
+            background: active ? C.blueSoft : "transparent",
+            color: active ? C.blue : C.inkMid,
+            outline: "none",
+          }}>
+            <Icon size={16} strokeWidth={active ? 2.5 : 2} />
+            <span style={{ flex: 1 }}>{label}</span>
+            {badge && <Badge color={C.violet}>{badge}</Badge>}
+          </button>
+        );
+      })}
+    </>
+  );
 
-  // ── RENDER ────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", height: "100vh", background: C.bg, color: C.text,
-                  fontFamily: "'Inter', 'Segoe UI', sans-serif", overflow: "hidden" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: C.sans, color: C.ink }}>
 
-      {/* particle canvas */}
-      <canvas ref={canvasRef} style={{ position: "fixed", inset: 0, zIndex: 0, opacity: 0.5, pointerEvents: "none" }} />
-
-      {/* ── SIDEBAR ── */}
+      {/* ── Sidebar (desktop) ── */}
       <aside style={{
-        width: 220, flexShrink: 0, background: C.surface,
-        borderRight: `1px solid ${C.border}`, display: "flex",
-        flexDirection: "column", zIndex: 10, position: "relative",
-      }}>
-        {/* logo */}
-        <div style={{ padding: "22px 20px 18px", borderBottom: `1px solid ${C.border}` }}>
+        width: 220, flexShrink: 0, background: C.white, borderRight: `1px solid ${C.border}`,
+        display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh",
+        overflowY: "auto",
+      }} className="sidebar-desktop">
+        {/* Logo */}
+        <div style={{ padding: "22px 18px 18px", borderBottom: `1px solid ${C.border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              background: "linear-gradient(135deg, #6366F1, #8B5CF6)",
-              borderRadius: 8, padding: 7, display: "flex",
-            }}>
-              <Shield size={16} color="#fff" />
+            <div style={{ background: C.blue, borderRadius: 10, padding: 9 }}>
+              <Shield size={17} color="#fff" strokeWidth={2.5} />
             </div>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: "0.04em" }}>
-                Secure<span style={{ color: C.indigo }}>Flow</span>
-              </div>
-              <div style={{ fontSize: 9, color: C.textLow, letterSpacing: "0.1em" }}>DEVSECOPS · AI</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, letterSpacing: "-0.02em" }}>SecureFlow</div>
+              <div style={{ fontSize: 10, color: C.inkLow, fontWeight: 600, letterSpacing: "0.06em" }}>DEVSECOPS · AI</div>
             </div>
           </div>
         </div>
 
-        {/* nav */}
         <nav style={{ flex: 1, padding: "12px 10px" }}>
-          <div style={{ fontSize: 9, color: C.textLow, letterSpacing: "0.12em",
-                        padding: "8px 10px 6px", fontWeight: 700 }}>PLATFORM</div>
-          {NAV.map(({ id, label, icon: Icon, badge }) => {
-            const active = tab === id;
-            return (
-              <button key={id} onClick={() => setTab(id)} style={{
-                display: "flex", alignItems: "center", gap: 10, width: "100%",
-                padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer",
-                marginBottom: 2, textAlign: "left", fontSize: 13, fontWeight: 500,
-                background: active ? C.indigoLo : "transparent",
-                color: active ? C.indigo : C.slate,
-                transition: "all 0.15s",
-              }}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
-                <Icon size={15} />
-                <span style={{ flex: 1 }}>{label}</span>
-                {badge && (
-                  <span style={{
-                    fontSize: 8, fontWeight: 800, padding: "1px 5px", borderRadius: 3,
-                    background: "linear-gradient(90deg, #8B5CF6, #EC4899)",
-                    color: "#fff", letterSpacing: "0.06em",
-                  }}>{badge}</span>
-                )}
-                {active && <ChevronRight size={12} color={C.indigo} />}
-              </button>
-            );
-          })}
+          <div style={{ fontSize: 10, color: C.inkXlow, fontWeight: 700, padding: "4px 10px 8px", letterSpacing: "0.1em" }}>NAVIGATION</div>
+          <NavItems />
         </nav>
 
-        {/* status footer */}
+        {/* Status */}
         <div style={{ padding: "14px 16px", borderTop: `1px solid ${C.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.emerald,
-                          boxShadow: `0 0 6px ${C.emerald}` }} />
-            <span style={{ fontSize: 11, color: C.emerald, fontWeight: 600 }}>Pipeline Active</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.green }} />
+            <span style={{ fontSize: 12, color: C.green, fontWeight: 700 }}>Pipeline Active</span>
           </div>
           {lastUpdated && (
-            <div style={{ fontSize: 10, color: C.textLow, display: "flex", alignItems: "center", gap: 4 }}>
-              <RefreshCw size={9} /> Updated {lastUpdated}
+            <div style={{ fontSize: 11, color: C.inkLow, display: "flex", alignItems: "center", gap: 4 }}>
+              <RefreshCw size={10} /> Updated {lastUpdated}
             </div>
           )}
         </div>
       </aside>
 
-      {/* ── MAIN CONTENT ── */}
-      <main style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 1 }}>
-
-        {/* top bar */}
+      {/* ── Mobile nav overlay ── */}
+      {navOpen && (
         <div style={{
-          position: "sticky", top: 0, zIndex: 20,
-          background: `${C.bg}ee`, backdropFilter: "blur(12px)",
-          borderBottom: `1px solid ${C.border}`,
-          padding: "14px 28px", display: "flex",
-          justifyContent: "space-between", alignItems: "center",
-        }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>
-              {NAV.find(n => n.id === tab)?.label}
+          position: "fixed", inset: 0, zIndex: 100,
+          background: "rgba(13,17,23,0.45)", backdropFilter: "blur(4px)",
+        }} onClick={() => setNavOpen(false)}>
+          <div style={{
+            width: 240, height: "100%", background: C.white,
+            borderRight: `1px solid ${C.border}`, padding: "20px 12px",
+            display: "flex", flexDirection: "column",
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ background: C.blue, borderRadius: 10, padding: 8 }}>
+                  <Shield size={15} color="#fff" />
+                </div>
+                <span style={{ fontWeight: 800, fontSize: 15 }}>SecureFlow</span>
+              </div>
+              <button onClick={() => setNavOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: C.inkMid }}>
+                <X size={18} />
+              </button>
             </div>
-            <div style={{ fontSize: 11, color: C.textLow, marginTop: 1 }}>
-              abhienix / SecureFlow · main branch
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <Tag color={C.emerald}>{stats.total} scans</Tag>
-            <Tag color={stats.blocked > 0 ? C.red : C.emerald}>
-              {stats.blocked} blocked
-            </Tag>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 6, fontSize: 11,
-              color: C.purple, background: "rgba(139,92,246,0.1)",
-              border: `1px solid rgba(139,92,246,0.3)`,
-              borderRadius: 6, padding: "4px 10px", fontWeight: 600,
-            }}>
-              <Zap size={11} />
-              {stats.aiScanned} AI analyzed
-            </div>
+            <NavItems />
           </div>
         </div>
+      )}
 
-        <div style={{ padding: "24px 28px" }}>
+      {/* ── Main ── */}
+      <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
 
-          {/* ══ OVERVIEW TAB ══ */}
+        {/* Top bar */}
+        <header style={{
+          position: "sticky", top: 0, zIndex: 20,
+          background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)",
+          borderBottom: `1px solid ${C.border}`,
+          padding: "14px 20px",
+          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* Hamburger (mobile) */}
+            <button onClick={() => setNavOpen(true)} style={{
+              border: "none", background: "none", cursor: "pointer", padding: 4, color: C.inkMid,
+              display: "none",
+            }} className="hamburger">
+              <Menu size={20} />
+            </button>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: C.ink, letterSpacing: "-0.02em" }}>
+                {NAV.find((n) => n.id === tab)?.label}
+              </div>
+              <div style={{ fontSize: 11, color: C.inkLow, marginTop: 1 }}>
+                abhienix / SecureFlow · main
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <Badge color={C.blue}>{stats.total} scans</Badge>
+            <Badge color={stats.blocked > 0 ? C.red : C.green}>{stats.blocked} blocked</Badge>
+            <Badge color={C.violet}>{stats.aiScanned} AI</Badge>
+            <button onClick={fetchAll} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "7px 12px", borderRadius: 9,
+              border: `1px solid ${C.border}`, background: C.white,
+              color: C.inkMid, cursor: "pointer", fontSize: 12, fontWeight: 600,
+              boxShadow: C.shadow,
+            }}>
+              <RefreshCw size={13} /> Refresh
+            </button>
+          </div>
+        </header>
+
+        {error && (
+          <div style={{
+            margin: "16px 20px 0", padding: "12px 16px", borderRadius: 10,
+            background: C.redSoft, border: `1px solid ${C.redBorder}`, color: C.red, fontSize: 13,
+          }}>{error}</div>
+        )}
+
+        <div style={{ padding: "20px", flex: 1 }}>
+
+          {/* ══ OVERVIEW ══════════════════════════════════════════════════ */}
           {tab === "overview" && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 20 }}>
-                <StatCard icon={Activity}      label="Total Scans"  value={stats.total}    color={C.indigo} />
-                <StatCard icon={XCircle}       label="Blocked"      value={stats.blocked}  color={C.red} />
-                <StatCard icon={CheckCircle}   label="Allowed"      value={stats.allowed}  color={C.emerald} />
-                <StatCard icon={AlertTriangle} label="Critical"     value={stats.critical} color={C.amber} />
-                <StatCard icon={Cpu}           label="Avg Risk"     value={`${stats.avgRisk}/10`} color={C.purple} />
-                <StatCard icon={Zap}           label="AI Analyzed"  value={stats.aiScanned} color={C.pink}
-                          sub="vulnerabilities explained" />
+              {/* Stat cards */}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                gap: 12, marginBottom: 20,
+              }}>
+                <StatCard icon={Activity}      label="Total Scans" value={stats.total}          color={C.blue}  />
+                <StatCard icon={XCircle}        label="Blocked"     value={stats.blocked}         color={C.red}   />
+                <StatCard icon={CheckCircle}    label="Allowed"     value={stats.allowed}         color={C.green} />
+                <StatCard icon={AlertTriangle}  label="Critical"    value={stats.critical}        color={C.amber} />
+                <StatCard icon={Cpu}            label="Avg Risk"    value={`${stats.avgRisk}/10`} color={C.violet} sub="out of 10" />
+                <StatCard icon={Zap}            label="AI Analyzed" value={stats.aiScanned}       color={C.violet} sub="vulnerabilities" />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
-                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
-                  <SectionLabel>RISK SCORE TREND</SectionLabel>
-                  <ResponsiveContainer width="100%" height={150}>
-                    <AreaChart data={trendData}>
-                      <defs>
-                        <linearGradient id="rg" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor={C.indigo} stopOpacity={0.35}/>
-                          <stop offset="95%" stopColor={C.indigo} stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="i" stroke={C.textLow} tick={{ fontSize: 10 }}/>
-                      <YAxis stroke={C.textLow} tick={{ fontSize: 10 }} domain={[0, 10]}/>
-                      <Tooltip contentStyle={tooltipStyle}/>
-                      <Area type="monotone" dataKey="risk" stroke={C.indigo} strokeWidth={2} fill="url(#rg)"/>
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+              {/* Charts row */}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                gap: 12, marginBottom: 20,
+              }}>
+                {/* Risk trend */}
+                <Card>
+                  <SectionTitle>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <TrendingUp size={13} color={C.blue} /> Risk Score Trend
+                    </span>
+                  </SectionTitle>
+                  {trendData.length === 0 ? (
+                    <div style={{ height: 140, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow, fontSize: 13 }}>No data yet</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={140}>
+                      <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="rg" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%"  stopColor={C.blue} stopOpacity={0.18} />
+                            <stop offset="95%" stopColor={C.blue} stopOpacity={0}    />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke={C.border} strokeDasharray="4 4" vertical={false} />
+                        <XAxis dataKey="n" stroke={C.inkXlow} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                        <YAxis stroke={C.inkXlow} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} domain={[0, 10]} />
+                        <Tooltip contentStyle={TT} formatter={(v) => [`${v}/10`, "Risk"]} />
+                        <Area type="monotone" dataKey="risk" stroke={C.blue} strokeWidth={2.5} fill="url(#rg)" dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </Card>
 
-                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
-                  <SectionLabel>GATE DECISIONS</SectionLabel>
-                  <ResponsiveContainer width="100%" height={130}>
-                    <PieChart>
-                      <Pie data={[{ name: "BLOCK", value: stats.blocked }, { name: "ALLOW", value: stats.allowed }]}
-                           cx="50%" cy="50%" innerRadius={38} outerRadius={56} dataKey="value" strokeWidth={0}>
-                        <Cell fill={C.red}/><Cell fill={C.emerald}/>
-                      </Pie>
-                      <Tooltip contentStyle={tooltipStyle}/>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div style={{ display: "flex", justifyContent: "center", gap: 14, fontSize: 11 }}>
-                    <span style={{ color: C.red }}>● BLOCK {stats.blocked}</span>
-                    <span style={{ color: C.emerald }}>● ALLOW {stats.allowed}</span>
-                  </div>
-                </div>
+                {/* Gate decisions */}
+                <Card>
+                  <SectionTitle>Gate Decisions</SectionTitle>
+                  {gateData.length === 0 ? (
+                    <div style={{ height: 140, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow, fontSize: 13 }}>No data yet</div>
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height={110}>
+                        <PieChart>
+                          <Pie data={gateData} cx="50%" cy="50%" innerRadius={32} outerRadius={48} dataKey="value" strokeWidth={2} stroke={C.white}>
+                            {gateData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                          </Pie>
+                          <Tooltip contentStyle={TT} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div style={{ display: "flex", justifyContent: "center", gap: 20, fontSize: 12, color: C.inkMid }}>
+                        {gateData.map((d) => (
+                          <span key={d.name} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, display: "inline-block" }} />
+                            {d.name} <strong style={{ color: C.ink }}>{d.value}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </Card>
 
-                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
-                  <SectionLabel>SEVERITY DISTRIBUTION</SectionLabel>
-                  <ResponsiveContainer width="100%" height={150}>
-                    <BarChart data={sevData} barSize={14}>
-                      <XAxis dataKey="name" stroke={C.textLow} tick={{ fontSize: 9 }}/>
-                      <YAxis stroke={C.textLow} tick={{ fontSize: 9 }}/>
-                      <Tooltip contentStyle={tooltipStyle}/>
-                      <Bar dataKey="count" radius={[4,4,0,0]}>
-                        {sevData.map((d, i) => <Cell key={i} fill={d.color}/>)}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                {/* Severity */}
+                <Card>
+                  <SectionTitle>Severity Breakdown</SectionTitle>
+                  {sevData.length === 0 ? (
+                    <div style={{ height: 140, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow, fontSize: 13 }}>No data yet</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={140}>
+                      <BarChart data={sevData} barSize={20} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                        <CartesianGrid stroke={C.border} strokeDasharray="4 4" vertical={false} />
+                        <XAxis dataKey="name" stroke={C.inkXlow} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                        <YAxis stroke={C.inkXlow} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                        <Tooltip contentStyle={TT} />
+                        <Bar dataKey="v" radius={[5, 5, 0, 0]}>
+                          {sevData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </Card>
               </div>
 
-              {/* scan list + detail */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 14 }}>
-                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
-                              padding: 18, maxHeight: 440, overflowY: "auto" }}>
-                  <SectionLabel>SCAN HISTORY</SectionLabel>
-                  {loading && <div style={{ color: C.textLow, fontSize: 13 }}>Loading scans…</div>}
-                  {scans.map(scan => (
-                    <div key={scan.id} onClick={() => setSelected(scan)} style={{
-                      padding: "10px 12px", borderRadius: 8, marginBottom: 6,
-                      cursor: "pointer", border: `1px solid ${C.border}`,
-                      borderLeft: `3px solid ${scan.action_taken === "BLOCK" ? C.red : C.emerald}`,
-                      background: selected?.id === scan.id ? "rgba(99,102,241,0.08)" : "transparent",
-                      transition: "all 0.15s",
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = "rgba(99,102,241,0.05)"}
-                    onMouseLeave={e => e.currentTarget.style.background = selected?.id === scan.id ? "rgba(99,102,241,0.08)" : "transparent"}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                        <span style={{ fontFamily: C.mono, fontSize: 11, color: C.indigo }}>
-                          <GitBranch size={9} style={{ marginRight: 4, verticalAlign: "middle" }}/>
-                          {scan.commit_sha?.slice(0, 10)}
-                        </span>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          {scan.ai_explanation && <Tag color={C.purple}>AI</Tag>}
-                          <Tag color={scan.action_taken === "BLOCK" ? C.red : C.emerald}>
-                            {scan.action_taken}
-                          </Tag>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 10, fontSize: 11, color: C.textLow }}>
-                        <span>{scan.repo_name}</span>
-                        <span style={{ color: scan.severity === "CRITICAL" ? C.red : C.amber }}>{scan.severity}</span>
-                        <span>{scan.created_at ? new Date(scan.created_at).toLocaleDateString() : ""}</span>
-                      </div>
+              {/* Scan list + detail */}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(260px, 1fr) minmax(320px, 1.5fr)",
+                gap: 12,
+              }}>
+                {/* List */}
+                <Card style={{ maxHeight: 520, display: "flex", flexDirection: "column", padding: 0 }}>
+                  <div style={{ padding: "16px 16px 10px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+                    <SectionTitle>Scan History</SectionTitle>
+                    <div style={{ position: "relative" }}>
+                      <Search size={13} color={C.inkLow} style={{ position: "absolute", left: 10, top: 9, pointerEvents: "none" }} />
+                      <input
+                        value={search} onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search commits, repos, severity…"
+                        style={{
+                          width: "100%", padding: "8px 10px 8px 30px",
+                          borderRadius: 9, border: `1px solid ${C.border}`,
+                          fontSize: 12, outline: "none", background: C.bg,
+                          color: C.ink, boxSizing: "border-box",
+                        }}
+                      />
                     </div>
-                  ))}
-                </div>
+                  </div>
+                  <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>
+                    {loading && <div style={{ color: C.inkLow, fontSize: 13, padding: 12 }}>Loading scans…</div>}
+                    {!loading && filtered.length === 0 && (
+                      <div style={{ color: C.inkLow, fontSize: 13, padding: 20, textAlign: "center" }}>No scans found.</div>
+                    )}
+                    {filtered.map((scan) => (
+                      <ScanRow key={scan.id} scan={scan} selected={selected} onClick={() => setSelected(scan)} />
+                    ))}
+                  </div>
+                </Card>
 
-                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
-                              padding: 18, maxHeight: 440, overflowY: "auto" }}>
+                {/* Detail */}
+                <Card style={{ maxHeight: 520, overflowY: "auto" }}>
                   {!selected ? (
-                    <div style={{ height: "100%", minHeight: 300, display: "flex", flexDirection: "column",
-                                  justifyContent: "center", alignItems: "center", color: C.textLow, gap: 10 }}>
-                      <Eye size={32} style={{ opacity: 0.2 }}/>
-                      <div style={{ fontSize: 13 }}>Select a scan to inspect</div>
-                      <div style={{ fontSize: 11, color: C.textLow }}>AI analysis, fix suggestions & more</div>
+                    <div style={{ minHeight: 300, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 10, color: C.inkLow }}>
+                      <Eye size={40} strokeWidth={1.2} style={{ opacity: 0.3 }} />
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.inkMid }}>Select a scan to inspect</div>
+                      <div style={{ fontSize: 12 }}>AI analysis, fix suggestions & feedback</div>
                     </div>
                   ) : (
                     <>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                        <SectionLabel>SCAN DETAILS</SectionLabel>
-                        <button onClick={() => setTab("ai")} style={{
-                          fontSize: 11, color: C.purple, background: "rgba(139,92,246,0.1)",
-                          border: `1px solid rgba(139,92,246,0.3)`, borderRadius: 6,
-                          padding: "4px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
-                        }}>
-                          <Zap size={10}/> View AI Insights
-                        </button>
+                      <SectionTitle>Scan Details</SectionTitle>
+
+                      {/* Commit info banner */}
+                      <div style={{
+                        background: C.bg, border: `1px solid ${C.border}`,
+                        borderRadius: 10, padding: "12px 14px", marginBottom: 14,
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <GitCommit size={13} color={C.blue} />
+                          <span style={{ fontFamily: C.mono, fontSize: 12, color: C.blue, fontWeight: 600 }}>{selected.commit_sha?.slice(0, 14)}</span>
+                          <Badge color={selected.action_taken === "BLOCK" ? C.red : C.green}>{selected.action_taken}</Badge>
+                        </div>
+                        {selected.commit_message && (
+                          <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5 }}>{selected.commit_message}</div>
+                        )}
+                        <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 11, color: C.inkLow }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <GitBranch size={10} />{selected.branch}
+                          </span>
+                          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <Clock size={10} />{fmt(selected.created_at)} {fmtTime(selected.created_at)}
+                          </span>
+                        </div>
                       </div>
 
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-                        {[
-                          { label: "Commit SHA", value: selected.commit_sha?.slice(0, 12), mono: true },
-                          { label: "Branch", value: selected.branch },
-                          { label: "Severity", value: selected.severity, color: selected.severity === "CRITICAL" ? C.red : C.amber },
-                          { label: "Decision", value: selected.action_taken, color: selected.action_taken === "BLOCK" ? C.red : C.emerald },
-                          { label: "AI Risk Score", value: `${selected.risk_score || 0}/10`, color: C.purple },
-                          { label: "Scanner", value: selected.scan_type?.toUpperCase() },
-                        ].map((item, i) => (
-                          <div key={i} style={{ background: C.surface, borderRadius: 8, padding: "10px 12px",
-                                                border: `1px solid ${C.border}` }}>
-                            <div style={{ fontSize: 10, color: C.textLow, marginBottom: 3, letterSpacing: "0.08em" }}>
-                              {item.label.toUpperCase()}
-                            </div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: item.color || C.text,
-                                          fontFamily: item.mono ? C.mono : "inherit" }}>
-                              {item.value || "—"}
-                            </div>
-                          </div>
-                        ))}
+                      {/* Chips */}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginBottom: 14 }}>
+                        <Chip label="Repo"      value={selected.repo_name} />
+                        <Chip label="Severity"  value={selected.severity}  color={severityColor(selected.severity)} />
+                        <Chip label="Risk"       value={`${selected.risk_score || 0}/10`} color={riskColor(selected.risk_score || 0)} />
+                        <Chip label="Scanner"   value={selected.scan_type?.toUpperCase()} />
                       </div>
 
+                      {/* AI analysis */}
                       {selected.ai_explanation && (
-                        <div style={{ background: "rgba(99,102,241,0.06)", border: `1px solid rgba(99,102,241,0.2)`,
-                                      borderRadius: 8, padding: 14, marginBottom: 10 }}>
+                        <div style={{ background: C.blueSoft, border: `1px solid ${C.blueBorder}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                            <Zap size={11} color={C.indigo}/>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: C.indigo, letterSpacing: "0.08em" }}>
-                              AI ANALYSIS
-                            </span>
+                            <Zap size={12} color={C.blue} />
+                            <span style={{ fontSize: 11, fontWeight: 700, color: C.blue }}>AI ANALYSIS · GEMINI</span>
                           </div>
-                          <div style={{ fontSize: 12, lineHeight: 1.7, color: C.textMid }}>{selected.ai_explanation}</div>
+                          <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.75 }}>{selected.ai_explanation}</div>
                         </div>
                       )}
 
+                      {/* Remediation */}
                       {selected.ai_fix && (
-                        <div style={{ background: "rgba(16,185,129,0.06)", border: `1px solid rgba(16,185,129,0.2)`,
-                                      borderRadius: 8, padding: 14, marginBottom: 10 }}>
+                        <div style={{ background: C.greenSoft, border: `1px solid ${C.greenBorder}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                            <Terminal size={11} color={C.emerald}/>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: C.emerald, letterSpacing: "0.08em" }}>
-                              REMEDIATION
-                            </span>
+                            <Terminal size={12} color={C.green} />
+                            <span style={{ fontSize: 11, fontWeight: 700, color: C.green }}>REMEDIATION</span>
                           </div>
-                          <div style={{ fontSize: 12, lineHeight: 1.6, color: C.text, fontFamily: C.mono }}>
-                            {selected.ai_fix}
-                          </div>
+                          <div style={{ fontSize: 12, color: C.ink, lineHeight: 1.65, fontFamily: C.mono, whiteSpace: "pre-wrap" }}>{selected.ai_fix}</div>
                         </div>
                       )}
 
-                      <div style={{ background: "rgba(139,92,246,0.06)", border: `1px solid rgba(139,92,246,0.2)`,
-                                    borderRadius: 8, padding: 14 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: C.purple, letterSpacing: "0.08em", marginBottom: 10 }}>
-                          ANALYST FEEDBACK
-                        </div>
-                        <div style={{ display: "flex", gap: 8 }}>
+                      {/* Feedback */}
+                      <div style={{ background: C.violetSoft, border: `1px solid ${C.violetBorder}`, borderRadius: 10, padding: 14 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: C.violet, marginBottom: 10 }}>ANALYST FEEDBACK</div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           {[
-                            { type: "accept", label: "✓ Accurate", color: C.emerald },
-                            { type: "reject", label: "✗ Incorrect", color: C.red },
-                            { type: "edit",   label: "~ Partial",   color: C.amber },
-                          ].map(({ type, label, color }) => (
+                            { type: "accept", label: "✓ Accurate", color: C.green,  bg: C.greenSoft,  border: C.greenBorder  },
+                            { type: "reject", label: "✗ Incorrect", color: C.red,   bg: C.redSoft,    border: C.redBorder    },
+                            { type: "edit",   label: "~ Partial",   color: C.amber, bg: C.amberSoft,  border: C.amberBorder  },
+                          ].map(({ type, label, color, bg, border }) => (
                             <button key={type} onClick={() => submitFeedback(selected.id, type)} style={{
-                              padding: "6px 14px", borderRadius: 6, border: `1px solid ${color}`,
-                              background: feedback[selected.id] === type ? `${color}20` : "transparent",
-                              color, cursor: "pointer", fontSize: 11, fontWeight: 600,
+                              padding: "7px 14px", borderRadius: 8, cursor: "pointer",
+                              fontSize: 12, fontWeight: 700, border: `1px solid ${border}`,
+                              background: feedback[selected.id] === type ? bg : C.white,
+                              color,
                             }}>{label}</button>
                           ))}
                         </div>
-                        {feedback[selected.id] && (
-                          <div style={{ fontSize: 11, color: C.textLow, marginTop: 8 }}>
-                            Feedback recorded — helps improve AI accuracy
-                          </div>
+                        {feedback[selected.id] && feedback[selected.id] !== "error" && (
+                          <div style={{ fontSize: 11, color: C.inkLow, marginTop: 8 }}>Feedback recorded — helps improve AI accuracy</div>
                         )}
                       </div>
                     </>
                   )}
-                </div>
+                </Card>
               </div>
             </>
           )}
 
-          {/* ══ AI INSIGHTS TAB ══ */}
+          {/* ══ AI INSIGHTS ═══════════════════════════════════════════════ */}
           {tab === "ai" && (
             <>
-              {/* AI hero banner */}
+              {/* Header banner */}
               <div style={{
-                borderRadius: 14, padding: 1, marginBottom: 20,
-                background: "linear-gradient(135deg, #6366F1, #8B5CF6, #EC4899)",
+                background: `linear-gradient(135deg, ${C.blueSoft}, ${C.violetSoft})`,
+                border: `1px solid ${C.blueBorder}`, borderRadius: 14,
+                padding: "20px 24px", marginBottom: 20,
+                display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 16,
               }}>
-                <div style={{
-                  background: C.surface, borderRadius: 13, padding: "22px 28px",
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                      <Zap size={18} color={C.purple}/>
-                      <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: "0.02em" }}>
-                        AI Security Intelligence
-                      </span>
-                      <Tag color={C.pink}>POWERED BY OLLAMA</Tag>
-                    </div>
-                    <div style={{ fontSize: 13, color: C.slate, maxWidth: 520, lineHeight: 1.6 }}>
-                      Every vulnerability is analyzed in real time using a local LLM — producing plain-language
-                      explanations, precise remediation steps, and calibrated risk scores without sending
-                      your code to external APIs.
-                    </div>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <Zap size={20} color={C.violet} />
+                    <span style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>AI Security Intelligence</span>
+                    <Badge color={C.violet}>POWERED BY GEMINI</Badge>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, flexShrink: 0 }}>
-                    {[
-                      { label: "AI Analyzed", value: stats.aiScanned, color: C.purple },
-                      { label: "Avg Risk",    value: `${stats.avgRisk}/10`, color: C.red },
-                      { label: "Model",       value: "qwen2.5:7b", color: C.indigo },
-                      { label: "Local LLM",   value: "✓ Private", color: C.emerald },
-                    ].map((m, i) => (
-                      <div key={i} style={{ background: C.card, borderRadius: 8, padding: "10px 14px",
-                                            border: `1px solid ${C.border}`, textAlign: "center" }}>
-                        <div style={{ fontSize: 10, color: C.textLow, marginBottom: 4 }}>{m.label}</div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: m.color, fontFamily: C.mono }}>
-                          {m.value}
-                        </div>
-                      </div>
-                    ))}
+                  <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.7, maxWidth: 500 }}>
+                    Every vulnerability is analyzed by Google Gemini — plain-language explanations,
+                    remediation steps, and risk scores delivered automatically on each scan.
                   </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {[
+                    { label: "AI Analyzed",    value: stats.aiScanned      },
+                    { label: "Avg Risk Score", value: `${stats.avgRisk}/10` },
+                    { label: "AI Model",       value: "Gemini 1.5"         },
+                    { label: "Provider",       value: "Google AI"          },
+                  ].map((m) => (
+                    <div key={m.label} style={{
+                      background: C.white, borderRadius: 10, padding: "10px 14px",
+                      border: `1px solid ${C.border}`, textAlign: "center",
+                      minWidth: 110,
+                    }}>
+                      <div style={{ fontSize: 10, color: C.inkLow, marginBottom: 4, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>{m.label}</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, fontFamily: C.mono }}>{m.value}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {/* AI cards */}
-              <SectionLabel>AI-ANALYZED VULNERABILITIES — ALL SCANS</SectionLabel>
-              {loading && <div style={{ color: C.textLow, fontSize: 13 }}>Loading…</div>}
-              {scans.filter(s => s.ai_explanation).length === 0 && !loading && (
-                <div style={{ color: C.textLow, fontSize: 13, padding: 20, textAlign: "center",
-                              background: C.card, borderRadius: 12, border: `1px solid ${C.border}` }}>
-                  No AI-analyzed scans yet. Send a scan payload to see AI insights here.
-                </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.inkLow, letterSpacing: "0.08em", marginBottom: 14, textTransform: "uppercase" }}>
+                AI-Analyzed Vulnerabilities
+              </div>
+
+              {loading && <div style={{ color: C.inkLow, fontSize: 13 }}>Loading…</div>}
+              {!loading && scans.filter((s) => s.ai_explanation).length === 0 && (
+                <Card style={{ textAlign: "center", padding: 40, color: C.inkLow }}>
+                  <Zap size={32} style={{ opacity: 0.2, marginBottom: 10 }} />
+                  <div>No AI-analyzed scans yet. Push a commit to trigger the pipeline.</div>
+                </Card>
               )}
-              {scans.filter(s => s.ai_explanation).map(scan => (
+              {scans.filter((s) => s.ai_explanation).map((scan) => (
                 <AICard key={scan.id} scan={scan} />
               ))}
             </>
           )}
 
-          {/* ══ ALERTS TAB ══ */}
+          {/* ══ ALERTS ════════════════════════════════════════════════════ */}
           {tab === "alerts" && (
             <>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 2 }}>Real-Time Alert Feed</div>
-                  <div style={{ fontSize: 12, color: C.textLow }}>
-                    Mirrors your Slack #security-alerts channel — same data, one place
-                  </div>
+              <Card style={{ marginBottom: 16, padding: "14px 18px" }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Real-Time Alert Feed</div>
+                <div style={{ fontSize: 12, color: C.inkLow, marginTop: 4 }}>
+                  All pipeline events · auto-refreshes every 10s
                 </div>
-                <Tag color={C.emerald}>Auto-refreshes every 8s</Tag>
-              </div>
+              </Card>
 
-              {scans.map(scan => {
-                const isBlock = scan.action_taken === "BLOCK";
+              {loading && <div style={{ color: C.inkLow, fontSize: 13 }}>Loading…</div>}
+              {!loading && scans.length === 0 && (
+                <Card style={{ textAlign: "center", padding: 40, color: C.inkLow }}>No alerts yet.</Card>
+              )}
+
+              {scans.map((scan) => {
+                const blocked = scan.action_taken === "BLOCK";
                 return (
                   <div key={scan.id} style={{
-                    background: C.card, border: `1px solid ${C.border}`,
-                    borderLeft: `4px solid ${isBlock ? C.red : C.emerald}`,
-                    borderRadius: 10, padding: "14px 18px", marginBottom: 10,
+                    background: C.white, borderRadius: 12, marginBottom: 10,
+                    border: `1px solid ${C.border}`,
+                    borderLeft: `4px solid ${blocked ? C.red : C.green}`,
+                    padding: "14px 18px", boxShadow: C.shadow,
                   }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 16 }}>{isBlock ? "🚨" : "✅"}</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: isBlock ? C.red : C.emerald }}>
-                          Deployment {scan.action_taken}
-                        </span>
-                        {scan.ai_explanation && <Tag color={C.purple}>AI</Tag>}
+                        <Badge color={blocked ? C.red : C.green}>Deployment {scan.action_taken}</Badge>
+                        {scan.ai_explanation && <Badge color={C.violet}>AI Analyzed</Badge>}
                       </div>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <span style={{ fontSize: 11, fontFamily: C.mono, color: C.textLow }}>
-                          {scan.commit_sha?.slice(0, 10)}
-                        </span>
-                        <span style={{ fontSize: 10, color: C.textLow }}>
-                          {scan.created_at ? new Date(scan.created_at).toLocaleString() : ""}
-                        </span>
-                      </div>
+                      <span style={{ fontSize: 11, color: C.inkLow, fontFamily: C.mono }}>
+                        {scan.commit_sha?.slice(0, 10)} · {fmt(scan.created_at)} {fmtTime(scan.created_at)}
+                      </span>
                     </div>
-
-                    <div style={{ display: "flex", gap: 16, marginBottom: 10 }}>
-                      <span style={{ fontSize: 12, color: C.indigo }}>{scan.repo_name}</span>
-                      <span style={{ fontSize: 12, color: C.textLow }}>branch: {scan.branch}</span>
-                      <Tag color={scan.severity === "CRITICAL" ? C.red : C.amber}>{scan.severity}</Tag>
-                      {scan.risk_score && (
-                        <Tag color={scan.risk_score >= 8 ? C.red : C.amber}>
-                          Risk {scan.risk_score}/10
-                        </Tag>
-                      )}
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 4 }}>
+                      {scan.commit_message || scan.repo_name}
                     </div>
-
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: scan.ai_explanation ? 10 : 0 }}>
+                      <span style={{ fontSize: 12, color: C.inkMid }}>{scan.repo_name}</span>
+                      <span style={{ fontSize: 12, color: C.inkXlow }}>·</span>
+                      <span style={{ fontSize: 12, color: C.inkMid }}>{scan.branch}</span>
+                      <Badge color={severityColor(scan.severity)}>{scan.severity}</Badge>
+                      {(scan.risk_score > 0) && <Badge color={riskColor(scan.risk_score)}>Risk {scan.risk_score}/10</Badge>}
+                    </div>
                     {scan.ai_explanation && (
-                      <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.6, marginBottom: 6,
-                                    paddingLeft: 12, borderLeft: `2px solid ${C.indigo}` }}>
-                        <span style={{ color: C.indigo, fontWeight: 600 }}>AI: </span>
-                        {scan.ai_explanation}
-                      </div>
-                    )}
-                    {scan.ai_fix && (
-                      <div style={{ fontSize: 11, color: C.emerald, fontFamily: C.mono }}>
-                        → {scan.ai_fix}
+                      <div style={{
+                        fontSize: 12, color: C.inkMid, lineHeight: 1.65,
+                        paddingLeft: 12, borderLeft: `3px solid ${C.blue}`,
+                        marginTop: 8,
+                      }}>
+                        <strong style={{ color: C.blue, marginRight: 4 }}>Gemini:</strong>
+                        {scan.ai_explanation.slice(0, 200)}{scan.ai_explanation.length > 200 ? "…" : ""}
                       </div>
                     )}
                   </div>
@@ -745,99 +823,64 @@ export default function App() {
             </>
           )}
 
-          {/* ══ METRICS TAB ══ */}
+          {/* ══ METRICS ═══════════════════════════════════════════════════ */}
           {tab === "metrics" && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
-                {[
-                  { label: "Total HTTP Requests", value: totalReq || "—", color: C.indigo, sub: "since last restart" },
-                  { label: "Avg Latency",          value: avgLatMs !== "—" ? `${avgLatMs}ms` : "—", color: C.amber, sub: "mean response time" },
-                  { label: "Scan API Calls",       value: Math.round(pm["http_requests_total"] || 0) || "—", color: C.purple, sub: "POST /api/scan-results" },
-                  { label: "Metrics Scrapes",      value: Math.round(pm["http_request_duration_highr_seconds_count"] || 0) || "—", color: C.emerald, sub: "by Prometheus" },
-                ].map((m, i) => (
-                  <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`,
-                                        borderRadius: 12, padding: "18px 20px", borderTop: `2px solid ${m.color}` }}>
-                    <div style={{ fontSize: 10, color: C.slate, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 10 }}>
-                      {m.label.toUpperCase()}
-                    </div>
-                    <div style={{ fontSize: 30, fontWeight: 800, color: m.color }}>{m.value}</div>
-                    <div style={{ fontSize: 11, color: C.textLow, marginTop: 4 }}>{m.sub}</div>
-                  </div>
-                ))}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
+                <StatCard icon={Activity}   label="Total Scans"   value={stats.total}            color={C.blue}   sub="all time" />
+                <StatCard icon={XCircle}    label="Total Blocked" value={stats.blocked}           color={C.red}    sub="policy violations" />
+                <StatCard icon={CheckCircle}label="Total Allowed" value={stats.allowed}           color={C.green}  sub="clean deployments" />
+                <StatCard icon={Zap}        label="AI Analyzed"   value={stats.aiScanned}         color={C.violet} sub="with Gemini" />
+                <StatCard icon={AlertTriangle} label="High Risk"  value={scans.filter(s => (s.risk_score||0) >= 7).length} color={C.amber} sub="risk ≥ 7/10" />
+                <StatCard icon={Cpu}        label="Avg Risk"      value={`${stats.avgRisk}/10`}   color={C.violet} sub="mean score" />
               </div>
 
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
-                <SectionLabel>REQUEST RATE OVER RECENT SCANS</SectionLabel>
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={trendData}>
-                    <XAxis dataKey="i" stroke={C.textLow} tick={{ fontSize: 10 }}/>
-                    <YAxis stroke={C.textLow} tick={{ fontSize: 10 }}/>
-                    <Tooltip contentStyle={tooltipStyle}/>
-                    <Line type="monotone" dataKey="risk" stroke={C.indigo} strokeWidth={2} dot={false}/>
-                    <Line type="monotone" dataKey="sev"  stroke={C.red}    strokeWidth={2} dot={false} strokeDasharray="4 2"/>
-                  </LineChart>
-                </ResponsiveContainer>
-                <div style={{ display: "flex", gap: 16, fontSize: 11, marginTop: 8, justifyContent: "center" }}>
-                  <span style={{ color: C.indigo }}>─ AI Risk Score</span>
-                  <span style={{ color: C.red }}>-- Severity Level</span>
-                </div>
-              </div>
+              <Card>
+                <SectionTitle>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <TrendingUp size={13} color={C.blue} /> Risk Score Over Time
+                  </span>
+                </SectionTitle>
+                {trendData.length === 0 ? (
+                  <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow, fontSize: 13 }}>No data yet</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="rg2" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor={C.blue} stopOpacity={0.18} />
+                          <stop offset="95%" stopColor={C.blue} stopOpacity={0}    />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke={C.border} strokeDasharray="4 4" vertical={false} />
+                      <XAxis dataKey="n" stroke={C.inkXlow} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} label={{ value: "Scan #", position: "insideBottomRight", offset: -4, fontSize: 10, fill: C.inkLow }} />
+                      <YAxis stroke={C.inkXlow} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} domain={[0, 10]} />
+                      <Tooltip contentStyle={TT} formatter={(v) => [`${v}/10`, "Risk Score"]} />
+                      <Area type="monotone" dataKey="risk" stroke={C.blue} strokeWidth={2.5} fill="url(#rg2)" dot={{ r: 3, fill: C.blue, stroke: C.white, strokeWidth: 2 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </Card>
 
-              <div style={{ marginTop: 14, background: C.card, border: `1px solid ${C.border}`,
-                            borderRadius: 12, padding: 18 }}>
-                <SectionLabel>RAW PROMETHEUS ENDPOINT</SectionLabel>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <code style={{ fontFamily: C.mono, fontSize: 12, color: C.indigo,
-                                  background: C.surface, padding: "6px 12px", borderRadius: 6,
-                                  border: `1px solid ${C.border}` }}>
-                    GET {API}/metrics
-                  </code>
-                  <a href={`${API}/metrics`} target="_blank" rel="noreferrer" style={{
-                    fontSize: 11, color: C.slate, display: "flex", alignItems: "center", gap: 4,
-                    textDecoration: "none",
-                  }}>
-                    <ExternalLink size={11}/> Open
-                  </a>
-                </div>
-                <div style={{ fontSize: 11, color: C.textLow, marginTop: 8 }}>
-                  Prometheus scrapes this endpoint every 15s · Grafana reads from Prometheus
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* ══ GRAFANA TAB ══ */}
-          {tab === "grafana" && (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 2 }}>Grafana Metrics Dashboard</div>
-                  <div style={{ fontSize: 12, color: C.textLow }}>
-                    Live charts powered by Prometheus · auto-refreshes every 10s
-                  </div>
-                </div>
-                <a href={GRAFANA} target="_blank" rel="noreferrer" style={{
-                  display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.indigo,
-                  background: C.indigoLo, border: `1px solid ${C.indigo}`, borderRadius: 8,
-                  padding: "7px 14px", textDecoration: "none", fontWeight: 600,
-                }}>
-                  <ExternalLink size={12}/> Open Grafana
-                </a>
-              </div>
-
-              <div style={{ background: C.card, border: `1px solid ${C.border}`,
-                            borderRadius: 12, overflow: "hidden" }}>
-                <iframe
-                  src={`${GRAFANA}?orgId=1&refresh=10s&theme=dark&kiosk=tv`}
-                  width="100%" height="600"
-                  style={{ border: "none", display: "block" }}
-                  title="Grafana Dashboard"
-                />
-              </div>
-
-              <div style={{ marginTop: 12, fontSize: 11, color: C.textLow, textAlign: "center" }}>
-                If you see a login screen, ensure <code style={{ fontFamily: C.mono }}>GF_AUTH_ANONYMOUS_ENABLED=true</code> is
-                set in your docker-compose.yml · currently configured in your setup ✓
+              <div style={{ marginTop: 12 }}>
+                <Card>
+                  <SectionTitle>Severity Distribution</SectionTitle>
+                  {sevData.length === 0 ? (
+                    <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow, fontSize: 13 }}>No data yet</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={160}>
+                      <BarChart data={sevData} barSize={28} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                        <CartesianGrid stroke={C.border} strokeDasharray="4 4" vertical={false} />
+                        <XAxis dataKey="name" stroke={C.inkXlow} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                        <YAxis stroke={C.inkXlow} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                        <Tooltip contentStyle={TT} />
+                        <Bar dataKey="v" radius={[6, 6, 0, 0]} name="Count">
+                          {sevData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </Card>
               </div>
             </>
           )}
@@ -847,10 +890,26 @@ export default function App() {
 
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: ${C.bg}; }
+        button { font-family: inherit; }
+        input  { font-family: inherit; }
+        button:active { opacity: 0.85; }
+        input:focus { border-color: ${C.blue} !important; outline: none; box-shadow: 0 0 0 3px ${C.blue}22; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+        ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 999px; }
+
+        @media (max-width: 768px) {
+          .sidebar-desktop { display: none !important; }
+          .hamburger       { display: flex !important; }
+        }
+        @media (min-width: 769px) {
+          .hamburger { display: none !important; }
+        }
+
+        /* Responsive scan list + detail: stack on mobile */
+        @media (max-width: 900px) {
+          .split-grid { grid-template-columns: 1fr !important; }
+        }
       `}</style>
     </div>
   );
