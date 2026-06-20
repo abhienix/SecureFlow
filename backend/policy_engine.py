@@ -1,97 +1,161 @@
-import yaml
+"""
+Policy engine for SecureFlow.
+
+This file decides whether a Docker image scan should be ALLOWED or BLOCKED,
+based on rules written in policy.yaml.
+
+How it works, in plain steps:
+1. Load policy.yaml (rules per repo, plus a fallback "default" rule).
+2. Look at every vulnerability Trivy found.
+3. Check each one against the rules: is it allowlisted? does its severity
+   block? does its CVSS score cross the threshold?
+4. If anything is blocked, the final action is BLOCK. Otherwise ALLOW.
+"""
+
 import os
 from datetime import datetime
+import yaml
 
-POLICY_PATH = os.path.join(os.path.dirname(__file__), '..', 'policy.yaml')
+POLICY_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'policy.yaml')
 
-def load_policy():
-    with open(POLICY_PATH, 'r') as f:
-        return yaml.safe_load(f)
 
-def get_repo_policy(repo_name: str) -> dict:
-    policy = load_policy()
-    repos = policy.get('repos', {})
-    short_name = repo_name.split('/')[-1]
-    if short_name in repos:
-        repo_policy = repos[short_name]
-        default = policy.get('default', {})
-        return {**default, **repo_policy}
-    return policy.get('default', {})
+def load_policy_file():
+    """Read policy.yaml from disk and return it as a Python dict."""
+    with open(POLICY_FILE_PATH, 'r') as file:
+        return yaml.safe_load(file)
 
-def is_allowlisted(cve_id: str, repo_policy: dict) -> dict:
-    allowlist = repo_policy.get('allowlist', [])
-    for item in allowlist:
-        if item['cve'] == cve_id:
-            expires_str = str(item['expires'])
-            expires = datetime.strptime(expires_str, '%Y-%m-%d')
-            if datetime.now() < expires:
-                return {
-                    "allowlisted": True,
-                    "reason": item['reason'],
-                    "expires": item['expires']
-                }
-    return {"allowlisted": False}
 
-def evaluate_policy(findings: dict, repo_name: str) -> dict:
-    repo_policy = get_repo_policy(repo_name)
-    block_on = repo_policy.get('block_on', ['CRITICAL', 'HIGH'])
-    warn_on = repo_policy.get('warn_on', ['MEDIUM'])
-    cvss_threshold = float(repo_policy.get('cvss_threshold', 7.0))
+def get_policy_for_repo(repo_name):
+    """
+    Find the right policy block for this repo.
 
-    blocked = []
-    warned = []
-    allowlisted = []
+    repo_name usually comes in as "owner/repo" (e.g. "abhienix/SecureFlow"),
+    but policy.yaml only lists the short repo name ("SecureFlow").
+    So we strip the owner part before looking it up.
 
-    vulnerabilities = []
-    for result in findings.get('Results', []):
-        for vuln in result.get('Vulnerabilities', []):
-            vulnerabilities.append(vuln)
+    If there's no specific rule for this repo, fall back to "default".
+    """
+    policy = load_policy_file()
+    repo_rules = policy.get('repos', {})
+    default_rules = policy.get('default', {})
 
-    for vuln in vulnerabilities:
+    short_repo_name = repo_name.split('/')[-1]
+
+    if short_repo_name in repo_rules:
+        return {**default_rules, **repo_rules[short_repo_name]}
+
+    return default_rules
+
+
+def check_allowlist(cve_id, policy):
+    """
+    Check if a specific CVE has been allowlisted (manually approved as
+    "known, can't fix yet, ok to ignore for now") in policy.yaml.
+
+    Each allowlist entry has an expiry date - once it expires, the CVE
+    goes back to being treated normally.
+    """
+    allowlist = policy.get('allowlist', [])
+
+    for entry in allowlist:
+        if entry['cve'] != cve_id:
+            continue
+
+        expiry_date = datetime.strptime(str(entry['expires']), '%Y-%m-%d')
+
+        if datetime.now() < expiry_date:
+            return True, entry['reason']
+        else:
+            return False, None
+
+    return False, None
+
+
+def get_highest_cvss_score(vulnerability):
+    """
+    A single CVE can have multiple CVSS scores from different sources
+    (NVD, Red Hat, etc). We just take the highest one to be safe.
+    """
+    cvss_sources = vulnerability.get('CVSS', {})
+    if not isinstance(cvss_sources, dict):
+        return 0.0
+
+    highest_score = 0.0
+    for source in cvss_sources.values():
+        score = source.get('V3Score', 0.0)
+        if score > highest_score:
+            highest_score = score
+
+    return highest_score
+
+
+def evaluate_policy(scan_findings, repo_name):
+    """
+    Main entry point. Takes Trivy's scan output and decides ALLOW or BLOCK.
+    """
+    policy = get_policy_for_repo(repo_name)
+
+    block_on_severities = policy.get('block_on', ['CRITICAL', 'HIGH'])
+    warn_on_severities = policy.get('warn_on', ['MEDIUM'])
+    cvss_block_threshold = float(policy.get('cvss_threshold', 7.0))
+
+    blocked_vulns = []
+    warned_vulns = []
+    allowlisted_vulns = []
+
+    all_vulns = []
+    for result in scan_findings.get('Results', []):
+        all_vulns.extend(result.get('Vulnerabilities', []))
+
+    for vuln in all_vulns:
         cve_id = vuln.get('VulnerabilityID', '')
         severity = vuln.get('Severity', '').upper()
-        cvss = 0.0
-        cvss_data = vuln.get('CVSS', {})
-        if isinstance(cvss_data, dict):
-            for source in cvss_data.values():
-                cvss = max(cvss, source.get('V3Score', 0.0))
+        cvss_score = get_highest_cvss_score(vuln)
 
-        allow_check = is_allowlisted(cve_id, repo_policy)
-        if allow_check['allowlisted']:
-            allowlisted.append({
+        is_allowlisted, allowlist_reason = check_allowlist(cve_id, policy)
+
+        if is_allowlisted:
+            allowlisted_vulns.append({
                 "cve": cve_id,
                 "severity": severity,
-                "reason": allow_check['reason'],
-                "expires": allow_check['expires']
+                "reason": allowlist_reason,
             })
             continue
 
-        if severity in block_on or cvss >= cvss_threshold:
-            blocked.append({
+        should_block = severity in block_on_severities or cvss_score >= cvss_block_threshold
+
+        if should_block:
+            blocked_vulns.append({
                 "cve": cve_id,
                 "severity": severity,
-                "cvss": cvss,
+                "cvss": cvss_score,
                 "package": vuln.get('PkgName'),
-                "fix": vuln.get('FixedVersion', 'no fix available')
+                "fix": vuln.get('FixedVersion', 'no fix available'),
             })
-        elif severity in warn_on:
-            warned.append({
+        elif severity in warn_on_severities:
+            warned_vulns.append({
                 "cve": cve_id,
                 "severity": severity,
-                "cvss": cvss,
-                "package": vuln.get('PkgName')
+                "cvss": cvss_score,
+                "package": vuln.get('PkgName'),
             })
 
-    action = "BLOCK" if blocked else "ALLOW"
-    reason = f"{len(blocked)} vulnerabilities triggered block policy" if blocked else "no policy violations found"
+    action = "BLOCK" if blocked_vulns else "ALLOW"
 
-    policy_used = repo_name.split('/')[-1] if repo_name.split('/')[-1] in load_policy().get('repos', {}) else "default"
+    if blocked_vulns:
+        reason = f"{len(blocked_vulns)} vulnerabilities triggered the block policy"
+    else:
+        reason = "no policy violations found"
+
+    short_repo_name = repo_name.split('/')[-1]
+    all_repo_rules = load_policy_file().get('repos', {})
+    policy_used = short_repo_name if short_repo_name in all_repo_rules else "default"
 
     return {
         "action": action,
         "reason": reason,
         "policy_used": policy_used,
-        "blocked": blocked,
-        "warned": warned,
-        "allowlisted": allowlisted
+        "blocked": blocked_vulns,
+        "warned": warned_vulns,
+        "allowlisted": allowlisted_vulns,
     }

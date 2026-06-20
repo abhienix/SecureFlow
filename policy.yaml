@@ -1,8 +1,7 @@
-default:
+﻿default:
   block_on: [CRITICAL, HIGH]
   warn_on: [MEDIUM]
   cvss_threshold: 7.0
-
 repos:
   SecureFlow:
     block_on: [CRITICAL]
@@ -12,7 +11,12 @@ repos:
       - cve: CVE-2024-1234
         expires: 2026-08-01
         reason: "no fix available yet, monitoring"
-
+      - cve: CVE-2026-42496
+        expires: 2026-09-01
+        reason: "perl-base, no upstream fix available, OS-level package"
+      - cve: CVE-2026-8376
+        expires: 2026-09-01
+        reason: "perl-base, no upstream fix available, OS-level package"
 notifications:
   slack: true
   on_block: true

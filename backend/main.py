@@ -1,11 +1,16 @@
+import os
+
+from dotenv import load_dotenv
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
+
 from models import Base, ScanResult
-from dotenv import load_dotenv
-from prometheus_fastapi_instrumentator import Instrumentator
-import os
+from policy_engine import evaluate_policy, get_highest_cvss_score
+from claude_client import analyze_scan
+from slack_notifier import send_slack_alert
 
 load_dotenv()
 
@@ -31,6 +36,7 @@ app.add_middleware(
 
 Instrumentator().instrument(app).expose(app)
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -38,13 +44,16 @@ def get_db():
     finally:
         db.close()
 
+
 @app.get("/")
 def root():
     return {"message": "SecureFlow — AI-Powered Security Gate for CI/CD"}
 
+
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
 
 @app.get("/api/migrate")
 def migrate(db: Session = Depends(get_db)):
@@ -52,13 +61,16 @@ def migrate(db: Session = Depends(get_db)):
     db.commit()
     return {"status": "migrated"}
 
+
 @app.get("/api/metrics")
 def get_metrics(db: Session = Depends(get_db)):
     scans = db.query(ScanResult).all()
     total = len(scans)
+
     blocked = len([s for s in scans if s.action_taken == "BLOCK"])
     allowed = len([s for s in scans if s.action_taken == "ALLOW"])
     critical = len([s for s in scans if s.severity == "CRITICAL"])
+
     avg_risk = round(sum(s.risk_score or 0 for s in scans) / total, 1) if total else 0
     block_rate = round(blocked / total * 100, 1) if total else 0
 
@@ -68,20 +80,15 @@ def get_metrics(db: Session = Depends(get_db)):
         "allowed": allowed,
         "critical_cves": critical,
         "avg_risk_score": avg_risk,
-        "block_rate_percent": block_rate
+        "block_rate_percent": block_rate,
     }
 
-@app.post("/api/scan-results")
-def receive_scan_results(data: dict, db: Session = Depends(get_db)):
-    from policy_engine import evaluate_policy
-    from claude_client import analyze_scan
-    from slack_notifier import send_slack_alert
 
-    findings = data.get("findings", {})
-    repo_name = data.get("repo_name", "unknown")
-
-    policy_result = evaluate_policy(findings, repo_name)
-
+def extract_vulnerabilities(findings: dict) -> list[dict]:
+    """
+    Pulls the vulnerability list out of Trivy's nested output and
+    reshapes it into the simpler format the rest of the app uses.
+    """
     vulnerabilities = []
     for result in findings.get("Results", []):
         for vuln in result.get("Vulnerabilities", []):
@@ -89,10 +96,20 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
                 "id": vuln.get("VulnerabilityID"),
                 "package": vuln.get("PkgName"),
                 "severity": vuln.get("Severity"),
-                "score": 0.0,
+                "score": get_highest_cvss_score(vuln),
                 "fix": vuln.get("FixedVersion", "no fix available"),
-                "description": vuln.get("Description", "")[:300]
+                "description": vuln.get("Description", "")[:300],
             })
+    return vulnerabilities
+
+
+@app.post("/api/scan-results")
+def receive_scan_results(data: dict, db: Session = Depends(get_db)):
+    findings = data.get("findings", {})
+    repo_name = data.get("repo_name", "unknown")
+
+    policy_result = evaluate_policy(findings, repo_name)
+    vulnerabilities = extract_vulnerabilities(findings)
 
     print(f"policy result: {policy_result['action']} — {policy_result['reason']}")
     print(f"vulnerabilities extracted: {len(vulnerabilities)}")
@@ -104,9 +121,10 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         except Exception as e:
             print(f"AI analysis failed (skipping): {e}")
 
-    ai_explanation = ai_results[0].get("explanation", "") if ai_results else ""
-    ai_fix = ai_results[0].get("fix", "") if ai_results else ""
-    risk_score = ai_results[0].get("risk_score", 0) if ai_results else 0
+    first_ai_result = ai_results[0] if ai_results else {}
+    ai_explanation = first_ai_result.get("explanation", "")
+    ai_fix = first_ai_result.get("fix", "")
+    risk_score = first_ai_result.get("risk_score", 0)
 
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
@@ -119,7 +137,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         ai_explanation=ai_explanation,
         ai_fix=ai_fix,
         risk_score=risk_score,
-        action_taken=policy_result["action"]
+        action_taken=policy_result["action"],
     )
     db.add(scan)
     db.commit()
@@ -139,19 +157,21 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         "blocked": policy_result["blocked"],
         "warned": policy_result["warned"],
         "allowlisted": policy_result["allowlisted"],
-        "ai_analysis": ai_results
+        "ai_analysis": ai_results,
     }
+
 
 @app.post("/api/scan-results/{scan_id}/feedback")
 def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db)):
     scan = db.query(ScanResult).filter(ScanResult.id == scan_id).first()
     if not scan:
         return {"error": "scan not found"}
+
     scan.ai_feedback = feedback.get("feedback")
     db.commit()
     return {"status": "feedback saved", "scan_id": scan_id}
 
+
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
-    scans = db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()
-    return scans
+    return db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()

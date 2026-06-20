@@ -11,14 +11,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
     security_opt:
       - no-new-privileges:true
-
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
-    security_opt:
-      - no-new-privileges:true
-
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -27,7 +19,6 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     security_opt:
       - no-new-privileges:true
-
   grafana:
     image: grafana/grafana:latest
     ports:
@@ -43,7 +34,6 @@ services:
       - prometheus
     security_opt:
       - no-new-privileges:true
-
 volumes:
   postgres_data:
   grafana_data:
