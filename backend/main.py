@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
 from models import Base, ScanResult
-from policy_engine import evaluate_policy, get_highest_cvss_score
+from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label
 from claude_client import analyze_scan
 from slack_notifier import send_slack_alert
 
@@ -60,6 +60,19 @@ def migrate(db: Session = Depends(get_db)):
     db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
     db.commit()
     return {"status": "migrated"}
+
+
+@app.get("/api/backfill-severity")
+def backfill_severity(db: Session = Depends(get_db)):
+    scans = db.query(ScanResult).filter(ScanResult.severity == "unknown").all()
+    updated = 0
+    for scan in scans:
+        if scan.findings:
+            real_severity = get_highest_severity_label(scan.findings)
+            scan.severity = real_severity
+            updated += 1
+    db.commit()
+    return {"status": "done", "rows_updated": updated}
 
 
 @app.get("/api/metrics")
