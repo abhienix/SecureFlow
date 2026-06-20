@@ -1,7 +1,7 @@
 import os
 import time
 import json
-from google import genai
+import google.generativeai as genai
 import requests
 
 # Ollama config
@@ -10,7 +10,7 @@ OLLAMA_MODEL = "qwen2.5:7b"
 
 # Gemini config - new unified SDK
 GEMINI_MODEL = "gemini-2.5-flash"
-gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+gemini_client = genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 def build_prompt(vuln: dict) -> str:
     return f"""You are a security expert. Return only a JSON object with these exact keys:
@@ -30,10 +30,8 @@ def parse_json_response(raw: str) -> dict:
         return {"explanation": "Parsing error", "fix": "Manual review", "risk_score": 5, "urgency": "Low"}
 
 def analyze_with_gemini(vuln: dict) -> dict:
-    response = gemini_client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=build_prompt(vuln)
-    )
+    model = genai.GenerativeModel(GEMINI_MODEL)
+    response = model.generate_content(build_prompt(vuln))
     return parse_json_response(response.text)
 
 def analyze_with_ollama(vuln: dict) -> dict:

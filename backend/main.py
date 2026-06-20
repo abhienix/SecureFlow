@@ -27,13 +27,6 @@ app.add_middleware(
 
 Instrumentator().instrument(app).expose(app)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 def get_db():
     db = SessionLocal()
     try:
@@ -77,10 +70,8 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     findings = data.get("findings", {})
     repo_name = data.get("repo_name", "unknown")
 
-    # policy engine makes the decision
     policy_result = evaluate_policy(findings, repo_name)
 
-    # extract vulnerabilities for AI
     vulnerabilities = []
     for result in findings.get("Results", []):
         for vuln in result.get("Vulnerabilities", []):
@@ -94,13 +85,15 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             })
 
     print(f"policy result: {policy_result['action']} — {policy_result['reason']}")
-    print(f"policy used: {policy_result['policy_used']}")
-    print(f"vulnerabilities extracted: {vulnerabilities}")
+    print(f"vulnerabilities extracted: {len(vulnerabilities)}")
 
-    # AI analysis
+    # AI analysis — gracefully skip if unavailable
     ai_results = []
     if vulnerabilities:
-        ai_results = analyze_scan(vulnerabilities)
+        try:
+            ai_results = analyze_scan(vulnerabilities)
+        except Exception as e:
+            print(f"AI analysis failed (skipping): {e}")
 
     ai_explanation = ai_results[0].get("explanation", "") if ai_results else ""
     ai_fix = ai_results[0].get("fix", "") if ai_results else ""
@@ -122,7 +115,10 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(scan)
 
-    send_slack_alert(data, ai_results, policy_result["action"], policy_result["reason"])
+    try:
+        send_slack_alert(data, ai_results, policy_result["action"], policy_result["reason"])
+    except Exception as e:
+        print(f"Slack alert failed (skipping): {e}")
 
     return {
         "status": "processed",
