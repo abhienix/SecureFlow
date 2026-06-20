@@ -25,7 +25,15 @@ def parse_json_response(raw: str) -> dict:
     try:
         start = raw.find('{')
         end = raw.rfind('}') + 1
-        return json.loads(raw[start:end])
+        result = json.loads(raw[start:end])
+        # force risk_score to integer
+        risk = result.get("risk_score", 0)
+        if isinstance(risk, str):
+            mapping = {"LOW": 2, "MEDIUM": 5, "HIGH": 8, "CRITICAL": 10}
+            result["risk_score"] = mapping.get(risk.upper().split()[0], 3)
+        elif isinstance(risk, float):
+            result["risk_score"] = int(risk)
+        return result
     except:
         return {"explanation": "Parsing error", "fix": "Manual review", "risk_score": 5, "urgency": "Low"}
 
