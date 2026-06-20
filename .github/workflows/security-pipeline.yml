@@ -75,3 +75,39 @@ jobs:
             -H "Content-Type: application/json" \
             -d @-
         continue-on-error: true
+
+  deploy:
+    name: Build and Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and Push Images
+        run: |
+          gcloud builds submit --config cloudbuild.yaml .
+
+      - name: Deploy Backend
+        run: |
+          gcloud run deploy secureflow-backend \
+            --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:latest \
+            --region us-central1 \
+            --allow-unauthenticated
+
+      - name: Deploy Frontend
+        run: |
+          gcloud run deploy secureflow-frontend \
+            --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:latest \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --port 8080
