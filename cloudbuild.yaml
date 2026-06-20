@@ -1,6 +1,6 @@
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:latest', '-f', 'docker/Dockerfile', 'backend/']
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:latest', '-f', 'docker/Dockerfile', '.']
 - name: 'gcr.io/cloud-builders/docker'
   args: ['build', '-t', 'us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:latest', '--build-arg', 'REACT_APP_API_URL=https://secureflow-backend-1083585992526.us-central1.run.app', '-f', 'frontend/Dockerfile', 'frontend/']
 images:
