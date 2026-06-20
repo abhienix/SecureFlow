@@ -85,10 +85,6 @@ def get_metrics(db: Session = Depends(get_db)):
 
 
 def extract_vulnerabilities(findings: dict) -> list[dict]:
-    """
-    Pulls the vulnerability list out of Trivy's nested output and
-    reshapes it into the simpler format the rest of the app uses.
-    """
     vulnerabilities = []
     for result in findings.get("Results", []):
         for vuln in result.get("Vulnerabilities", []):
@@ -132,7 +128,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         repo_name=repo_name,
         branch=data.get("branch", "main"),
         scan_type=data.get("scan_type", "trivy"),
-        severity=data.get("severity", "unknown"),
+        severity=policy_result["severity"],
         findings=findings,
         ai_explanation=ai_explanation,
         ai_fix=ai_fix,

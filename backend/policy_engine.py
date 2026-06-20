@@ -42,6 +42,8 @@ def get_policy_for_repo(repo_name):
     short_repo_name = repo_name.split('/')[-1]
 
     if short_repo_name in repo_rules:
+        # Repo has its own rules. Let them override the default
+        # (but still fall back to default for anything the repo didn't set).
         return {**default_rules, **repo_rules[short_repo_name]}
 
     return default_rules
@@ -53,7 +55,8 @@ def check_allowlist(cve_id, policy):
     "known, can't fix yet, ok to ignore for now") in policy.yaml.
 
     Each allowlist entry has an expiry date - once it expires, the CVE
-    goes back to being treated normally.
+    goes back to being treated normally. This stops old exceptions from
+    being forgotten forever.
     """
     allowlist = policy.get('allowlist', [])
 
@@ -66,6 +69,7 @@ def check_allowlist(cve_id, policy):
         if datetime.now() < expiry_date:
             return True, entry['reason']
         else:
+            # Entry expired - treat as not allowlisted anymore.
             return False, None
 
     return False, None
@@ -89,6 +93,30 @@ def get_highest_cvss_score(vulnerability):
     return highest_score
 
 
+SEVERITY_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+
+
+def get_highest_severity_label(scan_findings):
+    """
+    Looks at every vulnerability in the scan and returns the single most
+    severe one found, as a clean label - e.g. "CRITICAL", "HIGH".
+
+    If there are no vulnerabilities at all, returns "CLEAN" instead of
+    "unknown" - a scan with nothing wrong should say so plainly.
+    """
+    highest_seen = None
+
+    for result in scan_findings.get('Results', []):
+        for vuln in result.get('Vulnerabilities', []):
+            severity = vuln.get('Severity', '').upper()
+            if severity not in SEVERITY_RANK:
+                continue
+            if highest_seen is None or SEVERITY_RANK[severity] > SEVERITY_RANK[highest_seen]:
+                highest_seen = severity
+
+    return highest_seen if highest_seen else "CLEAN"
+
+
 def evaluate_policy(scan_findings, repo_name):
     """
     Main entry point. Takes Trivy's scan output and decides ALLOW or BLOCK.
@@ -103,6 +131,8 @@ def evaluate_policy(scan_findings, repo_name):
     warned_vulns = []
     allowlisted_vulns = []
 
+    # Trivy nests results like: Results -> [ { Vulnerabilities: [...] } ]
+    # Flatten that into one simple list to make the next loop easier to read.
     all_vulns = []
     for result in scan_findings.get('Results', []):
         all_vulns.extend(result.get('Vulnerabilities', []))
@@ -120,7 +150,7 @@ def evaluate_policy(scan_findings, repo_name):
                 "severity": severity,
                 "reason": allowlist_reason,
             })
-            continue
+            continue  # skip the block/warn checks entirely - it's approved
 
         should_block = severity in block_on_severities or cvss_score >= cvss_block_threshold
 
@@ -155,6 +185,7 @@ def evaluate_policy(scan_findings, repo_name):
         "action": action,
         "reason": reason,
         "policy_used": policy_used,
+        "severity": get_highest_severity_label(scan_findings),
         "blocked": blocked_vulns,
         "warned": warned_vulns,
         "allowlisted": allowlisted_vulns,
