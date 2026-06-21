@@ -72,7 +72,10 @@ def get_gemini_client():
 def build_prompt(vuln: dict) -> str:
     # prompt for image scan CVEs — needs to explain the CVE, why this package
     # has it, and whether a fix exists. bullet points only, no essays.
-    return f"""You are a security expert. Analyze this CVE and return only a JSON object with these exact keys: explanation, fix, risk_score, urgency
+    # starting with a hard "JSON only" instruction reduces parse failures.
+    return f"""You must respond with ONLY a JSON object. No preamble, no markdown, no code fences. Raw JSON only.
+
+Analyze this CVE as a security expert and return a JSON object with these exact keys: explanation, fix, risk_score, urgency
 
 CVE: {vuln.get('id')}
 Package: {vuln.get('package')}
@@ -84,16 +87,16 @@ Rules:
 - explanation: 3-4 bullet points starting with •. Cover: what this CVE is, why this package has it (OS layer/base image/dependency), whether a fix exists and why not if unavailable.
 - fix: 1-2 bullet points with exact action. If no fix available write: "• No fix available — switch to python:3.11-slim base image to reduce attack surface"
 - risk_score: integer 1-10
-- urgency: one of Critical / High / Medium / Low
-
-Return only valid JSON, nothing else."""
+- urgency: one of Critical / High / Medium / Low"""
 
 
 def build_code_scan_prompt(reason: str) -> str:
     # prompt for code scan failures — Gitleaks or Semgrep blocked the pipeline.
     # we don't have line-level findings here, just the block reason, so we ask
     # the AI to explain the class of issue and what a developer should do next.
-    return f"""You are a security expert. A CI/CD code scan was blocked. Return only a JSON object with these exact keys: explanation, fix, risk_score, urgency
+    return f"""You must respond with ONLY a JSON object. No preamble, no markdown, no code fences. Raw JSON only.
+
+A CI/CD code scan was blocked. Analyze as a security expert and return a JSON object with these exact keys: explanation, fix, risk_score, urgency
 
 Block reason: {reason}
 
@@ -101,15 +104,15 @@ Rules:
 - explanation: 3-4 bullet points starting with •. Cover: what type of issue was detected, why it is a security risk, what could happen if exploited.
 - fix: 2-3 bullet points with exact steps a developer should take to resolve this.
 - risk_score: integer 1-10
-- urgency: one of Critical / High / Medium / Low
-
-Return only valid JSON, nothing else."""
+- urgency: one of Critical / High / Medium / Low"""
 
 
 def parse_json_response(raw: str) -> dict:
     # models sometimes wrap the JSON in markdown fences like ```json ... ```
     # or add a sentence before it. we just find the first { and last } and
     # parse whatever is between them.
+    # also log the raw response so we can debug parse failures in Cloud Run logs.
+    print(f"Raw AI response: {raw[:500]}")
     try:
         start = raw.find('{')
         end = raw.rfind('}') + 1
@@ -140,7 +143,7 @@ def analyze_with_groq(vuln: dict) -> dict:
     response = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[{"role": "user", "content": build_prompt(vuln)}],
-        temperature=0.3,
+        temperature=0.1,
     )
     return parse_json_response(response.choices[0].message.content)
 
@@ -220,7 +223,7 @@ def analyze_code_scan(reason: str) -> dict:
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[{"role": "user", "content": build_code_scan_prompt(reason)}],
-            temperature=0.3,
+            temperature=0.1,
         )
         print(f"Groq analyzed code scan failure successfully")
         return parse_json_response(response.choices[0].message.content)
