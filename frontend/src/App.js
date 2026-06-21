@@ -7,7 +7,7 @@ import {
 import {
   Shield, Activity, CheckCircle, XCircle, AlertTriangle, Zap, Cpu,
   RefreshCw, Bell, Search, Menu, X, ThumbsUp, ThumbsDown, Minus,
-  ChevronDown, ChevronUp, Package, AlertCircle, Info,
+  ChevronDown, ChevronUp, Package, Info,
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL || "https://secureflow-backend-1083585992526.us-central1.run.app";
