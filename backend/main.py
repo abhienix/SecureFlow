@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends
@@ -53,6 +54,61 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+
+@app.post("/api/scan-results/start")
+def start_scan_run(data: dict, db: Session = Depends(get_db)):
+    """
+    Called once, right after checkout, before any scanning happens.
+    Creates a placeholder row with status="running" so the dashboard can
+    show this commit moving through the pipeline in real time, instead of
+    only ever seeing finished results once everything is already done.
+
+    Returns the row id — the workflow passes this back as run_id on later
+    calls to /api/scan-results so we update this same row instead of
+    creating a duplicate.
+    """
+    scan = ScanResult(
+        commit_sha=data.get("commit_sha", "unknown"),
+        commit_message=data.get("commit_message", ""),
+        repo_name=data.get("repo_name", "unknown"),
+        branch=data.get("branch", "main"),
+        scan_type=data.get("scan_type", "full-pipeline"),
+        severity=None,
+        findings={},
+        ai_explanation="",
+        ai_fix="",
+        risk_score=None,
+        action_taken=None,
+        pipeline_steps={},
+        status="running",
+        started_at=datetime.utcnow(),
+    )
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+
+    return {"status": "started", "run_id": scan.id}
+
+
+@app.patch("/api/scan-results/{run_id}/progress")
+def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):
+    """
+    Called after each stage finishes (code scan, image build, Trivy scan)
+    so the running row's pipeline_steps fills in live instead of arriving
+    all at once at the end. Merges into whatever pipeline_steps already
+    exist rather than overwriting them.
+    """
+    scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
+    if not scan:
+        return {"error": "run not found"}
+
+    existing_steps = dict(scan.pipeline_steps or {})
+    existing_steps.update(data.get("pipeline_steps", {}))
+    scan.pipeline_steps = existing_steps
+    db.commit()
+
+    return {"status": "progress updated", "run_id": run_id}
 
 
 @app.get("/api/migrate")
@@ -116,26 +172,56 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
 def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
+    run_id = data.get("run_id")  # set if /api/scan-results/start was called first
+    pipeline_steps = data.get("pipeline_steps", {})
+
+    def save_scan(fields: dict):
+        """
+        If run_id points at an existing "running" row, update it in place
+        (this is the normal path now — start() created the row, this call
+        finishes it). Otherwise insert a new row, which keeps older workflow
+        runs that never called /start working exactly as before.
+        """
+        if run_id:
+            scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
+            if scan:
+                for key, value in fields.items():
+                    setattr(scan, key, value)
+                scan.status = "complete"
+                # Build a brand new dict rather than mutating scan.pipeline_steps
+                # in place. SQLAlchemy only detects column changes on
+                # reassignment to a new object — mutating the existing dict
+                # and reassigning the same object back does NOT mark it
+                # dirty, so the update would silently fail to persist.
+                merged_steps = dict(scan.pipeline_steps or {})
+                merged_steps.update(pipeline_steps)
+                scan.pipeline_steps = merged_steps
+                db.commit()
+                db.refresh(scan)
+                return scan
+
+        scan = ScanResult(**fields, pipeline_steps=pipeline_steps, status="complete")
+        db.add(scan)
+        db.commit()
+        db.refresh(scan)
+        return scan
 
     # Code scans (Gitleaks + Semgrep) send severity and action directly
     # — no image findings to parse, no policy engine needed
     if scan_type == "code-scan":
-        scan = ScanResult(
-            commit_sha=data.get("commit_sha", "unknown"),
-            commit_message=data.get("commit_message", ""),
-            repo_name=repo_name,
-            branch=data.get("branch", "main"),
-            scan_type=scan_type,
-            severity=data.get("severity", "CLEAN"),
-            findings={},
-            ai_explanation="",
-            ai_fix="",
-            risk_score=None,
-            action_taken=data.get("action", "ALLOW"),
-        )
-        db.add(scan)
-        db.commit()
-        db.refresh(scan)
+        scan = save_scan({
+            "commit_sha": data.get("commit_sha", "unknown"),
+            "commit_message": data.get("commit_message", ""),
+            "repo_name": repo_name,
+            "branch": data.get("branch", "main"),
+            "scan_type": scan_type,
+            "severity": data.get("severity", "CLEAN"),
+            "findings": {},
+            "ai_explanation": "",
+            "ai_fix": "",
+            "risk_score": None,
+            "action_taken": data.get("action", "ALLOW"),
+        })
 
         print(f"code-scan recorded: {scan.action_taken} — {data.get('reason', '')}")
 
@@ -167,22 +253,19 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     ai_fix = first_ai_result.get("fix", "")
     risk_score = first_ai_result.get("risk_score", None)
 
-    scan = ScanResult(
-        commit_sha=data.get("commit_sha", "unknown"),
-        commit_message=data.get("commit_message", ""),
-        repo_name=repo_name,
-        branch=data.get("branch", "main"),
-        scan_type=scan_type,
-        severity=policy_result["severity"],
-        findings=findings,
-        ai_explanation=ai_explanation,
-        ai_fix=ai_fix,
-        risk_score=risk_score,
-        action_taken=policy_result["action"],
-    )
-    db.add(scan)
-    db.commit()
-    db.refresh(scan)
+    scan = save_scan({
+        "commit_sha": data.get("commit_sha", "unknown"),
+        "commit_message": data.get("commit_message", ""),
+        "repo_name": repo_name,
+        "branch": data.get("branch", "main"),
+        "scan_type": scan_type,
+        "severity": policy_result["severity"],
+        "findings": findings,
+        "ai_explanation": ai_explanation,
+        "ai_fix": ai_fix,
+        "risk_score": risk_score,
+        "action_taken": policy_result["action"],
+    })
 
     try:
         send_slack_alert(data, ai_results, policy_result["action"], policy_result["reason"])
