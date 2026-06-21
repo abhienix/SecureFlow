@@ -41,6 +41,9 @@ jobs:
           GITLEAKS_RESULT: ${{ steps.gitleaks.outcome }}
           SEMGREP_RESULT: ${{ steps.semgrep.outcome }}
         run: |
+          echo "Gitleaks outcome: $GITLEAKS_RESULT"
+          echo "Semgrep outcome: $SEMGREP_RESULT"
+
           if [ "$GITLEAKS_RESULT" = "failure" ] || [ "$SEMGREP_RESULT" = "failure" ]; then
             CODE_SEVERITY="HIGH"
             CODE_ACTION="BLOCK"
