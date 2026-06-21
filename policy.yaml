@@ -47,6 +47,15 @@ repos:
       - cve: CVE-2005-2541
         expires: 2026-12-01
         reason: "tar, known ancient issue, no upstream fix, OS-level package"
+      - cve: CVE-2025-62727
+        expires: 2026-12-01
+        reason: "starlette, fix requires v0.49.1+ which conflicts with fastapi 0.115.x constraint"
+      - cve: CVE-2026-48818
+        expires: 2026-12-01
+        reason: "starlette, fix requires v1.1.0+ which conflicts with fastapi 0.115.x constraint"
+      - cve: CVE-2026-54283
+        expires: 2026-12-01
+        reason: "starlette, fix requires v1.3.1+ which conflicts with fastapi 0.115.x constraint"
 notifications:
   slack: true
   on_block: true
