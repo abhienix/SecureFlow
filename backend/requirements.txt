@@ -10,3 +10,4 @@ prometheus-fastapi-instrumentator==6.1.0
 google-genai==1.0.0
 wheel==0.46.2
 PyYAML==6.0.2
+groq==0.28.0
