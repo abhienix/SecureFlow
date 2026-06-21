@@ -34,8 +34,6 @@ import time
 
 from google import genai
 
-# only set this to true if you're running Ollama locally alongside the app.
-# on Cloud Run this should always be false — there's no local model there.
 USE_OLLAMA_FALLBACK = os.getenv("USE_OLLAMA_FALLBACK", "false").lower() == "true"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen2.5:7b"
@@ -43,7 +41,6 @@ OLLAMA_MODEL = "qwen2.5:7b"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GEMINI_MODEL = "gemini-2.5-flash"
 
-# these get built the first time they're needed, not at import time
 _groq_client = None
 _gemini_client = None
 
@@ -70,32 +67,29 @@ def get_gemini_client():
 
 
 def build_prompt(vuln: dict) -> str:
-    # keep the prompt short and strict — the model needs to return clean JSON,
-    # not an essay. the parse_json_response function handles messy output but
-    # a tight prompt reduces how often that's needed.
-    return f"""You are a security expert. Return only a JSON object with these exact keys:
-explanation, fix, risk_score, urgency
+    return f"""You are a security expert. Analyze this CVE and return only a JSON object with these exact keys: explanation, fix, risk_score, urgency
 
 CVE: {vuln.get('id')}
 Package: {vuln.get('package')}
 Severity: {vuln.get('severity')}
 Fix version: {vuln.get('fix')}
+Description: {vuln.get('description')}
 
-risk_score must be an integer from 1 to 10.
+Rules:
+- explanation: 3-4 bullet points starting with •. Must cover: what this CVE is, why this specific package has it (OS layer/base image/dependency), whether a fix exists and why not if unavailable.
+- fix: 1-2 bullet points with exact action. If no fix available write: "• No fix available — switch to python:3.11-slim base image to reduce attack surface"
+- risk_score: integer 1-10
+- urgency: one of Critical / High / Medium / Low
+
 Return only valid JSON, nothing else."""
 
 
 def parse_json_response(raw: str) -> dict:
-    # models sometimes wrap the JSON in markdown fences like ```json ... ```
-    # or add a sentence before it. we just find the first { and last } and
-    # parse whatever is between them.
     try:
         start = raw.find('{')
         end = raw.rfind('}') + 1
         result = json.loads(raw[start:end])
 
-        # some models return risk_score as a string like "HIGH" or a float.
-        # normalize it to an integer so the dashboard always gets a number.
         risk = result.get("risk_score", 5)
         if isinstance(risk, str):
             severity_to_score = {"LOW": 2, "MEDIUM": 5, "HIGH": 8, "CRITICAL": 10}
@@ -134,8 +128,6 @@ def analyze_with_gemini(vuln: dict) -> dict:
 
 
 def analyze_with_ollama(vuln: dict) -> dict:
-    # importing requests here instead of at the top because this function
-    # only runs in local/on-prem deployments — no point importing it otherwise
     import requests
     response = requests.post(
         OLLAMA_URL,
@@ -150,8 +142,6 @@ def analyze_with_ollama(vuln: dict) -> dict:
 
 
 def unavailable_result(reason: str) -> dict:
-    # this is what the dashboard gets when no provider worked.
-    # explicit and honest — never a fake score that looks like real data.
     return {
         "explanation": f"AI analysis unavailable ({reason}).",
         "fix": "See FixedVersion in scan results for the recommended fix.",
@@ -161,7 +151,6 @@ def unavailable_result(reason: str) -> dict:
 
 
 def analyze_vulnerability(vuln: dict) -> dict:
-    # try Groq first — it's the fastest and has the most generous free quota
     try:
         result = analyze_with_groq(vuln)
         print(f"Groq analyzed {vuln.get('id')} successfully")
@@ -169,7 +158,6 @@ def analyze_vulnerability(vuln: dict) -> dict:
     except Exception as e:
         print(f"Groq failed for {vuln.get('id')}: {e}")
 
-    # Groq is down or quota hit — try Gemini
     try:
         result = analyze_with_gemini(vuln)
         print(f"Gemini analyzed {vuln.get('id')} successfully")
@@ -177,7 +165,6 @@ def analyze_vulnerability(vuln: dict) -> dict:
     except Exception as e:
         print(f"Gemini failed for {vuln.get('id')}: {e}")
 
-    # both cloud providers failed — try local Ollama if it's configured
     if USE_OLLAMA_FALLBACK:
         try:
             result = analyze_with_ollama(vuln)
@@ -191,9 +178,6 @@ def analyze_vulnerability(vuln: dict) -> dict:
 
 
 def analyze_scan(vulnerabilities: list) -> list:
-    # only analyze the top 3 by CVSS score — the most critical ones.
-    # no point sending 124 vulnerabilities to an AI when 121 of them
-    # are low-severity OS packages with no fix available.
     top_vulns = sorted(
         vulnerabilities,
         key=lambda v: v.get("score") or 0,
@@ -202,7 +186,7 @@ def analyze_scan(vulnerabilities: list) -> list:
 
     results = []
     for vuln in top_vulns:
-        time.sleep(1)  # small gap between calls to avoid rate limits
+        time.sleep(1)
         analysis = analyze_vulnerability(vuln)
         analysis["cve_id"] = vuln.get("id")
         analysis["package"] = vuln.get("package")
