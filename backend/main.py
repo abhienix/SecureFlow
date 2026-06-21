@@ -281,4 +281,11 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
-    return db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()
+    # strip findings from the list response — it's massive Trivy JSON that
+    # the dashboard list view never needs. saves ~22MB per request and stops
+    # the backend from hitting the memory limit on every poll.
+    scans = db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()
+    return [
+        {k: v for k, v in scan.__dict__.items() if k != "findings" and not k.startswith("_")}
+        for scan in scans
+    ]
