@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from models import Base, ScanResult
 from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label
-from claude_client import analyze_scan
+from claude_client import analyze_scan, analyze_code_scan
 from slack_notifier import send_slack_alert
 
 load_dotenv()
@@ -22,7 +22,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="SecureFlow — AI-Powered Security Gate for CI/CD", version="1.0.0")
+app = FastAPI(title="SecureFlow - AI-Powered Security Gate for CI/CD", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,7 +48,7 @@ def get_db():
 
 @app.get("/")
 def root():
-    return {"message": "SecureFlow — AI-Powered Security Gate for CI/CD"}
+    return {"message": "SecureFlow - AI-Powered Security Gate for CI/CD"}
 
 
 @app.get("/health")
@@ -58,16 +58,6 @@ def health():
 
 @app.post("/api/scan-results/start")
 def start_scan_run(data: dict, db: Session = Depends(get_db)):
-    """
-    Called once, right after checkout, before any scanning happens.
-    Creates a placeholder row with status="running" so the dashboard can
-    show this commit moving through the pipeline in real time, instead of
-    only ever seeing finished results once everything is already done.
-
-    Returns the row id — the workflow passes this back as run_id on later
-    calls to /api/scan-results so we update this same row instead of
-    creating a duplicate.
-    """
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
         commit_message=data.get("commit_message", ""),
@@ -87,18 +77,11 @@ def start_scan_run(data: dict, db: Session = Depends(get_db)):
     db.add(scan)
     db.commit()
     db.refresh(scan)
-
     return {"status": "started", "run_id": scan.id}
 
 
 @app.patch("/api/scan-results/{run_id}/progress")
 def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):
-    """
-    Called after each stage finishes (code scan, image build, Trivy scan)
-    so the running row's pipeline_steps fills in live instead of arriving
-    all at once at the end. Merges into whatever pipeline_steps already
-    exist rather than overwriting them.
-    """
     scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
     if not scan:
         return {"error": "run not found"}
@@ -107,7 +90,6 @@ def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db))
     existing_steps.update(data.get("pipeline_steps", {}))
     scan.pipeline_steps = existing_steps
     db.commit()
-
     return {"status": "progress updated", "run_id": run_id}
 
 
@@ -172,27 +154,16 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
 def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
-    run_id = data.get("run_id")  # set if /api/scan-results/start was called first
+    run_id = data.get("run_id")
     pipeline_steps = data.get("pipeline_steps", {})
 
     def save_scan(fields: dict):
-        """
-        If run_id points at an existing "running" row, update it in place
-        (this is the normal path now — start() created the row, this call
-        finishes it). Otherwise insert a new row, which keeps older workflow
-        runs that never called /start working exactly as before.
-        """
         if run_id:
             scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
             if scan:
                 for key, value in fields.items():
                     setattr(scan, key, value)
                 scan.status = "complete"
-                # Build a brand new dict rather than mutating scan.pipeline_steps
-                # in place. SQLAlchemy only detects column changes on
-                # reassignment to a new object — mutating the existing dict
-                # and reassigning the same object back does NOT mark it
-                # dirty, so the update would silently fail to persist.
                 merged_steps = dict(scan.pipeline_steps or {})
                 merged_steps.update(pipeline_steps)
                 scan.pipeline_steps = merged_steps
@@ -206,9 +177,23 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         db.refresh(scan)
         return scan
 
-    # Code scans (Gitleaks + Semgrep) send severity and action directly
-    # — no image findings to parse, no policy engine needed
     if scan_type == "code-scan":
+        action = data.get("action", "ALLOW")
+        reason = data.get("reason", "")
+
+        ai_explanation = ""
+        ai_fix = ""
+        ai_risk_score = None
+
+        if action == "BLOCK":
+            try:
+                code_ai = analyze_code_scan(reason)
+                ai_explanation = code_ai.get("explanation", "")
+                ai_fix = code_ai.get("fix", "")
+                ai_risk_score = code_ai.get("risk_score", None)
+            except Exception as e:
+                print(f"Code scan AI failed: {e}")
+
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
@@ -217,28 +202,26 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "scan_type": scan_type,
             "severity": data.get("severity", "CLEAN"),
             "findings": {},
-            "ai_explanation": "",
-            "ai_fix": "",
-            "risk_score": None,
-            "action_taken": data.get("action", "ALLOW"),
+            "ai_explanation": ai_explanation,
+            "ai_fix": ai_fix,
+            "risk_score": ai_risk_score,
+            "action_taken": action,
         })
 
-        print(f"code-scan recorded: {scan.action_taken} — {data.get('reason', '')}")
+        print(f"code-scan recorded: {scan.action_taken} - {reason}")
 
         return {
             "status": "processed",
             "id": scan.id,
             "action": scan.action_taken,
-            "reason": data.get("reason", ""),
+            "reason": reason,
         }
 
-    # Image scans (Trivy) — run through policy engine as before
     findings = data.get("findings", {})
-
     policy_result = evaluate_policy(findings, repo_name)
     vulnerabilities = extract_vulnerabilities(findings)
 
-    print(f"policy result: {policy_result['action']} — {policy_result['reason']}")
+    print(f"policy result: {policy_result['action']} - {policy_result['reason']}")
     print(f"vulnerabilities extracted: {len(vulnerabilities)}")
 
     ai_results = []
@@ -298,5 +281,4 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
-    return db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()#   u p d a t e d  
- 
+    return db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()
