@@ -298,4 +298,5 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
-    return db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()
+    return db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()#   u p d a t e d  
+ 
