@@ -28,7 +28,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://secureflow-frontend-1083585992526.us-central1.run.app",
-        "https://secure-flow.vercel.app",  # ← add this
+        "https://secure-flow-rho.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
