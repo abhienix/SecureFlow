@@ -26,11 +26,7 @@ app = FastAPI(title="SecureFlow - AI-Powered Security Gate for CI/CD", version="
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://secureflow-frontend-1083585992526.us-central1.run.app",
-        "http://localhost:3000",
-        "http://localhost:3001",
-    ],
+    allow_origins=["*"],  # open for all devices — Problem 8 fix
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -93,6 +89,19 @@ def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db))
     return {"status": "progress updated", "run_id": run_id}
 
 
+# Problem 5 — fix stuck running scans
+@app.post("/api/scan-results/{run_id}/cancel")
+def cancel_stuck_scan(run_id: int, db: Session = Depends(get_db)):
+    scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
+    if not scan:
+        return {"error": "run not found"}
+    scan.status = "complete"
+    scan.action_taken = scan.action_taken or "CANCELLED"
+    scan.severity = scan.severity or "UNKNOWN"
+    db.commit()
+    return {"status": "cancelled", "run_id": run_id}
+
+
 @app.get("/api/migrate")
 def migrate(db: Session = Depends(get_db)):
     db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
@@ -117,14 +126,11 @@ def backfill_severity(db: Session = Depends(get_db)):
 def get_metrics(db: Session = Depends(get_db)):
     scans = db.query(ScanResult).all()
     total = len(scans)
-
     blocked = len([s for s in scans if s.action_taken == "BLOCK"])
     allowed = len([s for s in scans if s.action_taken == "ALLOW"])
     critical = len([s for s in scans if s.severity == "CRITICAL"])
-
     avg_risk = round(sum(s.risk_score or 0 for s in scans) / total, 1) if total else 0
     block_rate = round(blocked / total * 100, 1) if total else 0
-
     return {
         "total_scans": total,
         "blocked": blocked,
@@ -148,6 +154,65 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
                 "description": vuln.get("Description", "")[:300],
             })
     return vulnerabilities
+
+
+def build_vuln_breakdown(vulnerabilities: list[dict]) -> dict:
+    """
+    Problem 7 — split vulns into base-image noise vs real fixable issues.
+    Returns a breakdown dict saved alongside the scan and sent to the frontend.
+    """
+    base_image_packages = {
+        "libc-bin", "libc6", "libgcc-s1", "libssl3", "libssl1.1",
+        "openssl", "libcurl4", "curl", "libsystemd0", "libudev1",
+        "perl", "perl-base", "tar", "coreutils", "bash", "login",
+        "libpam-modules", "libpam-runtime", "passwd", "util-linux",
+        "mount", "fdisk", "e2fsprogs", "libext2fs2", "libcom-err2",
+        "libss2", "logsave", "libblkid1", "libmount1", "libsmartcols1",
+        "libuuid1", "zlib1g", "libzstd1", "liblzma5", "libbz2-1.0",
+        "libpcre2-8-0", "libpcre3", "libgmp10", "libgnutls30",
+        "libhogweed6", "libnettle8", "libp11-kit0", "libtasn1-6",
+        "libffi8", "libgdbm6", "libgdbm-compat4", "libdb5.3",
+        "libexpat1", "libsqlite3-0", "libreadline8", "readline-common",
+        "tzdata", "debconf", "dpkg", "apt", "gpgv", "gnupg-l10n",
+    }
+
+    base_cves = []
+    fixable = []
+    app_cves = []
+
+    for v in vulnerabilities:
+        pkg = (v.get("package") or "").lower()
+        fix = v.get("fix") or "no fix available"
+        has_fix = fix and fix != "no fix available"
+
+        if pkg in base_image_packages:
+            base_cves.append(v)
+        elif has_fix:
+            fixable.append(v)
+        else:
+            app_cves.append(v)
+
+    return {
+        "base_image_count": len(base_cves),
+        "fixable_count": len(fixable),
+        "app_count": len(app_cves),
+        "total": len(vulnerabilities),
+        "fixable_details": [
+            {
+                "id": v["id"],
+                "package": v["package"],
+                "severity": v["severity"],
+                "fix": v["fix"],
+            }
+            for v in sorted(fixable, key=lambda x: x.get("score") or 0, reverse=True)[:5]
+        ],
+        "base_image_note": (
+            f"{len(base_cves)} CVEs are from the Debian base layer of the Docker image "
+            f"(python:3.11). These are not in your code. "
+            f"Remedy: switch to python:3.11-slim to reduce this by ~80%."
+            if base_cves else ""
+        ),
+    }
 
 
 @app.post("/api/scan-results")
@@ -177,6 +242,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         db.refresh(scan)
         return scan
 
+    # ── CODE SCAN (Gitleaks / Semgrep) ──────────────────────────────────────
     if scan_type == "code-scan":
         action = data.get("action", "ALLOW")
         reason = data.get("reason", "")
@@ -185,14 +251,22 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         ai_fix = ""
         ai_risk_score = None
 
-        if action == "BLOCK":
-            try:
-                code_ai = analyze_code_scan(reason)
-                ai_explanation = code_ai.get("explanation", "")
-                ai_fix = code_ai.get("fix", "")
-                ai_risk_score = code_ai.get("risk_score", None)
-            except Exception as e:
-                print(f"Code scan AI failed: {e}")
+        # Problem 2 — AI always runs on code-scan, not just on BLOCK
+        try:
+            code_ai = analyze_code_scan(reason)
+            ai_explanation = code_ai.get("explanation", "")
+            ai_fix = code_ai.get("fix", "")
+            ai_risk_score = code_ai.get("risk_score", None)
+        except Exception as e:
+            print(f"Code scan AI failed: {e}")
+            if action == "BLOCK":
+                ai_explanation = (
+                    f"Code scan was blocked. Reason: {reason}. "
+                    "Check the Gitleaks/Semgrep output above for the exact secret or pattern that triggered this."
+                )
+
+        # Problem 1 — if ALLOW, severity is CLEAN regardless of anything
+        display_severity = "CLEAN" if action == "ALLOW" else data.get("severity", "HIGH")
 
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
@@ -200,7 +274,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "repo_name": repo_name,
             "branch": data.get("branch", "main"),
             "scan_type": scan_type,
-            "severity": data.get("severity", "CLEAN"),
+            "severity": display_severity,
             "findings": {},
             "ai_explanation": ai_explanation,
             "ai_fix": ai_fix,
@@ -217,6 +291,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "reason": reason,
         }
 
+    # ── TRIVY SCAN ───────────────────────────────────────────────────────────
     findings = data.get("findings", {})
     policy_result = evaluate_policy(findings, repo_name)
     vulnerabilities = extract_vulnerabilities(findings)
@@ -224,10 +299,13 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     print(f"policy result: {policy_result['action']} - {policy_result['reason']}")
     print(f"vulnerabilities extracted: {len(vulnerabilities)}")
 
+    # Problem 7 — build breakdown before AI so AI can reference it
+    vuln_breakdown = build_vuln_breakdown(vulnerabilities)
+
     ai_results = []
     if vulnerabilities:
         try:
-            ai_results = analyze_scan(vulnerabilities)
+            ai_results = analyze_scan(vulnerabilities, vuln_breakdown)
         except Exception as e:
             print(f"AI analysis failed (skipping): {e}")
 
@@ -236,18 +314,32 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     ai_fix = first_ai_result.get("fix", "")
     risk_score = first_ai_result.get("risk_score", None)
 
+    # Problem 1 — AI decides the display severity, not raw Trivy
+    # If policy ALLOWs, never show CRITICAL — cap at AI-decided level
+    ai_severity = first_ai_result.get("severity", None)
+    if policy_result["action"] == "ALLOW":
+        # Trust AI severity; fall back to MEDIUM max if AI didn't decide
+        display_severity = ai_severity if ai_severity else "MEDIUM"
+        # Never show CRITICAL when action is ALLOW
+        if display_severity == "CRITICAL":
+            display_severity = "HIGH"
+    else:
+        display_severity = policy_result["severity"]
+
     scan = save_scan({
         "commit_sha": data.get("commit_sha", "unknown"),
         "commit_message": data.get("commit_message", ""),
         "repo_name": repo_name,
         "branch": data.get("branch", "main"),
         "scan_type": scan_type,
-        "severity": policy_result["severity"],
+        "severity": display_severity,
         "findings": findings,
         "ai_explanation": ai_explanation,
         "ai_fix": ai_fix,
         "risk_score": risk_score,
         "action_taken": policy_result["action"],
+        # Problem 7 — store breakdown so frontend can show it
+        "vuln_breakdown": vuln_breakdown,
     })
 
     try:
@@ -265,6 +357,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         "warned": policy_result["warned"],
         "allowlisted": policy_result["allowlisted"],
         "ai_analysis": ai_results,
+        "vuln_breakdown": vuln_breakdown,
     }
 
 
@@ -273,7 +366,6 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
     scan = db.query(ScanResult).filter(ScanResult.id == scan_id).first()
     if not scan:
         return {"error": "scan not found"}
-
     scan.ai_feedback = feedback.get("feedback")
     db.commit()
     return {"status": "feedback saved", "scan_id": scan_id}
@@ -281,9 +373,6 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
-    # strip findings from the list response — it's massive Trivy JSON that
-    # the dashboard list view never needs. saves ~22MB per request and stops
-    # the backend from hitting the memory limit on every poll.
     scans = db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()
     return [
         {k: v for k, v in scan.__dict__.items() if k != "findings" and not k.startswith("_")}
