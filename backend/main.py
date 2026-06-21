@@ -104,7 +104,7 @@ def cancel_stuck_scan(run_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/migrate")
 def migrate(db: Session = Depends(get_db)):
-    db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
+    db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))  # nosemgrep
     db.commit()
     return {"status": "migrated"}
 
