@@ -20,6 +20,34 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Step 0 — tell the dashboard this commit has entered the pipeline,
+      # before any scanning has happened. Lets the dashboard show a live,
+      # in-progress run instead of only ever seeing finished results.
+      - name: Notify Pipeline Start
+        id: pipeline_start
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          REPO_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO_NAME" \
+            --arg sha "$COMMIT_SHA" \
+            --arg branch "$BRANCH_NAME" \
+            --arg commit_msg "$COMMIT_MESSAGE" \
+            --arg scan_type "full-pipeline" \
+            '{ repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg, scan_type: $scan_type }')
+
+          RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results/start" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+
+          echo "Backend response: $RESPONSE"
+          RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id')
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
       # Step 1 — check for secrets in the code
       - name: Run Gitleaks
         id: gitleaks
@@ -36,12 +64,39 @@ jobs:
         with:
           config: auto
 
+      # Step 2.5 — code scan stage finished, push that progress to the
+      # dashboard right away so the "code scan" circle fills in live
+      # instead of waiting for the whole pipeline to finish
+      - name: Notify Code Scan Progress
+        if: steps.pipeline_start.outputs.run_id != ''
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+          GITLEAKS_RESULT: ${{ steps.gitleaks.outcome }}
+          SEMGREP_RESULT: ${{ steps.semgrep.outcome }}
+        run: |
+          if [ "$GITLEAKS_RESULT" = "failure" ] || [ "$SEMGREP_RESULT" = "failure" ]; then
+            STEP_RESULT="BLOCK"
+          else
+            STEP_RESULT="PASS"
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg result "$STEP_RESULT" \
+            --arg detail "gitleaks=$GITLEAKS_RESULT semgrep=$SEMGREP_RESULT" \
+            '{ pipeline_steps: { code_scan: { result: $result, detail: $detail } } }')
+
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
       # Step 3 — if code scan caught something, report it and stop here
       # no point building the image if the code itself is already bad
       - name: Block on Code Scan Failure
         if: steps.gitleaks.outcome == 'failure' || steps.semgrep.outcome == 'failure'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
           REPO_NAME: ${{ github.repository }}
           COMMIT_SHA: ${{ github.sha }}
           BRANCH_NAME: ${{ github.ref_name }}
@@ -64,6 +119,7 @@ jobs:
             --arg severity "HIGH" \
             --arg action "BLOCK" \
             --arg reason "$REASON" \
+            --argjson run_id "${RUN_ID:-null}" \
             --arg code_detail "gitleaks=$GITLEAKS_RESULT semgrep=$SEMGREP_RESULT" \
             '{
               repo_name: $repo,
@@ -74,6 +130,7 @@ jobs:
               severity: $severity,
               action: $action,
               reason: $reason,
+              run_id: $run_id,
               findings: {},
               pipeline_steps: {
                 code_scan: { result: "BLOCK", detail: $code_detail },
@@ -105,6 +162,7 @@ jobs:
         if: steps.changes.outputs.image_changed == 'false'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
           REPO_NAME: ${{ github.repository }}
           COMMIT_SHA: ${{ github.sha }}
           BRANCH_NAME: ${{ github.ref_name }}
@@ -119,6 +177,7 @@ jobs:
             --arg severity "CLEAN" \
             --arg action "ALLOW" \
             --arg reason "Code scan passed, no image changes" \
+            --argjson run_id "${RUN_ID:-null}" \
             '{
               repo_name: $repo,
               commit_sha: $sha,
@@ -128,6 +187,7 @@ jobs:
               severity: $severity,
               action: $action,
               reason: $reason,
+              run_id: $run_id,
               findings: {},
               pipeline_steps: {
                 code_scan: { result: "PASS", detail: "no secrets or bad patterns found" },
@@ -167,6 +227,17 @@ jobs:
         run: |
           docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
 
+      # Step 7.5 — image built and pushed, push that progress live too
+      - name: Notify Build Progress
+        if: steps.changes.outputs.image_changed == 'true' && steps.pipeline_start.outputs.run_id != ''
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+        run: |
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d '{ "pipeline_steps": { "image_build": { "result": "PASS", "detail": "image built and pushed" } } }'
+
       # Step 8 — scan the exact image we just pushed, not some cached version
       - name: Run Trivy CVE Scan
         if: steps.changes.outputs.image_changed == 'true'
@@ -192,6 +263,7 @@ jobs:
         id: gate
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
           REPO_NAME: ${{ github.repository }}
           COMMIT_SHA: ${{ github.sha }}
           BRANCH_NAME: ${{ github.ref_name }}
@@ -207,6 +279,7 @@ jobs:
             --arg commit_msg "$COMMIT_MESSAGE" \
             --arg scan_type "full-pipeline" \
             --argjson vuln_count "$VULN_COUNT" \
+            --argjson run_id "${RUN_ID:-null}" \
             --slurpfile findings trivy-results.json \
             '{
               repo_name: $repo,
@@ -214,6 +287,7 @@ jobs:
               branch: $branch,
               commit_message: $commit_msg,
               scan_type: $scan_type,
+              run_id: $run_id,
               findings: $findings[0],
               pipeline_steps: {
                 code_scan: { result: "PASS", detail: "no secrets or bad patterns found" },
