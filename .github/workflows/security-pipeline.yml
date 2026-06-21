@@ -1,0 +1,263 @@
+name: SecureFlow Security Pipeline
+
+# Runs on every push to main or dev.
+# One job, one dashboard entry, full story.
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  security-pipeline:
+    name: Full Security Check
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Step 1 — check for secrets in the code
+      - name: Run Gitleaks
+        id: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 2 — check for insecure code patterns
+      - name: Run Semgrep
+        id: semgrep
+        continue-on-error: true
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: auto
+
+      # Step 3 — if code scan caught something, report it and stop here
+      # no point building the image if the code itself is already bad
+      - name: Block on Code Scan Failure
+        if: steps.gitleaks.outcome == 'failure' || steps.semgrep.outcome == 'failure'
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          REPO_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          GITLEAKS_RESULT: ${{ steps.gitleaks.outcome }}
+          SEMGREP_RESULT: ${{ steps.semgrep.outcome }}
+        run: |
+          if [ "$GITLEAKS_RESULT" = "failure" ]; then
+            REASON="Secret or credential found in code (Gitleaks)"
+          else
+            REASON="Insecure code pattern detected (Semgrep)"
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO_NAME" \
+            --arg sha "$COMMIT_SHA" \
+            --arg branch "$BRANCH_NAME" \
+            --arg commit_msg "$COMMIT_MESSAGE" \
+            --arg scan_type "full-pipeline" \
+            --arg severity "HIGH" \
+            --arg action "BLOCK" \
+            --arg reason "$REASON" \
+            --arg code_detail "gitleaks=$GITLEAKS_RESULT semgrep=$SEMGREP_RESULT" \
+            '{
+              repo_name: $repo,
+              commit_sha: $sha,
+              branch: $branch,
+              commit_message: $commit_msg,
+              scan_type: $scan_type,
+              severity: $severity,
+              action: $action,
+              reason: $reason,
+              findings: {},
+              pipeline_steps: {
+                code_scan: { result: "BLOCK", detail: $code_detail },
+                image_scan: { result: "skipped", detail: "pipeline stopped at code scan" }
+              }
+            }')
+
+          curl -sS -X POST "$BACKEND_URL/api/scan-results" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
+          exit 1
+
+      # Step 4 — figure out if backend/docker files actually changed
+      # if only README or frontend changed, no point rebuilding the image
+      - name: Check if image needs rebuilding
+        id: changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only $(git hash-object -t tree /dev/null) HEAD)
+          echo "Changed: $CHANGED"
+          if echo "$CHANGED" | grep -qE '^(backend/|docker/|policy\.yaml|requirements)'; then
+            echo "image_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Step 5 — if nothing image-related changed, just report clean and done
+      - name: Report Clean (no image changes)
+        if: steps.changes.outputs.image_changed == 'false'
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          REPO_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO_NAME" \
+            --arg sha "$COMMIT_SHA" \
+            --arg branch "$BRANCH_NAME" \
+            --arg commit_msg "$COMMIT_MESSAGE" \
+            --arg scan_type "full-pipeline" \
+            --arg severity "CLEAN" \
+            --arg action "ALLOW" \
+            --arg reason "Code scan passed, no image changes" \
+            '{
+              repo_name: $repo,
+              commit_sha: $sha,
+              branch: $branch,
+              commit_message: $commit_msg,
+              scan_type: $scan_type,
+              severity: $severity,
+              action: $action,
+              reason: $reason,
+              findings: {},
+              pipeline_steps: {
+                code_scan: { result: "PASS", detail: "no secrets or bad patterns found" },
+                image_scan: { result: "skipped", detail: "no backend or docker files changed" }
+              }
+            }')
+
+          curl -sS -X POST "$BACKEND_URL/api/scan-results" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
+      # Step 6 — authenticate to GCP so we can push to Artifact Registry
+      - name: Authenticate to Google Cloud
+        if: steps.changes.outputs.image_changed == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        if: steps.changes.outputs.image_changed == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        if: steps.changes.outputs.image_changed == 'true'
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      # Step 7 — build and push the image we're actually going to scan
+      - name: Build Backend Image
+        if: steps.changes.outputs.image_changed == 'true'
+        run: |
+          docker build \
+            -t us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
+            -f docker/Dockerfile .
+
+      - name: Push Backend Image
+        if: steps.changes.outputs.image_changed == 'true'
+        run: |
+          docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
+
+      # Step 8 — scan the exact image we just pushed, not some cached version
+      - name: Run Trivy CVE Scan
+        if: steps.changes.outputs.image_changed == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
+          format: json
+          output: trivy-results.json
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+
+      - name: Upload Trivy Results
+        if: steps.changes.outputs.image_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.json
+
+      # Step 9 — send everything to the backend
+      # backend runs it through the policy engine, AI analysis, saves to DB
+      # if action is BLOCK, we stop here before deploy
+      - name: Send to Dashboard and Check Policy Gate
+        if: steps.changes.outputs.image_changed == 'true'
+        id: gate
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          REPO_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          VULN_COUNT=$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-results.json)
+          echo "Vulnerabilities found: $VULN_COUNT"
+
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO_NAME" \
+            --arg sha "$COMMIT_SHA" \
+            --arg branch "$BRANCH_NAME" \
+            --arg commit_msg "$COMMIT_MESSAGE" \
+            --arg scan_type "full-pipeline" \
+            --argjson vuln_count "$VULN_COUNT" \
+            --slurpfile findings trivy-results.json \
+            '{
+              repo_name: $repo,
+              commit_sha: $sha,
+              branch: $branch,
+              commit_message: $commit_msg,
+              scan_type: $scan_type,
+              findings: $findings[0],
+              pipeline_steps: {
+                code_scan: { result: "PASS", detail: "no secrets or bad patterns found" },
+                image_scan: { result: "SCANNED", detail: ($vuln_count | tostring) + " vulnerabilities found" }
+              }
+            }')
+
+          RESPONSE=$(echo "$PAYLOAD" | curl -sS -f -X POST "$BACKEND_URL/api/scan-results" \
+            -H "Content-Type: application/json" \
+            -d @-)
+
+          echo "Backend response: $RESPONSE"
+
+          ACTION=$(echo "$RESPONSE" | jq -r '.action')
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+
+          if [ "$ACTION" = "BLOCK" ]; then
+            echo "Policy gate says BLOCK — not deploying."
+            exit 1
+          fi
+
+      # Step 10 — deploy only if policy said ALLOW
+      - name: Deploy Backend to Cloud Run
+        if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
+        run: |
+          gcloud run deploy secureflow-backend \
+            --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
+            --region us-central1 \
+            --allow-unauthenticated
+
+      - name: Build and Push Frontend
+        if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
+        run: |
+          docker build \
+            -t us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }} \
+            --build-arg REACT_APP_API_URL=https://secureflow-backend-1083585992526.us-central1.run.app \
+            -f frontend/Dockerfile frontend/
+          docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}
+
+      - name: Deploy Frontend to Cloud Run
+        if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
+        run: |
+          gcloud run deploy secureflow-frontend \
+            --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }} \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --port 8080
