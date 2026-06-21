@@ -27,9 +27,10 @@ app = FastAPI(title="SecureFlow - AI-Powered Security Gate for CI/CD", version="
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-    "https://secureflow-frontend-1083585992526.us-central1.run.app",
-    "http://localhost:3000", 
-	],
+        "https://secureflow-frontend-1083585992526.us-central1.run.app",
+        "https://secure-flow.vercel.app",  # ← add this
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
