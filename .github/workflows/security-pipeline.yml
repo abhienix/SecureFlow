@@ -37,7 +37,7 @@ jobs:
             --arg sha "$COMMIT_SHA" \
             --arg branch "$BRANCH_NAME" \
             --arg commit_msg "$COMMIT_MESSAGE" \
-	    --arg scan_type "code-scan" \
+            --arg scan_type "full-pipeline" \
             '{ repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg, scan_type: $scan_type }')
 
           RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results/start" \
@@ -115,7 +115,7 @@ jobs:
             --arg sha "$COMMIT_SHA" \
             --arg branch "$BRANCH_NAME" \
             --arg commit_msg "$COMMIT_MESSAGE" \
-            --arg scan_type "full-pipeline" \
+            --arg scan_type "code-scan" \
             --arg severity "HIGH" \
             --arg action "BLOCK" \
             --arg reason "$REASON" \
@@ -292,7 +292,7 @@ jobs:
               pipeline_steps: {
                 code_scan: { result: "PASS", detail: "no secrets or bad patterns found" },
                 image_scan: { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" }
-                }
+              }
             }')
 
           RESPONSE=$(echo "$PAYLOAD" | curl -sS -f -X POST "$BACKEND_URL/api/scan-results" \
