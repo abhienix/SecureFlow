@@ -1,852 +1,844 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line
 } from "recharts";
 import {
   Shield, AlertTriangle, CheckCircle, XCircle, Activity,
-  Cpu, GitBranch, Bell, Zap, BarChart2, Layout,
-  ChevronRight, RefreshCw, Terminal, Eye, Search,
-  GitCommit, Clock, TrendingUp, Menu, X, ThumbsUp, ThumbsDown,
-  Minus, Package, Lock, CloudUpload, Hammer, GitPullRequest,
-  ChevronDown, ChevronUp, Info,
+  Lock, Cpu, GitBranch, Bell, Zap, BarChart2, Layout,
+  ChevronRight, ExternalLink, RefreshCw, Terminal, Eye
 } from "lucide-react";
 
-const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const API = "http://localhost:8000";
+const GRAFANA = "http://localhost:3001";
 
 const C = {
-  white: "#FFFFFF", bg: "#F4F6FB", surface: "#FFFFFF",
-  border: "#E2E8F0", borderStrong: "#CBD5E1",
-  ink: "#0D1117", inkMid: "#4A5568", inkLow: "#94A3B8", inkXlow: "#CBD5E1",
-  blue: "#2563EB", blueSoft: "#EFF6FF", blueBorder: "#BFDBFE",
-  green: "#059669", greenSoft: "#ECFDF5", greenBorder: "#6EE7B7",
-  red: "#DC2626", redSoft: "#FEF2F2", redBorder: "#FECACA",
-  amber: "#D97706", amberSoft: "#FFFBEB", amberBorder: "#FDE68A",
-  violet: "#7C3AED", violetSoft: "#F5F3FF", violetBorder: "#DDD6FE",
-  mono: "'JetBrains Mono','Fira Mono','Consolas',monospace",
-  sans: "'Inter','Segoe UI',system-ui,sans-serif",
-  shadow: "0 1px 3px rgba(13,17,23,0.07),0 4px 16px rgba(13,17,23,0.05)",
-  shadowMd: "0 4px 24px rgba(13,17,23,0.1)",
+  bg:       "#080D1A",
+  surface:  "#0D1424",
+  card:     "#111827",
+  cardHov:  "#141E30",
+  border:   "#1E2D45",
+  borderHi: "#2D4060",
+  indigo:   "#6366F1",
+  indigoLo: "rgba(99,102,241,0.12)",
+  emerald:  "#10B981",
+  red:      "#EF4444",
+  amber:    "#F59E0B",
+  purple:   "#8B5CF6",
+  pink:     "#EC4899",
+  slate:    "#94A3B8",
+  text:     "#F1F5F9",
+  textMid:  "#CBD5E1",
+  textLow:  "#475569",
+  mono:     "'JetBrains Mono', 'Fira Code', monospace",
 };
 
 const NAV = [
-  { id: "overview", label: "Overview",    icon: Layout   },
-  { id: "pipeline", label: "Pipeline",    icon: GitPullRequest },
-  { id: "ai",       label: "AI Insights", icon: Zap      },
-  { id: "metrics",  label: "Metrics",     icon: BarChart2 },
+  { id: "overview",  label: "Overview",    icon: Layout },
+  { id: "ai",        label: "AI Insights", icon: Zap,   badge: "NEW" },
+  { id: "alerts",    label: "Alerts",      icon: Bell },
+  { id: "metrics",   label: "Metrics",     icon: BarChart2 },
+  { id: "grafana",   label: "Grafana",     icon: Activity },
 ];
 
-function severityColor(s) {
-  if (!s) return C.inkLow;
-  const u = s.toUpperCase();
-  if (u === "CRITICAL") return C.red;
-  if (u === "HIGH")     return C.amber;
-  if (u === "MEDIUM")   return C.blue;
-  if (u === "LOW" || u === "CLEAN") return C.green;
-  return C.inkLow;
-}
-function riskColor(n) {
-  if (n >= 8) return C.red;
-  if (n >= 5) return C.amber;
-  return C.green;
-}
-function fmt(ts) {
-  if (!ts) return "";
-  return new Date(ts).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
-}
-function fmtFull(ts) {
-  if (!ts) return "";
-  const d = new Date(ts);
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) +
-    " · " + d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+function parsePrometheus(text) {
+  const m = {};
+  (text || "").split("\n").forEach(line => {
+    if (line.startsWith("#") || !line.trim()) return;
+    const match = line.match(/^([^\s{]+)(?:\{[^}]*\})?\s+([\d.e+\-]+)/);
+    if (match) { m[match[1]] = (m[match[1]] || 0) + parseFloat(match[2]); }
+  });
+  return m;
 }
 
-// ── Badge ──────────────────────────────────────────────────────────────────
-function Badge({ children, color = C.blue, small }) {
+function Tag({ children, color = C.indigo, bg }) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      padding: small ? "1px 6px" : "2px 9px",
-      borderRadius: 99, fontSize: small ? 9 : 10, fontWeight: 700,
-      letterSpacing: "0.05em", whiteSpace: "nowrap",
-      color, background: color + "18", border: `1px solid ${color}33`,
+      padding: "2px 8px", borderRadius: 4, fontSize: 10,
+      fontWeight: 700, letterSpacing: "0.08em",
+      color, border: `1px solid ${color}`,
+      background: bg || `${color}18`,
     }}>{children}</span>
   );
 }
 
-// ── Stat card ──────────────────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, color = C.blue, sub, delta }) {
+function StatCard({ icon: Icon, label, value, color, sub }) {
   return (
     <div style={{
-      background: C.white, border: `1px solid ${C.border}`,
-      borderRadius: 14, padding: "18px 20px", boxShadow: C.shadow,
-    }}>
+      background: C.card, border: `1px solid ${C.border}`,
+      borderRadius: 12, padding: "18px 20px",
+      borderTop: `2px solid ${color}`,
+      transition: "border-color 0.2s, transform 0.2s",
+      cursor: "default",
+    }}
+    onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.transform = "translateY(-2px)"; }}
+    onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.transform = "translateY(0)"; }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-        <span style={{ fontSize: 10, color: C.inkMid, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{label}</span>
-        <div style={{ padding: 8, borderRadius: 10, background: color + "14" }}>
-          <Icon size={15} color={color} strokeWidth={2} />
+        <span style={{ fontSize: 11, color: C.slate, letterSpacing: "0.06em", fontWeight: 600 }}>
+          {label.toUpperCase()}
+        </span>
+        <div style={{ padding: 6, borderRadius: 8, background: `${color}15` }}>
+          <Icon size={14} color={color} />
         </div>
       </div>
-      <div style={{ fontSize: 30, fontWeight: 800, color: C.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: C.inkLow, marginTop: 6 }}>{sub}</div>}
+      <div style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: C.textLow, marginTop: 6 }}>{sub}</div>}
     </div>
   );
 }
 
-function Card({ children, style }) {
+function SectionLabel({ children }) {
   return (
-    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20, boxShadow: C.shadow, ...style }}>
+    <div style={{ fontSize: 11, fontWeight: 700, color: C.slate,
+                  letterSpacing: "0.1em", marginBottom: 14 }}>
       {children}
     </div>
   );
 }
 
-function SectionTitle({ children, right }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-      <span style={{ fontSize: 11, fontWeight: 700, color: C.inkLow, letterSpacing: "0.08em", textTransform: "uppercase" }}>{children}</span>
-      {right}
-    </div>
-  );
-}
-
-const TT = { background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11, color: C.ink, boxShadow: C.shadowMd };
-
-// ── Pipeline stage component ───────────────────────────────────────────────
-function PipelineStages({ scan }) {
-  const blocked = scan.action_taken === "BLOCK";
-
-  const stages = [
-    { id: "checkout", label: "Git checkout",  icon: GitCommit,     status: "done",                sub: scan.commit_sha?.slice(0, 7) },
-    { id: "build",    label: "Docker build",   icon: Hammer,        status: "done",                sub: "image built"  },
-    { id: "trivy",    label: "Trivy scan",     icon: Shield,        status: "warn",                sub: "vulnerabilities found" },
-    { id: "policy",   label: "Policy gate",    icon: Lock,          status: blocked ? "fail" : "done", sub: blocked ? "blocked" : "passed" },
-    { id: "ai",       label: "AI analysis",    icon: Cpu,           status: scan.ai_explanation ? "done" : "skip", sub: scan.ai_explanation ? `${scan.risk_score||0}/10 risk` : "skipped" },
-    { id: "deploy",   label: "Deploy",         icon: CloudUpload,   status: blocked ? "skip" : "done", sub: blocked ? "not deployed" : "Cloud Run" },
-  ];
-
-  const stageColor = { done: C.green, fail: C.red, warn: C.amber, skip: C.inkXlow };
-  const stageBg    = { done: C.greenSoft, fail: C.redSoft, warn: C.amberSoft, skip: C.bg };
-
-  return (
-    <div style={{ display: "flex", alignItems: "center", padding: "14px 16px", overflowX: "auto", gap: 0 }}>
-      {stages.map((s, i) => {
-        const Icon = s.icon;
-        const col = stageColor[s.status];
-        const bg  = stageBg[s.status];
-        return (
-          <div key={s.id} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, minWidth: 76 }}>
-              <div style={{
-                width: 38, height: 38, borderRadius: "50%",
-                background: bg, border: `1.5px solid ${col}44`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <Icon size={16} color={col} strokeWidth={2} />
-              </div>
-              <span style={{ fontSize: 10, color: C.inkMid, textAlign: "center", fontWeight: 600, lineHeight: 1.3 }}>{s.label}</span>
-              <span style={{ fontSize: 9, color: col, textAlign: "center", fontWeight: 700, letterSpacing: "0.03em" }}>{s.sub}</span>
-            </div>
-            {i < stages.length - 1 && (
-              <div style={{
-                width: 24, height: 1.5, flexShrink: 0, marginBottom: 18,
-                background: s.status === "done" ? C.green + "55" : C.border,
-              }} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── CVE pills ──────────────────────────────────────────────────────────────
-function CvePills({ scan }) {
-  const blocked  = (scan.blocked  || []);
-  const warned   = (scan.warned   || []);
-  const allowed  = (scan.allowlisted || []);
-  if (!blocked.length && !warned.length && !allowed.length) return null;
-  return (
-    <div style={{ padding: "0 16px 14px", display: "flex", flexWrap: "wrap", gap: 5 }}>
-      {blocked.slice(0, 4).map((c, i) => (
-        <span key={i} style={{ fontSize: 10, fontFamily: C.mono, background: C.redSoft, color: C.red, border: `1px solid ${C.redBorder}`, borderRadius: 5, padding: "2px 7px" }}>
-          {c.cve} · {c.package} · {c.severity}
-        </span>
-      ))}
-      {warned.slice(0, 3).map((c, i) => (
-        <span key={i} style={{ fontSize: 10, fontFamily: C.mono, background: C.amberSoft, color: C.amber, border: `1px solid ${C.amberBorder}`, borderRadius: 5, padding: "2px 7px" }}>
-          {c.cve} · {c.severity}
-        </span>
-      ))}
-      {allowed.slice(0, 2).map((c, i) => (
-        <span key={i} style={{ fontSize: 10, fontFamily: C.mono, background: C.greenSoft, color: C.green, border: `1px solid ${C.greenBorder}`, borderRadius: 5, padding: "2px 7px" }}>
-          {c.cve} · allowlisted
-        </span>
-      ))}
-      {(blocked.length + warned.length) > 7 && (
-        <span style={{ fontSize: 10, color: C.inkLow, padding: "2px 5px" }}>+{blocked.length + warned.length - 7} more</span>
-      )}
-    </div>
-  );
-}
-
-// ── Commit pipeline card ───────────────────────────────────────────────────
-function CommitCard({ scan, feedback, onFeedback }) {
-  const [open, setOpen] = useState(false);
-  const blocked = scan.action_taken === "BLOCK";
+function AICard({ scan }) {
+  const isBlock = scan.action_taken === "BLOCK";
+  const riskColor = scan.risk_score >= 8 ? C.red : scan.risk_score >= 5 ? C.amber : C.emerald;
 
   return (
     <div style={{
-      background: C.white, border: `1px solid ${C.border}`,
-      borderRadius: 14, overflow: "hidden", marginBottom: 12, boxShadow: C.shadow,
+      borderRadius: 12, padding: 1,
+      background: `linear-gradient(135deg, ${C.purple}, ${C.pink})`,
+      marginBottom: 16,
+      boxShadow: `0 0 24px rgba(139,92,246,0.2)`,
     }}>
-      {/* Header */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
-        padding: "13px 16px", cursor: "pointer",
-        borderLeft: `4px solid ${blocked ? C.red : C.green}`,
-        background: blocked ? C.redSoft + "77" : C.greenSoft + "77",
-      }} onClick={() => setOpen(!open)}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-          <span style={{ fontFamily: C.mono, fontSize: 12, color: C.blue, fontWeight: 700, flexShrink: 0 }}>
-            {scan.commit_sha?.slice(0, 8)}
-          </span>
-          <span style={{ fontSize: 13, color: C.inkMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-            {scan.commit_message || scan.repo_name}
-          </span>
-        </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-          <span style={{ fontSize: 11, color: C.inkLow }}>{fmt(scan.created_at)}</span>
-          <Badge color={blocked ? C.red : C.green}>{scan.action_taken}</Badge>
-          <Badge color={severityColor(scan.severity)}>{scan.severity}</Badge>
-          {scan.risk_score > 0 && <Badge color={riskColor(scan.risk_score)}>Risk {scan.risk_score}/10</Badge>}
-          {open ? <ChevronUp size={14} color={C.inkLow} /> : <ChevronDown size={14} color={C.inkLow} />}
-        </div>
-      </div>
-
-      {/* Pipeline stages — always visible */}
-      <div style={{ borderBottom: `1px solid ${C.border}` }}>
-        <PipelineStages scan={scan} />
-      </div>
-
-      {/* CVE pills */}
-      <CvePills scan={scan} />
-
-      {/* Expanded detail */}
-      {open && (
-        <div style={{ padding: "14px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-            <div style={{ background: C.white, borderRadius: 10, padding: "10px 12px", border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, letterSpacing: "0.06em", marginBottom: 4 }}>REPO / BRANCH</div>
-              <div style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>{scan.repo_name}</div>
-              <div style={{ fontSize: 11, color: C.inkMid, display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-                <GitBranch size={10} />{scan.branch}
-              </div>
-            </div>
-            <div style={{ background: C.white, borderRadius: 10, padding: "10px 12px", border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, letterSpacing: "0.06em", marginBottom: 4 }}>SCANNED AT</div>
-              <div style={{ fontSize: 12, color: C.ink }}>{fmtFull(scan.created_at)}</div>
-              <div style={{ fontSize: 11, color: C.inkMid, marginTop: 2 }}>{scan.scan_type?.toUpperCase()} pipeline</div>
-            </div>
-          </div>
-
-          {/* AI analysis */}
-          {scan.ai_explanation && (
-            <div style={{ background: C.blueSoft, border: `1px solid ${C.blueBorder}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                <Zap size={12} color={C.blue} />
-                <span style={{ fontSize: 10, fontWeight: 700, color: C.blue, letterSpacing: "0.06em" }}>AI ANALYSIS · GROQ</span>
-              </div>
-              <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.75 }}>{scan.ai_explanation}</div>
-            </div>
-          )}
-
-          {/* Remediation */}
-          {scan.ai_fix && (
-            <div style={{ background: C.greenSoft, border: `1px solid ${C.greenBorder}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                <Terminal size={12} color={C.green} />
-                <span style={{ fontSize: 10, fontWeight: 700, color: C.green, letterSpacing: "0.06em" }}>REMEDIATION</span>
-              </div>
-              <div style={{ fontSize: 12, color: C.ink, lineHeight: 1.65, fontFamily: C.mono, whiteSpace: "pre-wrap" }}>{scan.ai_fix}</div>
-            </div>
-          )}
-
-          {/* Feedback */}
-          <div style={{ background: C.violetSoft, border: `1px solid ${C.violetBorder}`, borderRadius: 10, padding: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.violet, letterSpacing: "0.06em", marginBottom: 10 }}>
-              WAS THE AI ANALYSIS HELPFUL?
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              {[
-                { type: "accept", label: "Accurate",   icon: ThumbsUp,   color: C.green  },
-                { type: "reject", label: "Incorrect",  icon: ThumbsDown, color: C.red    },
-                { type: "edit",   label: "Partial",    icon: Minus,      color: C.amber  },
-              ].map(({ type, label, icon: Icon, color }) => {
-                const active = feedback[scan.id] === type;
-                return (
-                  <button key={type} onClick={() => onFeedback(scan.id, type)} style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "7px 14px", borderRadius: 8, cursor: "pointer",
-                    fontSize: 12, fontWeight: 700,
-                    border: `1.5px solid ${active ? color : C.border}`,
-                    background: active ? color + "18" : C.white,
-                    color: active ? color : C.inkMid,
-                    transition: "all 0.15s",
-                  }}>
-                    <Icon size={13} strokeWidth={2.5} />
-                    {label}
-                  </button>
-                );
-              })}
-              {feedback[scan.id] && feedback[scan.id] !== "error" && (
-                <span style={{ fontSize: 11, color: C.inkLow, marginLeft: 4 }}>
-                  ✓ Thanks — helps improve AI accuracy
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Bell notification panel ────────────────────────────────────────────────
-function NotificationPanel({ scans, onClose }) {
-  const alerts = scans.filter((s) => s.action_taken === "BLOCK").slice(0, 8);
-  return (
-    <div style={{
-      position: "absolute", right: 0, top: "calc(100% + 8px)",
-      width: 340, background: C.white, borderRadius: 14,
-      border: `1px solid ${C.border}`, boxShadow: C.shadowMd,
-      zIndex: 200, overflow: "hidden",
-    }}>
-      <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Security Alerts</span>
-        <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.inkLow }}>
-          <X size={16} />
-        </button>
-      </div>
-      {alerts.length === 0 ? (
-        <div style={{ padding: 24, textAlign: "center", color: C.inkLow, fontSize: 13 }}>
-          <CheckCircle size={24} style={{ opacity: 0.3, marginBottom: 8, display: "block", margin: "0 auto 8px" }} />
-          No blocked deployments
-        </div>
-      ) : (
-        <div style={{ maxHeight: 360, overflowY: "auto" }}>
-          {alerts.map((s) => (
-            <div key={s.id} style={{
-              padding: "12px 16px", borderBottom: `1px solid ${C.border}`,
-              borderLeft: `3px solid ${C.red}`,
+        background: C.surface, borderRadius: 11, padding: "18px 20px",
+      }}>
+        {/* header row */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 800,
+              letterSpacing: "0.08em",
+              background: isBlock ? "rgba(239,68,68,0.12)" : "rgba(16,185,129,0.12)",
+              color: isBlock ? C.red : C.emerald,
+              border: `1px solid ${isBlock ? C.red : C.emerald}`,
             }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
-                <Badge color={C.red}>BLOCKED</Badge>
-                <span style={{ fontSize: 10, color: C.inkLow }}>{fmt(s.created_at)}</span>
+              {isBlock ? "🚨 BLOCKED" : "✅ ALLOWED"}
+            </div>
+            <span style={{ fontFamily: C.mono, fontSize: 11, color: C.slate }}>
+              {scan.commit_sha?.slice(0, 12)}
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              fontSize: 13, fontWeight: 800, color: riskColor,
+              background: `${riskColor}15`, border: `1px solid ${riskColor}`,
+              borderRadius: 6, padding: "3px 10px"
+            }}>
+              Risk {scan.risk_score || 0}/10
+            </div>
+            <Tag color={C.purple}>AI ANALYZED</Tag>
+          </div>
+        </div>
+
+        {/* meta */}
+        <div style={{ display: "flex", gap: 16, marginBottom: 14 }}>
+          {[
+            { label: "REPO", value: scan.repo_name },
+            { label: "BRANCH", value: scan.branch },
+            { label: "SEVERITY", value: scan.severity, color: scan.severity === "CRITICAL" ? C.red : C.amber },
+            { label: "SCAN", value: scan.scan_type?.toUpperCase() },
+          ].map((m, i) => (
+            <div key={i}>
+              <div style={{ fontSize: 9, color: C.textLow, letterSpacing: "0.1em", marginBottom: 2 }}>{m.label}</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: m.color || C.textMid, fontFamily: C.mono }}>
+                {m.value || "—"}
               </div>
-              <div style={{ fontSize: 12, color: C.ink, fontWeight: 600, margin: "4px 0 2px" }}>
-                {s.commit_message?.slice(0, 60) || s.repo_name}
-              </div>
-              <div style={{ fontSize: 11, color: C.inkMid, fontFamily: C.mono }}>{s.commit_sha?.slice(0, 10)}</div>
-              {s.ai_explanation && (
-                <div style={{ fontSize: 11, color: C.inkMid, marginTop: 5, lineHeight: 1.5, borderLeft: `2px solid ${C.red}44`, paddingLeft: 8 }}>
-                  {s.ai_explanation.slice(0, 100)}…
-                </div>
-              )}
             </div>
           ))}
         </div>
-      )}
+
+        {/* AI sections */}
+        {scan.ai_explanation && (
+          <div style={{
+            background: "rgba(99,102,241,0.06)", borderRadius: 8, padding: "12px 14px", marginBottom: 10,
+            borderLeft: `3px solid ${C.indigo}`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <Zap size={11} color={C.indigo} />
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.indigo, letterSpacing: "0.08em" }}>
+                AI VULNERABILITY ANALYSIS
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: C.textMid, lineHeight: 1.7 }}>{scan.ai_explanation}</div>
+          </div>
+        )}
+
+        {scan.ai_fix && (
+          <div style={{
+            background: "rgba(16,185,129,0.06)", borderRadius: 8, padding: "12px 14px",
+            borderLeft: `3px solid ${C.emerald}`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <Terminal size={11} color={C.emerald} />
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.emerald, letterSpacing: "0.08em" }}>
+                AI SUGGESTED REMEDIATION
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6, fontFamily: C.mono }}>{scan.ai_fix}</div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// ── Main App ───────────────────────────────────────────────────────────────
 export default function App() {
-  const [tab,         setTab]         = useState("overview");
-  const [scans,       setScans]       = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(null);
-  const [feedback,    setFeedback]    = useState({});
+  const [tab, setTab] = useState("overview");
+  const [scans, setScans] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [promRaw, setPromRaw] = useState("");
+  const [feedback, setFeedback] = useState({});
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [search,      setSearch]      = useState("");
-  const [navOpen,     setNavOpen]     = useState(false);
-  const [bellOpen,    setBellOpen]    = useState(false);
-  const bellRef = useRef(null);
-
-  const fetchAll = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API}/api/scan-results`);
-      const data = res.data || [];
-      setScans(data);
-      setError(null);
-      setLastUpdated(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
-    } catch {
-      setError("Cannot reach backend.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const canvasRef = useRef(null);
 
   useEffect(() => {
     fetchAll();
-    const iv = setInterval(fetchAll, 10000);
+    const iv = setInterval(fetchAll, 8000);
     return () => clearInterval(iv);
-  }, [fetchAll]);
+  }, []);
 
   useEffect(() => {
-    function handleClick(e) {
-      if (bellRef.current && !bellRef.current.contains(e.target)) setBellOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    resize();
+    window.addEventListener("resize", resize);
+    const pts = Array.from({ length: 50 }, () => ({
+      x: Math.random() * canvas.width, y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25,
+      r: Math.random() * 1.2 + 0.4,
+    }));
+    let id;
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      pts.forEach(p => {
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(99,102,241,0.35)"; ctx.fill();
+      });
+      pts.forEach((a, i) => pts.slice(i + 1).forEach(b => {
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d < 100) {
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+          ctx.strokeStyle = `rgba(99,102,241,${0.12 * (1 - d / 100)})`;
+          ctx.lineWidth = 0.5; ctx.stroke();
+        }
+      }));
+      id = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(id); window.removeEventListener("resize", resize); };
   }, []);
+
+  const fetchAll = async () => {
+    try {
+      const [scanRes, promRes] = await Promise.allSettled([
+        axios.get(`${API}/api/scan-results`),
+        axios.get(`${API}/metrics`),
+      ]);
+      if (scanRes.status === "fulfilled") { setScans(scanRes.value.data); setLoading(false); }
+      if (promRes.status === "fulfilled") setPromRaw(promRes.value.data);
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch { setLoading(false); }
+  };
 
   const submitFeedback = async (scanId, type) => {
     try {
       await axios.post(`${API}/api/scan-results/${scanId}/feedback`, { feedback: type });
-      setFeedback((p) => ({ ...p, [scanId]: type }));
-    } catch {
-      setFeedback((p) => ({ ...p, [scanId]: "error" }));
-    }
+      setFeedback(p => ({ ...p, [scanId]: type }));
+    } catch {}
   };
 
-  // ── Derived stats ────────────────────────────────────────────────────────
-  const blocked    = scans.filter((s) => s.action_taken === "BLOCK");
-  const allowed    = scans.filter((s) => s.action_taken === "ALLOW");
-  const withAI     = scans.filter((s) => s.ai_explanation);
-  const avgRisk    = scans.length ? +(scans.reduce((a, s) => a + (s.risk_score || 0), 0) / scans.length).toFixed(1) : 0;
-  const blockCount = blocked.length;
+  const pm = parsePrometheus(promRaw);
 
-  const filtered = scans.filter((s) => {
-    const q = search.toLowerCase();
-    if (!q) return true;
-    return [s.repo_name, s.branch, s.commit_sha, s.severity, s.action_taken, s.commit_message]
-      .some((v) => String(v || "").toLowerCase().includes(q));
-  });
+  const stats = {
+    total:    scans.length,
+    blocked:  scans.filter(s => s.action_taken === "BLOCK").length,
+    allowed:  scans.filter(s => s.action_taken === "ALLOW").length,
+    critical: scans.filter(s => s.severity === "CRITICAL").length,
+    avgRisk:  scans.length ? +(scans.reduce((a, s) => a + (s.risk_score || 0), 0) / scans.length).toFixed(1) : 0,
+    aiScanned: scans.filter(s => s.ai_explanation).length,
+  };
 
-  // Charts data
-  const trendData = [...scans].reverse().slice(-20).map((s) => ({
-    date: fmt(s.created_at),
-    risk: s.risk_score || 0,
-    sha:  s.commit_sha?.slice(0, 7),
+  const trendData = scans.slice(-12).reverse().map((s, i) => ({
+    i: `#${i + 1}`, risk: s.risk_score || 0,
+    sev: s.severity === "CRITICAL" ? 10 : s.severity === "HIGH" ? 7 : s.severity === "MEDIUM" ? 4 : 2,
   }));
 
-  const sevData = ["CRITICAL","HIGH","MEDIUM","LOW","CLEAN"].map((name) => ({
-    name, v: scans.filter((s) => (s.severity||"").toUpperCase() === name).length, color: severityColor(name),
-  })).filter((d) => d.v > 0);
+  const sevData = [
+    { name: "CRIT", count: scans.filter(s => s.severity === "CRITICAL").length, color: C.red },
+    { name: "HIGH", count: scans.filter(s => s.severity === "HIGH").length, color: C.amber },
+    { name: "MED",  count: scans.filter(s => s.severity === "MEDIUM").length, color: C.indigo },
+    { name: "LOW",  count: scans.filter(s => s.severity === "LOW").length, color: C.emerald },
+  ];
 
-  const gateData = [
-    { name: "Allowed", value: allowed.length, color: C.green },
-    { name: "Blocked", value: blockCount,     color: C.red   },
-  ].filter((d) => d.value > 0);
+  const totalReq = Math.round(pm["http_requests_total"] || 0);
+  const avgLatMs = pm["http_request_duration_highr_seconds_count"]
+    ? ((pm["http_request_duration_highr_seconds_sum"] || 0) / pm["http_request_duration_highr_seconds_count"] * 1000).toFixed(0)
+    : "—";
 
-  const weekData = (() => {
-    const map = {};
-    scans.forEach((s) => {
-      const d = fmt(s.created_at);
-      if (!map[d]) map[d] = { date: d, allowed: 0, blocked: 0 };
-      if (s.action_taken === "BLOCK") map[d].blocked++;
-      else map[d].allowed++;
-    });
-    return Object.values(map).slice(-10);
-  })();
+  const tooltipStyle = {
+    background: C.surface, border: `1px solid ${C.border}`,
+    borderRadius: 8, fontSize: 11, color: C.text,
+  };
 
-  const NavItems = () => NAV.map(({ id, label, icon: Icon }) => {
-    const active = tab === id;
-    return (
-      <button key={id} onClick={() => { setTab(id); setNavOpen(false); }} style={{
-        display: "flex", alignItems: "center", gap: 10, width: "100%",
-        padding: "10px 12px", borderRadius: 10, border: "none", cursor: "pointer",
-        marginBottom: 2, textAlign: "left", fontSize: 13, fontWeight: active ? 700 : 500,
-        background: active ? C.blueSoft : "transparent",
-        color: active ? C.blue : C.inkMid, outline: "none",
-      }}>
-        <Icon size={16} strokeWidth={active ? 2.5 : 2} />
-        <span style={{ flex: 1 }}>{label}</span>
-        {id === "ai" && <Badge color={C.violet} small>AI</Badge>}
-      </button>
-    );
-  });
-
+  // ── RENDER ────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: C.sans, color: C.ink }}>
+    <div style={{ display: "flex", height: "100vh", background: C.bg, color: C.text,
+                  fontFamily: "'Inter', 'Segoe UI', sans-serif", overflow: "hidden" }}>
 
-      {/* Sidebar */}
+      {/* particle canvas */}
+      <canvas ref={canvasRef} style={{ position: "fixed", inset: 0, zIndex: 0, opacity: 0.5, pointerEvents: "none" }} />
+
+      {/* ── SIDEBAR ── */}
       <aside style={{
-        width: 210, flexShrink: 0, background: C.white, borderRight: `1px solid ${C.border}`,
-        display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto",
-      }} className="sidebar-desktop">
-        <div style={{ padding: "20px 16px 16px", borderBottom: `1px solid ${C.border}` }}>
+        width: 220, flexShrink: 0, background: C.surface,
+        borderRight: `1px solid ${C.border}`, display: "flex",
+        flexDirection: "column", zIndex: 10, position: "relative",
+      }}>
+        {/* logo */}
+        <div style={{ padding: "22px 20px 18px", borderBottom: `1px solid ${C.border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ background: C.blue, borderRadius: 10, padding: 9 }}>
-              <Shield size={17} color="#fff" strokeWidth={2.5} />
+            <div style={{
+              background: "linear-gradient(135deg, #6366F1, #8B5CF6)",
+              borderRadius: 8, padding: 7, display: "flex",
+            }}>
+              <Shield size={16} color="#fff" />
             </div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, letterSpacing: "-0.02em" }}>SecureFlow</div>
-              <div style={{ fontSize: 9, color: C.inkLow, fontWeight: 700, letterSpacing: "0.08em" }}>DEVSECOPS · AI</div>
+              <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: "0.04em" }}>
+                Secure<span style={{ color: C.indigo }}>Flow</span>
+              </div>
+              <div style={{ fontSize: 9, color: C.textLow, letterSpacing: "0.1em" }}>DEVSECOPS · AI</div>
             </div>
           </div>
         </div>
+
+        {/* nav */}
         <nav style={{ flex: 1, padding: "12px 10px" }}>
-          <div style={{ fontSize: 9, color: C.inkXlow, fontWeight: 700, padding: "4px 10px 8px", letterSpacing: "0.1em" }}>NAVIGATION</div>
-          <NavItems />
+          <div style={{ fontSize: 9, color: C.textLow, letterSpacing: "0.12em",
+                        padding: "8px 10px 6px", fontWeight: 700 }}>PLATFORM</div>
+          {NAV.map(({ id, label, icon: Icon, badge }) => {
+            const active = tab === id;
+            return (
+              <button key={id} onClick={() => setTab(id)} style={{
+                display: "flex", alignItems: "center", gap: 10, width: "100%",
+                padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer",
+                marginBottom: 2, textAlign: "left", fontSize: 13, fontWeight: 500,
+                background: active ? C.indigoLo : "transparent",
+                color: active ? C.indigo : C.slate,
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                <Icon size={15} />
+                <span style={{ flex: 1 }}>{label}</span>
+                {badge && (
+                  <span style={{
+                    fontSize: 8, fontWeight: 800, padding: "1px 5px", borderRadius: 3,
+                    background: "linear-gradient(90deg, #8B5CF6, #EC4899)",
+                    color: "#fff", letterSpacing: "0.06em",
+                  }}>{badge}</span>
+                )}
+                {active && <ChevronRight size={12} color={C.indigo} />}
+              </button>
+            );
+          })}
         </nav>
+
+        {/* status footer */}
         <div style={{ padding: "14px 16px", borderTop: `1px solid ${C.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.green }} />
-            <span style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>Pipeline Active</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.emerald,
+                          boxShadow: `0 0 6px ${C.emerald}` }} />
+            <span style={{ fontSize: 11, color: C.emerald, fontWeight: 600 }}>Pipeline Active</span>
           </div>
           {lastUpdated && (
-            <div style={{ fontSize: 10, color: C.inkLow, display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ fontSize: 10, color: C.textLow, display: "flex", alignItems: "center", gap: 4 }}>
               <RefreshCw size={9} /> Updated {lastUpdated}
             </div>
           )}
         </div>
       </aside>
 
-      {/* Mobile overlay */}
-      {navOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(13,17,23,0.45)" }} onClick={() => setNavOpen(false)}>
-          <div style={{ width: 230, height: "100%", background: C.white, borderRight: `1px solid ${C.border}`, padding: "20px 12px" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ background: C.blue, borderRadius: 10, padding: 8 }}><Shield size={15} color="#fff" /></div>
-                <span style={{ fontWeight: 800, fontSize: 15 }}>SecureFlow</span>
-              </div>
-              <button onClick={() => setNavOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: C.inkMid }}><X size={18} /></button>
+      {/* ── MAIN CONTENT ── */}
+      <main style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 1 }}>
+
+        {/* top bar */}
+        <div style={{
+          position: "sticky", top: 0, zIndex: 20,
+          background: `${C.bg}ee`, backdropFilter: "blur(12px)",
+          borderBottom: `1px solid ${C.border}`,
+          padding: "14px 28px", display: "flex",
+          justifyContent: "space-between", alignItems: "center",
+        }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>
+              {NAV.find(n => n.id === tab)?.label}
             </div>
-            <NavItems />
+            <div style={{ fontSize: 11, color: C.textLow, marginTop: 1 }}>
+              abhienix / SecureFlow · main branch
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <Tag color={C.emerald}>{stats.total} scans</Tag>
+            <Tag color={stats.blocked > 0 ? C.red : C.emerald}>
+              {stats.blocked} blocked
+            </Tag>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6, fontSize: 11,
+              color: C.purple, background: "rgba(139,92,246,0.1)",
+              border: `1px solid rgba(139,92,246,0.3)`,
+              borderRadius: 6, padding: "4px 10px", fontWeight: 600,
+            }}>
+              <Zap size={11} />
+              {stats.aiScanned} AI analyzed
+            </div>
           </div>
         </div>
-      )}
 
-      {/* Main */}
-      <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "24px 28px" }}>
 
-        {/* Top bar */}
-        <header style={{
-          position: "sticky", top: 0, zIndex: 20,
-          background: "rgba(255,255,255,0.96)", backdropFilter: "blur(12px)",
-          borderBottom: `1px solid ${C.border}`,
-          padding: "12px 20px",
-          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={() => setNavOpen(true)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: C.inkMid, display: "none" }} className="hamburger">
-              <Menu size={20} />
-            </button>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, letterSpacing: "-0.02em" }}>
-                {NAV.find((n) => n.id === tab)?.label}
-              </div>
-              <div style={{ fontSize: 10, color: C.inkLow, marginTop: 1 }}>abhienix / SecureFlow · main</div>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <Badge color={C.blue}>{scans.length} scans</Badge>
-            <Badge color={blockCount > 0 ? C.red : C.green}>{blockCount} blocked</Badge>
-            <button onClick={fetchAll} style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "6px 12px", borderRadius: 9, border: `1px solid ${C.border}`,
-              background: C.white, color: C.inkMid, cursor: "pointer", fontSize: 12, fontWeight: 600,
-            }}>
-              <RefreshCw size={12} /> Refresh
-            </button>
-
-            {/* Bell */}
-            <div ref={bellRef} style={{ position: "relative" }}>
-              <button onClick={() => setBellOpen(!bellOpen)} style={{
-                position: "relative", padding: "7px 9px", borderRadius: 9,
-                border: `1px solid ${blockCount > 0 ? C.redBorder : C.border}`,
-                background: blockCount > 0 ? C.redSoft : C.white,
-                cursor: "pointer", display: "flex", alignItems: "center",
-              }}>
-                <Bell size={16} color={blockCount > 0 ? C.red : C.inkMid} />
-                {blockCount > 0 && (
-                  <span style={{
-                    position: "absolute", top: -4, right: -4,
-                    width: 16, height: 16, borderRadius: "50%",
-                    background: C.red, color: "#fff", fontSize: 9, fontWeight: 800,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    border: "2px solid #fff",
-                  }}>{blockCount}</span>
-                )}
-              </button>
-              {bellOpen && <NotificationPanel scans={scans} onClose={() => setBellOpen(false)} />}
-            </div>
-          </div>
-        </header>
-
-        {error && (
-          <div style={{ margin: "16px 20px 0", padding: "12px 16px", borderRadius: 10, background: C.redSoft, border: `1px solid ${C.redBorder}`, color: C.red, fontSize: 13 }}>
-            {error}
-          </div>
-        )}
-
-        <div style={{ padding: "20px", flex: 1 }}>
-
-          {/* ══ OVERVIEW ══════════════════════════════════════════════════ */}
+          {/* ══ OVERVIEW TAB ══ */}
           {tab === "overview" && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 20 }}>
-                <StatCard icon={Activity}     label="Total Scans"  value={scans.length}   color={C.blue}   />
-                <StatCard icon={CheckCircle}  label="Allowed"      value={allowed.length} color={C.green}  />
-                <StatCard icon={XCircle}      label="Blocked"      value={blockCount}     color={C.red}    sub={blockCount > 0 ? "review required" : "all clear"} />
-                <StatCard icon={AlertTriangle}label="Critical CVEs" value={scans.filter(s => (s.severity||"").toUpperCase() === "CRITICAL").length} color={C.amber} />
-                <StatCard icon={Cpu}          label="Avg Risk"     value={`${avgRisk}/10`} color={C.violet} />
-                <StatCard icon={Zap}          label="AI Analyzed"  value={withAI.length}  color={C.violet} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 20 }}>
+                <StatCard icon={Activity}      label="Total Scans"  value={stats.total}    color={C.indigo} />
+                <StatCard icon={XCircle}       label="Blocked"      value={stats.blocked}  color={C.red} />
+                <StatCard icon={CheckCircle}   label="Allowed"      value={stats.allowed}  color={C.emerald} />
+                <StatCard icon={AlertTriangle} label="Critical"     value={stats.critical} color={C.amber} />
+                <StatCard icon={Cpu}           label="Avg Risk"     value={`${stats.avgRisk}/10`} color={C.purple} />
+                <StatCard icon={Zap}           label="AI Analyzed"  value={stats.aiScanned} color={C.pink}
+                          sub="vulnerabilities explained" />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12, marginBottom: 20 }}>
-                {/* Risk trend */}
-                <Card>
-                  <SectionTitle>Risk Score Trend</SectionTitle>
-                  {trendData.length === 0
-                    ? <div style={{ height: 150, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow, fontSize: 13 }}>No data yet</div>
-                    : (
-                      <ResponsiveContainer width="100%" height={150}>
-                        <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="rg" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%"  stopColor={C.blue} stopOpacity={0.2} />
-                              <stop offset="95%" stopColor={C.blue} stopOpacity={0}   />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="date" stroke={C.inkXlow} tick={{ fontSize: 9 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                          <YAxis stroke={C.inkXlow} tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={[0, 10]} />
-                          <Tooltip contentStyle={TT} formatter={(v, n, p) => [`${v}/10`, "Risk"]} labelFormatter={(l, items) => items[0]?.payload?.sha || l} />
-                          <Area type="monotone" dataKey="risk" stroke={C.blue} strokeWidth={2.5} fill="url(#rg)" dot={{ r: 2.5, fill: C.blue, stroke: C.white, strokeWidth: 1.5 }} />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    )}
-                </Card>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
+                  <SectionLabel>RISK SCORE TREND</SectionLabel>
+                  <ResponsiveContainer width="100%" height={150}>
+                    <AreaChart data={trendData}>
+                      <defs>
+                        <linearGradient id="rg" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor={C.indigo} stopOpacity={0.35}/>
+                          <stop offset="95%" stopColor={C.indigo} stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="i" stroke={C.textLow} tick={{ fontSize: 10 }}/>
+                      <YAxis stroke={C.textLow} tick={{ fontSize: 10 }} domain={[0, 10]}/>
+                      <Tooltip contentStyle={tooltipStyle}/>
+                      <Area type="monotone" dataKey="risk" stroke={C.indigo} strokeWidth={2} fill="url(#rg)"/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
 
-                {/* Allowed vs Blocked per day */}
-                <Card>
-                  <SectionTitle>Deployments Over Time</SectionTitle>
-                  {weekData.length === 0
-                    ? <div style={{ height: 150, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow, fontSize: 13 }}>No data yet</div>
-                    : (
-                      <ResponsiveContainer width="100%" height={150}>
-                        <BarChart data={weekData} barSize={14} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
-                          <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="date" stroke={C.inkXlow} tick={{ fontSize: 9 }} tickLine={false} axisLine={false} />
-                          <YAxis stroke={C.inkXlow} tick={{ fontSize: 9 }} tickLine={false} axisLine={false} allowDecimals={false} />
-                          <Tooltip contentStyle={TT} />
-                          <Bar dataKey="allowed" fill={C.green} radius={[4,4,0,0]} name="Allowed" stackId="a" />
-                          <Bar dataKey="blocked" fill={C.red}   radius={[4,4,0,0]} name="Blocked" stackId="a" />
-                          <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    )}
-                </Card>
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
+                  <SectionLabel>GATE DECISIONS</SectionLabel>
+                  <ResponsiveContainer width="100%" height={130}>
+                    <PieChart>
+                      <Pie data={[{ name: "BLOCK", value: stats.blocked }, { name: "ALLOW", value: stats.allowed }]}
+                           cx="50%" cy="50%" innerRadius={38} outerRadius={56} dataKey="value" strokeWidth={0}>
+                        <Cell fill={C.red}/><Cell fill={C.emerald}/>
+                      </Pie>
+                      <Tooltip contentStyle={tooltipStyle}/>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{ display: "flex", justifyContent: "center", gap: 14, fontSize: 11 }}>
+                    <span style={{ color: C.red }}>● BLOCK {stats.blocked}</span>
+                    <span style={{ color: C.emerald }}>● ALLOW {stats.allowed}</span>
+                  </div>
+                </div>
 
-                {/* Severity donut */}
-                <Card>
-                  <SectionTitle>Severity Breakdown</SectionTitle>
-                  {sevData.length === 0
-                    ? <div style={{ height: 150, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow, fontSize: 13 }}>No data yet</div>
-                    : (
-                      <>
-                        <ResponsiveContainer width="100%" height={110}>
-                          <PieChart>
-                            <Pie data={sevData} cx="50%" cy="50%" innerRadius={30} outerRadius={48} dataKey="v" strokeWidth={2} stroke={C.white}>
-                              {sevData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                            </Pie>
-                            <Tooltip contentStyle={TT} formatter={(v, n) => [v, n]} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 10, fontSize: 11, color: C.inkMid, marginTop: 4 }}>
-                          {sevData.map((d) => (
-                            <span key={d.name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                              <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, display: "inline-block" }} />
-                              {d.name} <strong style={{ color: C.ink }}>{d.v}</strong>
-                            </span>
-                          ))}
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
+                  <SectionLabel>SEVERITY DISTRIBUTION</SectionLabel>
+                  <ResponsiveContainer width="100%" height={150}>
+                    <BarChart data={sevData} barSize={14}>
+                      <XAxis dataKey="name" stroke={C.textLow} tick={{ fontSize: 9 }}/>
+                      <YAxis stroke={C.textLow} tick={{ fontSize: 9 }}/>
+                      <Tooltip contentStyle={tooltipStyle}/>
+                      <Bar dataKey="count" radius={[4,4,0,0]}>
+                        {sevData.map((d, i) => <Cell key={i} fill={d.color}/>)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* scan list + detail */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 14 }}>
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
+                              padding: 18, maxHeight: 440, overflowY: "auto" }}>
+                  <SectionLabel>SCAN HISTORY</SectionLabel>
+                  {loading && <div style={{ color: C.textLow, fontSize: 13 }}>Loading scans…</div>}
+                  {scans.map(scan => (
+                    <div key={scan.id} onClick={() => setSelected(scan)} style={{
+                      padding: "10px 12px", borderRadius: 8, marginBottom: 6,
+                      cursor: "pointer", border: `1px solid ${C.border}`,
+                      borderLeft: `3px solid ${scan.action_taken === "BLOCK" ? C.red : C.emerald}`,
+                      background: selected?.id === scan.id ? "rgba(99,102,241,0.08)" : "transparent",
+                      transition: "all 0.15s",
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = "rgba(99,102,241,0.05)"}
+                    onMouseLeave={e => e.currentTarget.style.background = selected?.id === scan.id ? "rgba(99,102,241,0.08)" : "transparent"}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontFamily: C.mono, fontSize: 11, color: C.indigo }}>
+                          <GitBranch size={9} style={{ marginRight: 4, verticalAlign: "middle" }}/>
+                          {scan.commit_sha?.slice(0, 10)}
+                        </span>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          {scan.ai_explanation && <Tag color={C.purple}>AI</Tag>}
+                          <Tag color={scan.action_taken === "BLOCK" ? C.red : C.emerald}>
+                            {scan.action_taken}
+                          </Tag>
                         </div>
-                      </>
-                    )}
-                </Card>
-              </div>
-
-              {/* Recent scans summary */}
-              <Card>
-                <SectionTitle>Recent Scans</SectionTitle>
-                {loading && <div style={{ color: C.inkLow, fontSize: 13, padding: 12 }}>Loading…</div>}
-                {scans.slice(0, 5).map((scan) => {
-                  const bl = scan.action_taken === "BLOCK";
-                  return (
-                    <div key={scan.id} style={{
-                      display: "flex", alignItems: "center", gap: 10, padding: "10px 0",
-                      borderBottom: `1px solid ${C.border}`,
-                    }}>
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: bl ? C.red : C.green, flexShrink: 0 }} />
-                      <span style={{ fontFamily: C.mono, fontSize: 11, color: C.blue, flexShrink: 0 }}>{scan.commit_sha?.slice(0, 8)}</span>
-                      <span style={{ fontSize: 12, color: C.inkMid, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{scan.commit_message || scan.repo_name}</span>
-                      <Badge color={bl ? C.red : C.green}>{scan.action_taken}</Badge>
-                      <Badge color={severityColor(scan.severity)}>{scan.severity}</Badge>
-                      <span style={{ fontSize: 11, color: C.inkLow, flexShrink: 0 }}>{fmt(scan.created_at)}</span>
-                    </div>
-                  );
-                })}
-              </Card>
-            </>
-          )}
-
-          {/* ══ PIPELINE ══════════════════════════════════════════════════ */}
-          {tab === "pipeline" && (
-            <>
-              <div style={{ marginBottom: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
-                  <Search size={13} color={C.inkLow} style={{ position: "absolute", left: 10, top: 9, pointerEvents: "none" }} />
-                  <input
-                    value={search} onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search commits, repos, severity…"
-                    style={{ width: "100%", padding: "8px 10px 8px 30px", borderRadius: 9, border: `1px solid ${C.border}`, fontSize: 12, outline: "none", background: C.white, color: C.ink, boxSizing: "border-box" }}
-                  />
-                </div>
-                <Badge color={C.green}>{allowed.length} allowed</Badge>
-                <Badge color={C.red}>{blockCount} blocked</Badge>
-              </div>
-              {loading && <div style={{ color: C.inkLow, fontSize: 13, padding: 12 }}>Loading…</div>}
-              {!loading && filtered.length === 0 && (
-                <Card style={{ textAlign: "center", padding: 40, color: C.inkLow }}>No scans found.</Card>
-              )}
-              {filtered.map((scan) => (
-                <CommitCard key={scan.id} scan={scan} feedback={feedback} onFeedback={submitFeedback} />
-              ))}
-            </>
-          )}
-
-          {/* ══ AI INSIGHTS ═══════════════════════════════════════════════ */}
-          {tab === "ai" && (
-            <>
-              <div style={{
-                background: C.violetSoft, border: `1px solid ${C.violetBorder}`,
-                borderRadius: 14, padding: "18px 22px", marginBottom: 20,
-                display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14,
-              }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                    <Zap size={18} color={C.violet} />
-                    <span style={{ fontSize: 17, fontWeight: 800, color: C.ink }}>AI Security Intelligence</span>
-                    <Badge color={C.violet}>GROQ</Badge>
-                  </div>
-                  <div style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.6 }}>
-                    Every scan is analyzed by Groq — plain-language explanations, remediation steps, and risk scores.
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 10 }}>
-                  {[
-                    { label: "AI Analyzed", value: withAI.length },
-                    { label: "Avg Risk",    value: `${avgRisk}/10` },
-                  ].map((m) => (
-                    <div key={m.label} style={{ background: C.white, borderRadius: 10, padding: "10px 16px", border: `1px solid ${C.violetBorder}`, textAlign: "center" }}>
-                      <div style={{ fontSize: 9, color: C.inkLow, marginBottom: 3, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{m.label}</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: C.violet, fontFamily: C.mono }}>{m.value}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 10, fontSize: 11, color: C.textLow }}>
+                        <span>{scan.repo_name}</span>
+                        <span style={{ color: scan.severity === "CRITICAL" ? C.red : C.amber }}>{scan.severity}</span>
+                        <span>{scan.created_at ? new Date(scan.created_at).toLocaleDateString() : ""}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
+
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
+                              padding: 18, maxHeight: 440, overflowY: "auto" }}>
+                  {!selected ? (
+                    <div style={{ height: "100%", minHeight: 300, display: "flex", flexDirection: "column",
+                                  justifyContent: "center", alignItems: "center", color: C.textLow, gap: 10 }}>
+                      <Eye size={32} style={{ opacity: 0.2 }}/>
+                      <div style={{ fontSize: 13 }}>Select a scan to inspect</div>
+                      <div style={{ fontSize: 11, color: C.textLow }}>AI analysis, fix suggestions & more</div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                        <SectionLabel>SCAN DETAILS</SectionLabel>
+                        <button onClick={() => setTab("ai")} style={{
+                          fontSize: 11, color: C.purple, background: "rgba(139,92,246,0.1)",
+                          border: `1px solid rgba(139,92,246,0.3)`, borderRadius: 6,
+                          padding: "4px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                        }}>
+                          <Zap size={10}/> View AI Insights
+                        </button>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+                        {[
+                          { label: "Commit SHA", value: selected.commit_sha?.slice(0, 12), mono: true },
+                          { label: "Branch", value: selected.branch },
+                          { label: "Severity", value: selected.severity, color: selected.severity === "CRITICAL" ? C.red : C.amber },
+                          { label: "Decision", value: selected.action_taken, color: selected.action_taken === "BLOCK" ? C.red : C.emerald },
+                          { label: "AI Risk Score", value: `${selected.risk_score || 0}/10`, color: C.purple },
+                          { label: "Scanner", value: selected.scan_type?.toUpperCase() },
+                        ].map((item, i) => (
+                          <div key={i} style={{ background: C.surface, borderRadius: 8, padding: "10px 12px",
+                                                border: `1px solid ${C.border}` }}>
+                            <div style={{ fontSize: 10, color: C.textLow, marginBottom: 3, letterSpacing: "0.08em" }}>
+                              {item.label.toUpperCase()}
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: item.color || C.text,
+                                          fontFamily: item.mono ? C.mono : "inherit" }}>
+                              {item.value || "—"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {selected.ai_explanation && (
+                        <div style={{ background: "rgba(99,102,241,0.06)", border: `1px solid rgba(99,102,241,0.2)`,
+                                      borderRadius: 8, padding: 14, marginBottom: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                            <Zap size={11} color={C.indigo}/>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: C.indigo, letterSpacing: "0.08em" }}>
+                              AI ANALYSIS
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12, lineHeight: 1.7, color: C.textMid }}>{selected.ai_explanation}</div>
+                        </div>
+                      )}
+
+                      {selected.ai_fix && (
+                        <div style={{ background: "rgba(16,185,129,0.06)", border: `1px solid rgba(16,185,129,0.2)`,
+                                      borderRadius: 8, padding: 14, marginBottom: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                            <Terminal size={11} color={C.emerald}/>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: C.emerald, letterSpacing: "0.08em" }}>
+                              REMEDIATION
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12, lineHeight: 1.6, color: C.text, fontFamily: C.mono }}>
+                            {selected.ai_fix}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ background: "rgba(139,92,246,0.06)", border: `1px solid rgba(139,92,246,0.2)`,
+                                    borderRadius: 8, padding: 14 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.purple, letterSpacing: "0.08em", marginBottom: 10 }}>
+                          ANALYST FEEDBACK
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          {[
+                            { type: "accept", label: "✓ Accurate", color: C.emerald },
+                            { type: "reject", label: "✗ Incorrect", color: C.red },
+                            { type: "edit",   label: "~ Partial",   color: C.amber },
+                          ].map(({ type, label, color }) => (
+                            <button key={type} onClick={() => submitFeedback(selected.id, type)} style={{
+                              padding: "6px 14px", borderRadius: 6, border: `1px solid ${color}`,
+                              background: feedback[selected.id] === type ? `${color}20` : "transparent",
+                              color, cursor: "pointer", fontSize: 11, fontWeight: 600,
+                            }}>{label}</button>
+                          ))}
+                        </div>
+                        {feedback[selected.id] && (
+                          <div style={{ fontSize: 11, color: C.textLow, marginTop: 8 }}>
+                            Feedback recorded — helps improve AI accuracy
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ══ AI INSIGHTS TAB ══ */}
+          {tab === "ai" && (
+            <>
+              {/* AI hero banner */}
+              <div style={{
+                borderRadius: 14, padding: 1, marginBottom: 20,
+                background: "linear-gradient(135deg, #6366F1, #8B5CF6, #EC4899)",
+              }}>
+                <div style={{
+                  background: C.surface, borderRadius: 13, padding: "22px 28px",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <Zap size={18} color={C.purple}/>
+                      <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: "0.02em" }}>
+                        AI Security Intelligence
+                      </span>
+                      <Tag color={C.pink}>POWERED BY OLLAMA</Tag>
+                    </div>
+                    <div style={{ fontSize: 13, color: C.slate, maxWidth: 520, lineHeight: 1.6 }}>
+                      Every vulnerability is analyzed in real time using a local LLM — producing plain-language
+                      explanations, precise remediation steps, and calibrated risk scores without sending
+                      your code to external APIs.
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, flexShrink: 0 }}>
+                    {[
+                      { label: "AI Analyzed", value: stats.aiScanned, color: C.purple },
+                      { label: "Avg Risk",    value: `${stats.avgRisk}/10`, color: C.red },
+                      { label: "Model",       value: "qwen2.5:7b", color: C.indigo },
+                      { label: "Local LLM",   value: "✓ Private", color: C.emerald },
+                    ].map((m, i) => (
+                      <div key={i} style={{ background: C.card, borderRadius: 8, padding: "10px 14px",
+                                            border: `1px solid ${C.border}`, textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: C.textLow, marginBottom: 4 }}>{m.label}</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: m.color, fontFamily: C.mono }}>
+                          {m.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
 
-              {loading && <div style={{ color: C.inkLow, fontSize: 13 }}>Loading…</div>}
-              {!loading && withAI.length === 0 && (
-                <Card style={{ textAlign: "center", padding: 40, color: C.inkLow }}>
-                  <Zap size={32} style={{ opacity: 0.2, marginBottom: 10, display: "block", margin: "0 auto 10px" }} />
-                  No AI-analyzed scans yet. Push a commit to trigger the pipeline.
-                </Card>
+              {/* AI cards */}
+              <SectionLabel>AI-ANALYZED VULNERABILITIES — ALL SCANS</SectionLabel>
+              {loading && <div style={{ color: C.textLow, fontSize: 13 }}>Loading…</div>}
+              {scans.filter(s => s.ai_explanation).length === 0 && !loading && (
+                <div style={{ color: C.textLow, fontSize: 13, padding: 20, textAlign: "center",
+                              background: C.card, borderRadius: 12, border: `1px solid ${C.border}` }}>
+                  No AI-analyzed scans yet. Send a scan payload to see AI insights here.
+                </div>
               )}
-              {withAI.map((scan) => (
-                <CommitCard key={scan.id} scan={scan} feedback={feedback} onFeedback={submitFeedback} />
+              {scans.filter(s => s.ai_explanation).map(scan => (
+                <AICard key={scan.id} scan={scan} />
               ))}
             </>
           )}
 
-          {/* ══ METRICS ═══════════════════════════════════════════════════ */}
+          {/* ══ ALERTS TAB ══ */}
+          {tab === "alerts" && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 2 }}>Real-Time Alert Feed</div>
+                  <div style={{ fontSize: 12, color: C.textLow }}>
+                    Mirrors your Slack #security-alerts channel — same data, one place
+                  </div>
+                </div>
+                <Tag color={C.emerald}>Auto-refreshes every 8s</Tag>
+              </div>
+
+              {scans.map(scan => {
+                const isBlock = scan.action_taken === "BLOCK";
+                return (
+                  <div key={scan.id} style={{
+                    background: C.card, border: `1px solid ${C.border}`,
+                    borderLeft: `4px solid ${isBlock ? C.red : C.emerald}`,
+                    borderRadius: 10, padding: "14px 18px", marginBottom: 10,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 16 }}>{isBlock ? "🚨" : "✅"}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: isBlock ? C.red : C.emerald }}>
+                          Deployment {scan.action_taken}
+                        </span>
+                        {scan.ai_explanation && <Tag color={C.purple}>AI</Tag>}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ fontSize: 11, fontFamily: C.mono, color: C.textLow }}>
+                          {scan.commit_sha?.slice(0, 10)}
+                        </span>
+                        <span style={{ fontSize: 10, color: C.textLow }}>
+                          {scan.created_at ? new Date(scan.created_at).toLocaleString() : ""}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 16, marginBottom: 10 }}>
+                      <span style={{ fontSize: 12, color: C.indigo }}>{scan.repo_name}</span>
+                      <span style={{ fontSize: 12, color: C.textLow }}>branch: {scan.branch}</span>
+                      <Tag color={scan.severity === "CRITICAL" ? C.red : C.amber}>{scan.severity}</Tag>
+                      {scan.risk_score && (
+                        <Tag color={scan.risk_score >= 8 ? C.red : C.amber}>
+                          Risk {scan.risk_score}/10
+                        </Tag>
+                      )}
+                    </div>
+
+                    {scan.ai_explanation && (
+                      <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.6, marginBottom: 6,
+                                    paddingLeft: 12, borderLeft: `2px solid ${C.indigo}` }}>
+                        <span style={{ color: C.indigo, fontWeight: 600 }}>AI: </span>
+                        {scan.ai_explanation}
+                      </div>
+                    )}
+                    {scan.ai_fix && (
+                      <div style={{ fontSize: 11, color: C.emerald, fontFamily: C.mono }}>
+                        → {scan.ai_fix}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* ══ METRICS TAB ══ */}
           {tab === "metrics" && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12, marginBottom: 20 }}>
-                <StatCard icon={Activity}    label="Total Scans"   value={scans.length}        color={C.blue}   sub="all time" />
-                <StatCard icon={CheckCircle} label="Allowed"       value={allowed.length}      color={C.green}  sub="clean deployments" />
-                <StatCard icon={XCircle}     label="Blocked"       value={blockCount}          color={C.red}    sub="policy violations" />
-                <StatCard icon={Zap}         label="AI Analyzed"   value={withAI.length}       color={C.violet} sub="with Groq" />
-                <StatCard icon={AlertTriangle} label="High Risk"   value={scans.filter(s => (s.risk_score||0) >= 7).length} color={C.amber} sub="risk ≥ 7/10" />
-                <StatCard icon={Cpu}         label="Avg Risk"      value={`${avgRisk}/10`}     color={C.violet} sub="mean score" />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+                {[
+                  { label: "Total HTTP Requests", value: totalReq || "—", color: C.indigo, sub: "since last restart" },
+                  { label: "Avg Latency",          value: avgLatMs !== "—" ? `${avgLatMs}ms` : "—", color: C.amber, sub: "mean response time" },
+                  { label: "Scan API Calls",       value: Math.round(pm["http_requests_total"] || 0) || "—", color: C.purple, sub: "POST /api/scan-results" },
+                  { label: "Metrics Scrapes",      value: Math.round(pm["http_request_duration_highr_seconds_count"] || 0) || "—", color: C.emerald, sub: "by Prometheus" },
+                ].map((m, i) => (
+                  <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`,
+                                        borderRadius: 12, padding: "18px 20px", borderTop: `2px solid ${m.color}` }}>
+                    <div style={{ fontSize: 10, color: C.slate, letterSpacing: "0.06em", fontWeight: 600, marginBottom: 10 }}>
+                      {m.label.toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: 30, fontWeight: 800, color: m.color }}>{m.value}</div>
+                    <div style={{ fontSize: 11, color: C.textLow, marginTop: 4 }}>{m.sub}</div>
+                  </div>
+                ))}
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <Card>
-                  <SectionTitle>Risk Score Over Time</SectionTitle>
-                  {trendData.length === 0
-                    ? <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow }}>No data yet</div>
-                    : (
-                      <ResponsiveContainer width="100%" height={200}>
-                        <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="rg2" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%"  stopColor={C.blue} stopOpacity={0.2} />
-                              <stop offset="95%" stopColor={C.blue} stopOpacity={0}   />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="date" stroke={C.inkXlow} tick={{ fontSize: 9 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                          <YAxis stroke={C.inkXlow} tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={[0, 10]} />
-                          <Tooltip contentStyle={TT} formatter={(v) => [`${v}/10`, "Risk Score"]} labelFormatter={(l, items) => items[0]?.payload?.sha || l} />
-                          <Area type="monotone" dataKey="risk" stroke={C.blue} strokeWidth={2.5} fill="url(#rg2)" dot={{ r: 3, fill: C.blue, stroke: C.white, strokeWidth: 2 }} />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    )}
-                </Card>
-
-                <Card>
-                  <SectionTitle>Policy Gate — Allow vs Block</SectionTitle>
-                  {gateData.length === 0
-                    ? <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow }}>No data yet</div>
-                    : (
-                      <>
-                        <ResponsiveContainer width="100%" height={160}>
-                          <PieChart>
-                            <Pie data={gateData} cx="50%" cy="50%" innerRadius={45} outerRadius={65} dataKey="value" strokeWidth={3} stroke={C.white} paddingAngle={3}>
-                              {gateData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                            </Pie>
-                            <Tooltip contentStyle={TT} formatter={(v, n) => [v, n]} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        <div style={{ display: "flex", justifyContent: "center", gap: 20, fontSize: 12, color: C.inkMid }}>
-                          {gateData.map((d) => (
-                            <span key={d.name} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                              <span style={{ width: 10, height: 10, borderRadius: "50%", background: d.color, display: "inline-block" }} />
-                              {d.name} <strong style={{ color: C.ink }}>{d.value}</strong>
-                              <span style={{ color: C.inkLow }}>({scans.length ? Math.round(d.value / scans.length * 100) : 0}%)</span>
-                            </span>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                </Card>
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
+                <SectionLabel>REQUEST RATE OVER RECENT SCANS</SectionLabel>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={trendData}>
+                    <XAxis dataKey="i" stroke={C.textLow} tick={{ fontSize: 10 }}/>
+                    <YAxis stroke={C.textLow} tick={{ fontSize: 10 }}/>
+                    <Tooltip contentStyle={tooltipStyle}/>
+                    <Line type="monotone" dataKey="risk" stroke={C.indigo} strokeWidth={2} dot={false}/>
+                    <Line type="monotone" dataKey="sev"  stroke={C.red}    strokeWidth={2} dot={false} strokeDasharray="4 2"/>
+                  </LineChart>
+                </ResponsiveContainer>
+                <div style={{ display: "flex", gap: 16, fontSize: 11, marginTop: 8, justifyContent: "center" }}>
+                  <span style={{ color: C.indigo }}>─ AI Risk Score</span>
+                  <span style={{ color: C.red }}>-- Severity Level</span>
+                </div>
               </div>
 
-              <Card>
-                <SectionTitle>Severity Distribution</SectionTitle>
-                {sevData.length === 0
-                  ? <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow }}>No data yet</div>
-                  : (
-                    <ResponsiveContainer width="100%" height={160}>
-                      <BarChart data={sevData} barSize={32} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                        <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="name" stroke={C.inkXlow} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                        <YAxis stroke={C.inkXlow} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
-                        <Tooltip contentStyle={TT} formatter={(v) => [v, "scans"]} />
-                        <Bar dataKey="v" radius={[6,6,0,0]} name="Count">
-                          {sevData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-              </Card>
+              <div style={{ marginTop: 14, background: C.card, border: `1px solid ${C.border}`,
+                            borderRadius: 12, padding: 18 }}>
+                <SectionLabel>RAW PROMETHEUS ENDPOINT</SectionLabel>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <code style={{ fontFamily: C.mono, fontSize: 12, color: C.indigo,
+                                  background: C.surface, padding: "6px 12px", borderRadius: 6,
+                                  border: `1px solid ${C.border}` }}>
+                    GET {API}/metrics
+                  </code>
+                  <a href={`${API}/metrics`} target="_blank" rel="noreferrer" style={{
+                    fontSize: 11, color: C.slate, display: "flex", alignItems: "center", gap: 4,
+                    textDecoration: "none",
+                  }}>
+                    <ExternalLink size={11}/> Open
+                  </a>
+                </div>
+                <div style={{ fontSize: 11, color: C.textLow, marginTop: 8 }}>
+                  Prometheus scrapes this endpoint every 15s · Grafana reads from Prometheus
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ══ GRAFANA TAB ══ */}
+          {tab === "grafana" && (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 2 }}>Grafana Metrics Dashboard</div>
+                  <div style={{ fontSize: 12, color: C.textLow }}>
+                    Live charts powered by Prometheus · auto-refreshes every 10s
+                  </div>
+                </div>
+                <a href={GRAFANA} target="_blank" rel="noreferrer" style={{
+                  display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.indigo,
+                  background: C.indigoLo, border: `1px solid ${C.indigo}`, borderRadius: 8,
+                  padding: "7px 14px", textDecoration: "none", fontWeight: 600,
+                }}>
+                  <ExternalLink size={12}/> Open Grafana
+                </a>
+              </div>
+
+              <div style={{ background: C.card, border: `1px solid ${C.border}`,
+                            borderRadius: 12, overflow: "hidden" }}>
+                <iframe
+                  src={`${GRAFANA}?orgId=1&refresh=10s&theme=dark&kiosk=tv`}
+                  width="100%" height="600"
+                  style={{ border: "none", display: "block" }}
+                  title="Grafana Dashboard"
+                />
+              </div>
+
+              <div style={{ marginTop: 12, fontSize: 11, color: C.textLow, textAlign: "center" }}>
+                If you see a login screen, ensure <code style={{ fontFamily: C.mono }}>GF_AUTH_ANONYMOUS_ENABLED=true</code> is
+                set in your docker-compose.yml · currently configured in your setup ✓
+              </div>
             </>
           )}
 
@@ -855,18 +847,10 @@ export default function App() {
 
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: ${C.bg}; }
-        button { font-family: inherit; }
-        input  { font-family: inherit; }
-        button:active { opacity: 0.85; }
-        input:focus { border-color: ${C.blue} !important; outline: none; box-shadow: 0 0 0 3px ${C.blue}22; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
-        ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 999px; }
-        @media (max-width: 768px) {
-          .sidebar-desktop { display: none !important; }
-          .hamburger { display: flex !important; }
-        }
-        @media (min-width: 769px) { .hamburger { display: none !important; } }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
       `}</style>
     </div>
   );
