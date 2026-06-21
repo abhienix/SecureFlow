@@ -37,7 +37,7 @@ jobs:
             --arg sha "$COMMIT_SHA" \
             --arg branch "$BRANCH_NAME" \
             --arg commit_msg "$COMMIT_MESSAGE" \
-            --arg scan_type "full-pipeline" \
+	    --arg scan_type "code-scan" \
             '{ repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg, scan_type: $scan_type }')
 
           RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results/start" \
