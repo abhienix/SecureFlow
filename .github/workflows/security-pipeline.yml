@@ -217,8 +217,8 @@ jobs:
               findings: $findings[0],
               pipeline_steps: {
                 code_scan: { result: "PASS", detail: "no secrets or bad patterns found" },
-                image_scan: { result: "SCANNED", detail: ($vuln_count | tostring) + " vulnerabilities found" }
-              }
+                image_scan: { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" }
+                }
             }')
 
           RESPONSE=$(echo "$PAYLOAD" | curl -sS -f -X POST "$BACKEND_URL/api/scan-results" \
