@@ -382,3 +382,6 @@ def get_scan_results(db: Session = Depends(get_db)):
         {k: v for k, v in scan.__dict__.items() if k != "findings" and not k.startswith("_")}
         for scan in scans
     ]
+    
+    
+    # force redeploy
