@@ -55,53 +55,49 @@ jobs:
           gitleaks version
 
       # ── Step 3: Run Gitleaks ────────────────────────────────────────────────
-      # BUG FIX 1: Added --no-git fallback. The log-opts range approach misses
-      # files that were added and then modified in the same commit, and also
-      # misses cases where HEAD~1 doesn't exist. We now scan the entire working
-      # directory with --no-git as a safety net alongside the commit range.
-      # BUG FIX 2: gitleaks_exit was written AFTER exit-code=1 caused the step
-      # to exit, so it was never written. Removed that line entirely — we use
-      # step outcome instead which is reliable.
+      #
+      # WHAT CHANGED HERE AND WHY (in plain language):
+      #
+      # 1. THE BUG: there used to be a line like this:
+      #        --source . \  
+      #    See those two trailing spaces after the backslash? In bash, a
+      #    backslash only means "continue on the next line" if it is the
+      #    VERY LAST character on the line. A space after it breaks that
+      #    rule, so the command did not run the way it looked like it would.
+      #    That was making the scan behave inconsistently — sometimes "noisy",
+      #    sometimes silently wrong. This was a typo bug, not a real security
+      #    setting, so removing it does not weaken the check at all.
+      #
+      # 2. THE DUPLICATE SCAN: the old version ran Gitleaks TWICE —
+      #    once limited to just the latest commit's changes (--log-opts range),
+      #    and once across the entire project folder (--no-git).
+      #    The full-folder scan already includes everything the
+      #    "latest commit only" scan would catch, PLUS everything else in the
+      #    repo. So running both was pointless duplication — same coverage,
+      #    twice the work, and two separate report files to juggle later.
+      #    We keep only the full-folder scan (--no-git) so nothing is missed.
+      #
+      # Net result: same detection strength (actually slightly better, since
+      # the full scan also catches old secrets sitting elsewhere in the repo,
+      # not just ones in the latest commit), simpler code, one report file.
+      #
       - name: Run Gitleaks
         id: gitleaks
         continue-on-error: true
         run: |
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            RANGE="HEAD~1..HEAD"
-          else
-            RANGE="HEAD"
-          fi
-          echo "Scanning commit range: $RANGE"
-
-          echo "--- git diff for this range ---"
-          git log -p -U0 "$RANGE" | head -80
-          echo "--- end diff ---"
-
-          # Scan commit range first
           gitleaks detect \
-            --source . \  
-            --log-opts="$RANGE" \
+            --source . \
+            --no-git \
             --redact \
             -v \
             --exit-code=1 \
             --report-format=json \
-            --report-path=gitleaks-results.json || GITLEAKS_RANGE_FAILED=true
+            --report-path=gitleaks-results.json || GITLEAKS_FAILED=true
 
-          # Also scan full working directory for anything the range missed
-          gitleaks detect \
-            --source . \
-            --no-git \
-            -v \
-            --exit-code=1 \
-            --report-format=json \
-            --report-path=gitleaks-full.json || GITLEAKS_FULL_FAILED=true
-
-          if [ "$GITLEAKS_RANGE_FAILED" = "true" ] || [ "$GITLEAKS_FULL_FAILED" = "true" ]; then
+          if [ "$GITLEAKS_FAILED" = "true" ]; then
             echo "Gitleaks found secrets!"
-            echo "--- gitleaks range results ---"
-            cat gitleaks-results.json 2>/dev/null || echo "no range results file"
-            echo "--- gitleaks full scan results ---"
-            cat gitleaks-full.json 2>/dev/null || echo "no full scan results file"
+            echo "--- gitleaks results ---"
+            cat gitleaks-results.json 2>/dev/null || echo "no results file"
             exit 1
           fi
 
@@ -161,6 +157,16 @@ jobs:
             -d "$PAYLOAD" || true
 
       # ── Step 6: Block on code scan failure ──────────────────────────────────
+      #
+      # WHAT CHANGED HERE AND WHY:
+      # Since Step 3 now only ever writes ONE Gitleaks report file
+      # (gitleaks-results.json), this step no longer needs to check two
+      # different files (the old "gitleaks-full.json, then fall back to
+      # gitleaks-results.json" logic). We simplified it to just read the one
+      # file that actually exists now. This does not change what counts as a
+      # failure — it only removes a leftover fallback that pointed at a file
+      # which no longer gets created.
+      #
       - name: Block on Code Scan Failure
         if: steps.gitleaks.outcome == 'failure' || steps.semgrep.outcome == 'failure'
         env:
@@ -179,16 +185,9 @@ jobs:
             # Extract the actual finding from gitleaks JSON — file, line, rule
             GITLEAKS_DETAIL=$(jq -r '
               if length > 0 then
-                .[0] | "Rule: \(.RuleID) | File: \(.File):\(.StartLine) | Match: \(.Match // "redacted")"
-              else
-                "secret detected — check gitleaks output above"
-              end
-            ' gitleaks-full.json 2>/dev/null || \
-            jq -r '
-              if length > 0 then
                 .[0] | "Rule: \(.RuleID) | File: \(.File):\(.StartLine)"
               else
-                "secret detected"
+                "secret detected — check gitleaks output above"
               end
             ' gitleaks-results.json 2>/dev/null || echo "gitleaks=failure — see logs above")
 
