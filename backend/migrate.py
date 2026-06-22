@@ -1,13 +1,12 @@
-from sqlalchemy import create_engine, text
-
-import os
+import psycopg2, os
 from dotenv import load_dotenv
-load_dotenv()
-engine = create_engine(os.getenv("DATABASE_URL"))
-
-with engine.connect() as conn:
-    conn.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS ai_feedback VARCHAR"))
-    conn.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS ai_feedback_note TEXT"))
-    conn.commit()
-
-print("columns added successfully")
+load_dotenv('.env')
+conn = psycopg2.connect(os.environ['DATABASE_URL'])
+cur = conn.cursor()
+cur.execute("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'complete'")
+cur.execute("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS started_at TIMESTAMP")
+cur.execute("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS pipeline_steps JSONB")
+cur.execute("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT")
+conn.commit()
+print('Columns added!')
+conn.close()
