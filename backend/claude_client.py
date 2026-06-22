@@ -211,4 +211,5 @@ Respond with this exact JSON only. No markdown, no code fences, no extra text:
             "explanation": "AI analysis unavailable - all providers (Groq, Gemini, Ollama) failed. Please review the Gitleaks/Semgrep output manually to understand what was flagged.",
             "fix": "Review the scanner output above, fix the flagged issues, rotate any exposed credentials immediately, and re-run the pipeline.",
             "risk_score": 7,
-        }
+        }#   r e d e p l o y  
+ 
