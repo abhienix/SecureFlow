@@ -360,4 +360,16 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
-    return db.query(ScanResult).order_by(ScanResult.created_at.desc()).all()
+    # Capped at 200 most recent rows. Without a limit, this returns the
+    # entire table on every poll (the dashboard polls every 4s) — as the
+    # table grows that response eventually gets large enough that Cloud
+    # Run's proxy intermittently rejects it ("Response size was too
+    # large"), causing random 500s that have nothing to do with the data
+    # itself, just its total size. 200 is generous for what the dashboard
+    # actually displays (it only ever shows a handful at once).
+    return (
+        db.query(ScanResult)
+        .order_by(ScanResult.created_at.desc())
+        .limit(200)
+        .all()
+    )
