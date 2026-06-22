@@ -1,4 +1,4 @@
-ï»¿import os
+import os
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from models import Base, ScanResult
 from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label
-from claude_client import analyze_scan, analyze_code_scan_failure
+from ai_analysis import analyze_scan, analyze_code_scan_failure
 from slack_notifier import send_slack_alert
 
 load_dotenv()
@@ -22,7 +22,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="SecureFlow â€” AI-Powered Security Gate for CI/CD", version="1.0.0")
+app = FastAPI(title="SecureFlow — AI-Powered Security Gate for CI/CD", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,7 +49,7 @@ def get_db():
 
 @app.get("/")
 def root():
-    return {"message": "SecureFlow â€” AI-Powered Security Gate for CI/CD"}
+    return {"message": "SecureFlow — AI-Powered Security Gate for CI/CD"}
 
 
 @app.get("/health")
@@ -165,7 +165,7 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
 def build_allow_reason(policy_result: dict, vuln_count: int) -> str:
     """
     When a scan has HIGH/CRITICAL vulns but is still ALLOWED, the dashboard
-    needs to explain WHY â€” otherwise it just looks wrong. This builds that
+    needs to explain WHY — otherwise it just looks wrong. This builds that
     explanation from the actual policy decision data.
     """
     allowlisted = policy_result.get("allowlisted", [])
@@ -184,15 +184,15 @@ def build_allow_reason(policy_result: dict, vuln_count: int) -> str:
     if allowlisted:
         cve_list = ", ".join(a["cve"] for a in allowlisted[:3])
         suffix = f" (+{len(allowlisted)-3} more)" if len(allowlisted) > 3 else ""
-        parts.append(f"{len(allowlisted)} CVE(s) are allowlisted in policy.yaml ({cve_list}{suffix}) â€” manually approved as known/acceptable")
+        parts.append(f"{len(allowlisted)} CVE(s) are allowlisted in policy.yaml ({cve_list}{suffix}) — manually approved as known/acceptable")
 
     if warned:
-        parts.append(f"{len(warned)} Medium/Low severity CVEs found â€” below the blocking threshold")
+        parts.append(f"{len(warned)} Medium/Low severity CVEs found — below the blocking threshold")
 
     if not parts and vuln_count > 0:
-        parts.append(f"{vuln_count} CVEs found but none cross the block threshold (CRITICAL/HIGH with CVSS â‰¥ 7.0)")
+        parts.append(f"{vuln_count} CVEs found but none cross the block threshold (CRITICAL/HIGH with CVSS = 7.0)")
 
-    return " Â· ".join(parts) if parts else ""
+    return " · ".join(parts) if parts else ""
 
 
 @app.post("/api/scan-results")
@@ -222,7 +222,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         db.refresh(scan)
         return scan
 
-    # Code scans (Gitleaks + Semgrep) â€” no image findings, no policy engine
+    # Code scans (Gitleaks + Semgrep) — no image findings, no policy engine
     if scan_type == "code-scan":
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
@@ -238,7 +238,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": data.get("action", "ALLOW"),
         })
 
-        print(f"code-scan recorded: {scan.action_taken} â€” {data.get('reason', '')}")
+        print(f"code-scan recorded: {scan.action_taken} — {data.get('reason', '')}")
 
         return {
             "status": "processed",
@@ -247,7 +247,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "reason": data.get("reason", ""),
         }
 
-    # Image scans (Trivy) â€” run through policy engine
+    # Image scans (Trivy) — run through policy engine
     findings = data.get("findings", {})
     explicit_action = data.get("action")
 
@@ -258,7 +258,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         risk_score = None
 
         if explicit_action == "BLOCK":
-            # Pull the richest detail available â€” the workflow now sends
+            # Pull the richest detail available — the workflow now sends
             # file:line:rule from the actual scanner finding, not just a
             # generic "semgrep=failure" string.
             code_scan_detail = pipeline_steps.get("code_scan", {}).get("detail", "")
@@ -296,7 +296,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": explicit_action,
         })
 
-        print(f"explicit action honored: {explicit_action} â€” {data.get('reason', '')}")
+        print(f"explicit action honored: {explicit_action} — {data.get('reason', '')}")
 
         return {
             "status": "processed",
@@ -324,7 +324,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     vulnerabilities = extract_vulnerabilities(findings)
     vuln_count = len(vulnerabilities)
 
-    print(f"policy result: {policy_result['action']} â€” {policy_result['reason']}")
+    print(f"policy result: {policy_result['action']} — {policy_result['reason']}")
     print(f"vulnerabilities extracted: {vuln_count}")
 
     ai_results = []
@@ -370,7 +370,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         "id": scan.id,
         "action": policy_result["action"],
         "reason": policy_result["reason"],
-        "allow_reason": allow_reason,  # NEW â€” explains WHY high-risk was allowed
+        "allow_reason": allow_reason,  # NEW — explains WHY high-risk was allowed
         "policy_used": policy_result["policy_used"],
         "blocked": policy_result["blocked"],
         "warned": policy_result["warned"],
