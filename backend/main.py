@@ -192,7 +192,7 @@ def build_allow_reason(policy_result: dict, vuln_count: int) -> str:
     if not parts and vuln_count > 0:
         parts.append(f"{vuln_count} CVEs found but none cross the block threshold (CRITICAL/HIGH with CVSS = 7.0)")
 
-    return " · ".join(parts) if parts else ""
+    return " ? ".join(parts) if parts else ""
 
 
 @app.post("/api/scan-results")
