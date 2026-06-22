@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -15,14 +15,14 @@ from slack_notifier import send_slack_alert
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/secureflow")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="SecureFlow — AI-Powered Security Gate for CI/CD", version="1.0.0")
+app = FastAPI(title="SecureFlow â€” AI-Powered Security Gate for CI/CD", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,7 +49,7 @@ def get_db():
 
 @app.get("/")
 def root():
-    return {"message": "SecureFlow — AI-Powered Security Gate for CI/CD"}
+    return {"message": "SecureFlow â€” AI-Powered Security Gate for CI/CD"}
 
 
 @app.get("/health")
@@ -65,7 +65,7 @@ def start_scan_run(data: dict, db: Session = Depends(get_db)):
     show this commit moving through the pipeline in real time, instead of
     only ever seeing finished results once everything is already done.
 
-    Returns the row id — the workflow passes this back as run_id on later
+    Returns the row id â€” the workflow passes this back as run_id on later
     calls to /api/scan-results so we update this same row instead of
     creating a duplicate.
     """
@@ -179,7 +179,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     def save_scan(fields: dict):
         """
         If run_id points at an existing "running" row, update it in place
-        (this is the normal path now — start() created the row, this call
+        (this is the normal path now â€” start() created the row, this call
         finishes it). Otherwise insert a new row, which keeps older workflow
         runs that never called /start working exactly as before.
         """
@@ -191,7 +191,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
                 scan.status = "complete"
                 # Build a brand new dict rather than mutating scan.pipeline_steps
                 # in place. SQLAlchemy only detects column changes on
-                # reassignment to a new object — mutating the existing dict
+                # reassignment to a new object â€” mutating the existing dict
                 # and reassigning the same object back does NOT mark it
                 # dirty, so the update would silently fail to persist.
                 merged_steps = dict(scan.pipeline_steps or {})
@@ -208,7 +208,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         return scan
 
     # Code scans (Gitleaks + Semgrep) send severity and action directly
-    # — no image findings to parse, no policy engine needed
+    # â€” no image findings to parse, no policy engine needed
     if scan_type == "code-scan":
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
@@ -224,7 +224,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": data.get("action", "ALLOW"),
         })
 
-        print(f"code-scan recorded: {scan.action_taken} — {data.get('reason', '')}")
+        print(f"code-scan recorded: {scan.action_taken} â€” {data.get('reason', '')}")
 
         return {
             "status": "processed",
@@ -233,13 +233,13 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "reason": data.get("reason", ""),
         }
 
-    # Image scans (Trivy) — run through policy engine as before
+    # Image scans (Trivy) â€” run through policy engine as before
     findings = data.get("findings", {})
     explicit_action = data.get("action")  # set directly by callers like the
     # code-scan-failure step, which already knows the verdict (BLOCK) and
     # isn't sending real findings for the policy engine to evaluate.
     # NOTE: every workflow step currently sends scan_type="full-pipeline",
-    # so the scan_type=="code-scan" branch above never actually runs — this
+    # so the scan_type=="code-scan" branch above never actually runs â€” this
     # explicit_action check is what makes BLOCK calls from Gitleaks/Semgrep
     # failures actually take effect instead of being silently overwritten
     # by the policy engine's "no findings = ALLOW" default.
@@ -249,7 +249,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         ai_fix = ""
         risk_score = None
 
-        # Only worth calling the AI when something actually failed — an
+        # Only worth calling the AI when something actually failed â€” an
         # explicit ALLOW (e.g. "no image changes") has nothing to explain.
         if explicit_action == "BLOCK":
             code_scan_detail = pipeline_steps.get("code_scan", {}).get("detail", "")
@@ -280,7 +280,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": explicit_action,
         })
 
-        print(f"explicit action honored: {explicit_action} — {data.get('reason', '')}")
+        print(f"explicit action honored: {explicit_action} â€” {data.get('reason', '')}")
 
         return {
             "status": "processed",
@@ -301,7 +301,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     policy_result = evaluate_policy(findings, repo_name)
     vulnerabilities = extract_vulnerabilities(findings)
 
-    print(f"policy result: {policy_result['action']} — {policy_result['reason']}")
+    print(f"policy result: {policy_result['action']} â€” {policy_result['reason']}")
     print(f"vulnerabilities extracted: {len(vulnerabilities)}")
 
     ai_results = []
@@ -362,13 +362,13 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
     # Capped at 200 most recent rows, AND findings excluded from the
-    # response. findings holds the raw Trivy scan output — every
-    # vulnerability, package, and layer in the image — which can easily run
+    # response. findings holds the raw Trivy scan output â€” every
+    # vulnerability, package, and layer in the image â€” which can easily run
     # tens to hundreds of KB per row. The frontend dashboard never reads
     # this field (confirmed: no `scan.findings` reference anywhere in
     # App.js), so it was pure dead weight being sent on every single poll
     # (every 4 seconds). This, not raw row count, is almost certainly what
-    # was tripping Cloud Run's "Response size was too large" rejections —
+    # was tripping Cloud Run's "Response size was too large" rejections â€”
     # a handful of real Trivy scans with large findings blobs is enough to
     # blow past the threshold even well under 200 rows.
     rows = (
