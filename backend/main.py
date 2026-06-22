@@ -28,6 +28,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://secureflow-frontend-1083585992526.us-central1.run.app",
+        "https://secure-flow-rho.vercel.app",
         "http://localhost:3000",
         "http://localhost:3001",
     ],
