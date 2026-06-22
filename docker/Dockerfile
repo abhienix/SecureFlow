@@ -1,6 +1,7 @@
-FROM python:3.11-alpine
+FROM python:3.11-alpine3.22
 WORKDIR /app
-RUN apk add --no-cache gcc musl-dev libffi-dev
+RUN apk add --no-cache gcc musl-dev libffi-dev && \
+    apk upgrade --no-cache
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
