@@ -18,7 +18,13 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+          # fetch-depth was 1 (shallow) before — gitleaks-action scans the
+          # diff between commits by default, and with only 1 commit present
+          # there's nothing for it to diff against. That meant it was
+          # silently passing without actually scanning the pushed changes.
+          # fetch-depth: 0 pulls full history so it has something real to
+          # compare against.
 
       # Step 0 — tell the dashboard this commit has entered the pipeline,
       # before any scanning has happened. Lets the dashboard show a live,
@@ -115,7 +121,7 @@ jobs:
             --arg sha "$COMMIT_SHA" \
             --arg branch "$BRANCH_NAME" \
             --arg commit_msg "$COMMIT_MESSAGE" \
-            --arg scan_type "code-scan" \
+            --arg scan_type "full-pipeline" \
             --arg severity "HIGH" \
             --arg action "BLOCK" \
             --arg reason "$REASON" \
@@ -292,7 +298,7 @@ jobs:
               pipeline_steps: {
                 code_scan: { result: "PASS", detail: "no secrets or bad patterns found" },
                 image_scan: { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" }
-              }
+                }
             }')
 
           RESPONSE=$(echo "$PAYLOAD" | curl -sS -f -X POST "$BACKEND_URL/api/scan-results" \
