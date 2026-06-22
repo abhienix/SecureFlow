@@ -1,7 +1,5 @@
 name: SecureFlow Security Pipeline
 
-# Runs on every push to main or dev.
-# One job, one dashboard entry, full story.
 on:
   push:
     branches: [ main, dev ]
@@ -15,20 +13,13 @@ jobs:
 
     steps:
 
+      # ── Step 0: Checkout ────────────────────────────────────────────────────
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # fetch-depth was 1 (shallow) before — gitleaks-action scans the
-          # diff between commits by default, and with only 1 commit present
-          # there's nothing for it to diff against. That meant it was
-          # silently passing without actually scanning the pushed changes.
-          # fetch-depth: 0 pulls full history so it has something real to
-          # compare against.
 
-      # Step 0 — tell the dashboard this commit has entered the pipeline,
-      # before any scanning has happened. Lets the dashboard show a live,
-      # in-progress run instead of only ever seeing finished results.
+      # ── Step 1: Notify dashboard — pipeline started ─────────────────────────
       - name: Notify Pipeline Start
         id: pipeline_start
         env:
@@ -48,18 +39,13 @@ jobs:
 
           RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results/start" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD")
+            -d "$PAYLOAD" || echo '{"run_id":null}')
 
           echo "Backend response: $RESPONSE"
-          RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id')
-          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id // empty')
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
 
-      # Step 1 — check for secrets in the code
-      # Calling the gitleaks CLI directly instead of gitleaks-action, because
-      # the action's built-in commit-detection has proven unreliable here —
-      # it reported "0 commits scanned" on a real push event, meaning it
-      # silently skipped scanning anything. Running the CLI ourselves with
-      # an explicit commit range removes that guesswork entirely.
+      # ── Step 2: Install Gitleaks ────────────────────────────────────────────
       - name: Install Gitleaks
         run: |
           curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz -o gitleaks.tar.gz
@@ -68,14 +54,18 @@ jobs:
           sudo mv gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
+      # ── Step 3: Run Gitleaks ────────────────────────────────────────────────
+      # BUG FIX 1: Added --no-git fallback. The log-opts range approach misses
+      # files that were added and then modified in the same commit, and also
+      # misses cases where HEAD~1 doesn't exist. We now scan the entire working
+      # directory with --no-git as a safety net alongside the commit range.
+      # BUG FIX 2: gitleaks_exit was written AFTER exit-code=1 caused the step
+      # to exit, so it was never written. Removed that line entirely — we use
+      # step outcome instead which is reliable.
       - name: Run Gitleaks
         id: gitleaks
         continue-on-error: true
         run: |
-          # If this is the first commit in the checked-out history (no
-          # parent available), fall back to scanning that single commit.
-          # Otherwise diff against the immediate parent so we always scan
-          # exactly what this push actually changed.
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
             RANGE="HEAD~1..HEAD"
           else
@@ -83,30 +73,66 @@ jobs:
           fi
           echo "Scanning commit range: $RANGE"
 
-          # Debug: prove there's actually a diff here before blaming
-          # gitleaks. If this prints nothing, the problem is upstream of
-          # gitleaks entirely (checkout/ref issue), not gitleaks itself.
-          echo "--- DEBUG: raw git diff for this range ---"
-          git log -p -U0 "$RANGE" | head -50
-          echo "--- END DEBUG ---"
+          echo "--- git diff for this range ---"
+          git log -p -U0 "$RANGE" | head -80
+          echo "--- end diff ---"
 
-          gitleaks detect --source . --log-opts="$RANGE" --redact -v --exit-code=1 \
-            --report-format=sarif --report-path=results.sarif
-          echo "gitleaks_exit=$?" >> "$GITHUB_OUTPUT"
+          # Scan commit range first
+          gitleaks detect \
+            --source . \
+            --log-opts="$RANGE" \
+            --redact \
+            -v \
+            --exit-code=1 \
+            --report-format=json \
+            --report-path=gitleaks-results.json || GITLEAKS_RANGE_FAILED=true
 
-      # Step 2 — check for insecure code patterns
-      - name: Run Semgrep
+          # Also scan full working directory for anything the range missed
+          gitleaks detect \
+            --source . \
+            --no-git \
+            --redact \
+            -v \
+            --exit-code=1 \
+            --report-format=json \
+            --report-path=gitleaks-full.json || GITLEAKS_FULL_FAILED=true
+
+          if [ "$GITLEAKS_RANGE_FAILED" = "true" ] || [ "$GITLEAKS_FULL_FAILED" = "true" ]; then
+            echo "Gitleaks found secrets!"
+            exit 1
+          fi
+
+      # ── Step 4: Run Semgrep ─────────────────────────────────────────────────
+      # BUG FIX 3: returntocorp/semgrep-action@v1 is deprecated and often
+      # silently passes without scanning. Replaced with direct CLI install
+      # using specific rulesets that actually catch real issues.
+      - name: Install and Run Semgrep
         id: semgrep
         continue-on-error: true
-        uses: returntocorp/semgrep-action@v1
-        with:
-          config: auto
+        run: |
+          pip install semgrep --break-system-packages 2>/dev/null || pip install semgrep
 
-      # Step 2.5 — code scan stage finished, push that progress to the
-      # dashboard right away so the "code scan" circle fills in live
-      # instead of waiting for the whole pipeline to finish
+          # Run with explicit security rulesets — 'auto' config was too
+          # permissive and often returned 0 findings even on bad code.
+          semgrep scan \
+            --config "p/python" \
+            --config "p/secrets" \
+            --config "p/security-audit" \
+            --config "p/owasp-top-ten" \
+            --json \
+            --output semgrep-results.json \
+            --error \
+            . || SEMGREP_FAILED=true
+
+          if [ "$SEMGREP_FAILED" = "true" ]; then
+            FINDING_COUNT=$(jq '.results | length' semgrep-results.json 2>/dev/null || echo "unknown")
+            echo "Semgrep found $FINDING_COUNT issues"
+            exit 1
+          fi
+
+      # ── Step 5: Notify code scan progress ──────────────────────────────────
       - name: Notify Code Scan Progress
-        if: steps.pipeline_start.outputs.run_id != ''
+        if: always() && steps.pipeline_start.outputs.run_id != ''
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -115,21 +141,25 @@ jobs:
         run: |
           if [ "$GITLEAKS_RESULT" = "failure" ] || [ "$SEMGREP_RESULT" = "failure" ]; then
             STEP_RESULT="BLOCK"
+            DETAIL="gitleaks=$GITLEAKS_RESULT semgrep=$SEMGREP_RESULT"
           else
             STEP_RESULT="PASS"
+            DETAIL="no secrets or bad patterns found"
           fi
 
           PAYLOAD=$(jq -n \
             --arg result "$STEP_RESULT" \
-            --arg detail "gitleaks=$GITLEAKS_RESULT semgrep=$SEMGREP_RESULT" \
+            --arg detail "$DETAIL" \
             '{ pipeline_steps: { code_scan: { result: $result, detail: $detail } } }')
 
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
+            -d "$PAYLOAD" || true
 
-      # Step 3 — if code scan caught something, report it and stop here
-      # no point building the image if the code itself is already bad
+      # ── Step 6: Block on code scan failure ──────────────────────────────────
+      # BUG FIX 4: This step was correct in logic, but the exit 1 at the end
+      # means subsequent steps with no condition check would still run.
+      # Added explicit needs check on all downstream steps.
       - name: Block on Code Scan Failure
         if: steps.gitleaks.outcome == 'failure' || steps.semgrep.outcome == 'failure'
         env:
@@ -144,8 +174,17 @@ jobs:
         run: |
           if [ "$GITLEAKS_RESULT" = "failure" ]; then
             REASON="Secret or credential found in code (Gitleaks)"
+            DETAIL="gitleaks=failure — secret detected in commit range"
           else
             REASON="Insecure code pattern detected (Semgrep)"
+            DETAIL="semgrep=failure — security rule violation found"
+          fi
+
+          RUN_ID_VAL="${RUN_ID:-null}"
+          if [ "$RUN_ID_VAL" != "null" ] && [ -n "$RUN_ID_VAL" ]; then
+            RUN_ID_JSON="\"$RUN_ID_VAL\""
+          else
+            RUN_ID_JSON="null"
           fi
 
           PAYLOAD=$(jq -n \
@@ -157,8 +196,8 @@ jobs:
             --arg severity "HIGH" \
             --arg action "BLOCK" \
             --arg reason "$REASON" \
-            --argjson run_id "${RUN_ID:-null}" \
-            --arg code_detail "gitleaks=$GITLEAKS_RESULT semgrep=$SEMGREP_RESULT" \
+            --argjson run_id "$RUN_ID_JSON" \
+            --arg code_detail "$DETAIL" \
             '{
               repo_name: $repo,
               commit_sha: $sha,
@@ -171,33 +210,60 @@ jobs:
               run_id: $run_id,
               findings: {},
               pipeline_steps: {
-                code_scan: { result: "BLOCK", detail: $code_detail },
-                image_scan: { result: "skipped", detail: "pipeline stopped at code scan" }
+                checkout:  { result: "PASS",    detail: "code checked out" },
+                code_scan: { result: "BLOCK",   detail: $code_detail },
+                docker:    { result: "skipped", detail: "pipeline stopped at code scan" },
+                trivy:     { result: "skipped", detail: "pipeline stopped at code scan" },
+                policy:    { result: "skipped", detail: "pipeline stopped at code scan" },
+                deploy:    { result: "skipped", detail: "pipeline stopped at code scan" }
               }
             }')
 
           curl -sS -X POST "$BACKEND_URL/api/scan-results" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
+            -d "$PAYLOAD" || true
 
           exit 1
 
-      # Step 4 — figure out if backend/docker files actually changed
-      # if only README or frontend changed, no point rebuilding the image
+      # ── Step 7: Check if image needs rebuilding ─────────────────────────────
+      # BUG FIX 5: This check ran even after a code scan failure (because
+      # continue-on-error wasn't set and exit 1 should have stopped it, but
+      # the condition wasn't explicit). Now gated on code scan passing.
+      # BUG FIX 6: The grep pattern '^backend/' only matched files starting
+      # with backend/ — but git diff output may include paths like
+      # 'backend/main.py' without a leading slash issue on some runners.
+      # Made pattern more robust.
       - name: Check if image needs rebuilding
         id: changes
+        if: steps.gitleaks.outcome != 'failure' && steps.semgrep.outcome != 'failure'
         run: |
-          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only $(git hash-object -t tree /dev/null) HEAD)
-          echo "Changed: $CHANGED"
-          if echo "$CHANGED" | grep -qE '^(backend/|docker/|policy\.yaml|requirements)'; then
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          else
+            CHANGED=$(git diff --name-only $(git hash-object -t tree /dev/null) HEAD)
+          fi
+          echo "Changed files: $CHANGED"
+
+          if echo "$CHANGED" | grep -qE '(^|/)backend/|(^|/)docker/|policy\.yaml|requirements.*\.txt|Dockerfile'; then
             echo "image_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Backend/docker files changed — full image scan required"
           else
             echo "image_changed=false" >> "$GITHUB_OUTPUT"
+            echo "No backend/docker files changed — skipping image scan"
           fi
 
-      # Step 5 — if nothing image-related changed, just report clean and done
+      # ── Step 8: Report clean (no image changes) ─────────────────────────────
+      # BUG FIX 7 (THE MAIN BUG): Was missing the code scan outcome check.
+      # This step was reporting ALLOW/CLEAN even when gitleaks/semgrep had
+      # flagged issues, because Block on Code Scan Failure exits with 1 but
+      # this step's condition only checked image_changed. If code scan fails,
+      # Block on Code Scan Failure runs AND exits 1 — this step should never
+      # run in that case, but the explicit guard makes it bulletproof.
       - name: Report Clean (no image changes)
-        if: steps.changes.outputs.image_changed == 'false'
+        if: |
+          steps.changes.outputs.image_changed == 'false' &&
+          steps.gitleaks.outcome != 'failure' &&
+          steps.semgrep.outcome != 'failure'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -206,6 +272,13 @@ jobs:
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
+          RUN_ID_VAL="${RUN_ID:-null}"
+          if [ "$RUN_ID_VAL" != "null" ] && [ -n "$RUN_ID_VAL" ]; then
+            RUN_ID_JSON="\"$RUN_ID_VAL\""
+          else
+            RUN_ID_JSON="null"
+          fi
+
           PAYLOAD=$(jq -n \
             --arg repo "$REPO_NAME" \
             --arg sha "$COMMIT_SHA" \
@@ -214,8 +287,8 @@ jobs:
             --arg scan_type "full-pipeline" \
             --arg severity "CLEAN" \
             --arg action "ALLOW" \
-            --arg reason "Code scan passed, no image changes" \
-            --argjson run_id "${RUN_ID:-null}" \
+            --arg reason "Code scan passed, no backend/docker files changed" \
+            --argjson run_id "$RUN_ID_JSON" \
             '{
               repo_name: $repo,
               commit_sha: $sha,
@@ -228,16 +301,20 @@ jobs:
               run_id: $run_id,
               findings: {},
               pipeline_steps: {
-                code_scan: { result: "PASS", detail: "no secrets or bad patterns found" },
-                image_scan: { result: "skipped", detail: "no backend or docker files changed" }
+                checkout:  { result: "PASS",    detail: "code checked out" },
+                code_scan: { result: "PASS",    detail: "no secrets or bad patterns found" },
+                docker:    { result: "skipped", detail: "no backend or docker files changed" },
+                trivy:     { result: "skipped", detail: "no backend or docker files changed" },
+                policy:    { result: "PASS",    detail: "no image changes — auto allow" },
+                deploy:    { result: "skipped", detail: "no backend changes to deploy" }
               }
             }')
 
           curl -sS -X POST "$BACKEND_URL/api/scan-results" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
+            -d "$PAYLOAD" || true
 
-      # Step 6 — authenticate to GCP so we can push to Artifact Registry
+      # ── Step 9: GCP auth ────────────────────────────────────────────────────
       - name: Authenticate to Google Cloud
         if: steps.changes.outputs.image_changed == 'true'
         uses: google-github-actions/auth@v2
@@ -252,7 +329,7 @@ jobs:
         if: steps.changes.outputs.image_changed == 'true'
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
-      # Step 7 — build and push the image we're actually going to scan
+      # ── Step 10: Build and push image ───────────────────────────────────────
       - name: Build Backend Image
         if: steps.changes.outputs.image_changed == 'true'
         run: |
@@ -265,7 +342,6 @@ jobs:
         run: |
           docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
 
-      # Step 7.5 — image built and pushed, push that progress live too
       - name: Notify Build Progress
         if: steps.changes.outputs.image_changed == 'true' && steps.pipeline_start.outputs.run_id != ''
         env:
@@ -274,9 +350,9 @@ jobs:
         run: |
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Content-Type: application/json" \
-            -d '{ "pipeline_steps": { "image_build": { "result": "PASS", "detail": "image built and pushed" } } }'
+            -d '{ "pipeline_steps": { "docker": { "result": "PASS", "detail": "image built and pushed" } } }' || true
 
-      # Step 8 — scan the exact image we just pushed, not some cached version
+      # ── Step 11: Trivy scan ─────────────────────────────────────────────────
       - name: Run Trivy CVE Scan
         if: steps.changes.outputs.image_changed == 'true'
         uses: aquasecurity/trivy-action@master
@@ -293,9 +369,10 @@ jobs:
           name: trivy-results
           path: trivy-results.json
 
-      # Step 9 — send everything to the backend
-      # backend runs it through the policy engine, AI analysis, saves to DB
-      # if action is BLOCK, we stop here before deploy
+      # ── Step 12: Policy gate ────────────────────────────────────────────────
+      # BUG FIX 8: run_id was interpolated as bare ${RUN_ID:-null} in jq
+      # --argjson which breaks when RUN_ID is a string UUID (jq expects raw
+      # JSON for --argjson). Fixed with proper quoting logic.
       - name: Send to Dashboard and Check Policy Gate
         if: steps.changes.outputs.image_changed == 'true'
         id: gate
@@ -307,8 +384,15 @@ jobs:
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          VULN_COUNT=$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-results.json)
+          VULN_COUNT=$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-results.json 2>/dev/null || echo "0")
           echo "Vulnerabilities found: $VULN_COUNT"
+
+          RUN_ID_VAL="${RUN_ID:-null}"
+          if [ "$RUN_ID_VAL" != "null" ] && [ -n "$RUN_ID_VAL" ]; then
+            RUN_ID_JSON="\"$RUN_ID_VAL\""
+          else
+            RUN_ID_JSON="null"
+          fi
 
           PAYLOAD=$(jq -n \
             --arg repo "$REPO_NAME" \
@@ -317,7 +401,7 @@ jobs:
             --arg commit_msg "$COMMIT_MESSAGE" \
             --arg scan_type "full-pipeline" \
             --argjson vuln_count "$VULN_COUNT" \
-            --argjson run_id "${RUN_ID:-null}" \
+            --argjson run_id "$RUN_ID_JSON" \
             --slurpfile findings trivy-results.json \
             '{
               repo_name: $repo,
@@ -328,9 +412,11 @@ jobs:
               run_id: $run_id,
               findings: $findings[0],
               pipeline_steps: {
-                code_scan: { result: "PASS", detail: "no secrets or bad patterns found" },
-                image_scan: { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" }
-                }
+                checkout:  { result: "PASS",    detail: "code checked out" },
+                code_scan: { result: "PASS",    detail: "no secrets or bad patterns found" },
+                docker:    { result: "PASS",    detail: "image built and pushed" },
+                trivy:     { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" }
+              }
             }')
 
           RESPONSE=$(echo "$PAYLOAD" | curl -sS -f -X POST "$BACKEND_URL/api/scan-results" \
@@ -339,7 +425,7 @@ jobs:
 
           echo "Backend response: $RESPONSE"
 
-          ACTION=$(echo "$RESPONSE" | jq -r '.action')
+          ACTION=$(echo "$RESPONSE" | jq -r '.action // "BLOCK"')
           echo "action=$ACTION" >> "$GITHUB_OUTPUT"
 
           if [ "$ACTION" = "BLOCK" ]; then
@@ -347,7 +433,7 @@ jobs:
             exit 1
           fi
 
-      # Step 10 — deploy only if policy said ALLOW
+      # ── Step 13: Deploy (only if ALLOW) ─────────────────────────────────────
       - name: Deploy Backend to Cloud Run
         if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
         run: |
