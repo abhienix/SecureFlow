@@ -110,6 +110,3 @@ The hybrid Ollama/Gemini architecture also taught me something real about deploy
 Built by Abhimanyu Kumar · [github.com/abhienix/SecureFlow](https://github.com/abhienix/SecureFlow)
 
 
- # test
-AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-GITHUB_TOKEN=ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456789
