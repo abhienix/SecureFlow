@@ -1,4 +1,4 @@
-﻿default:
+default:
   block_on: [CRITICAL, HIGH]
   warn_on: [MEDIUM]
   cvss_threshold: 7.0
@@ -56,16 +56,6 @@ repos:
       - cve: CVE-2026-54283
         expires: 2026-12-01
         reason: "starlette, fix requires v1.3.1+ which conflicts with fastapi 0.115.x constraint"
-      - cve: CVE-2025-66418
-        expires: 2026-12-01
-        reason: "urllib3, fix requires 2.6.0+ — upgrading after testing compatibility"
-      - cve: CVE-2025-66471
-        expires: 2026-12-01
-        reason: "urllib3, fix requires 2.6.0+ — upgrading after testing compatibility"
-      - cve: CVE-2026-21441
-        expires: 2026-12-01
-        reason: "urllib3, fix requires 2.6.3+ — upgrading after testing compatibility"
-
 notifications:
   slack: true
   on_block: true
