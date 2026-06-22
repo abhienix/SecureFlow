@@ -55,12 +55,36 @@ jobs:
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
       # Step 1 — check for secrets in the code
+      # Calling the gitleaks CLI directly instead of gitleaks-action, because
+      # the action's built-in commit-detection has proven unreliable here —
+      # it reported "0 commits scanned" on a real push event, meaning it
+      # silently skipped scanning anything. Running the CLI ourselves with
+      # an explicit commit range removes that guesswork entirely.
+      - name: Install Gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          chmod +x gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
       - name: Run Gitleaks
         id: gitleaks
         continue-on-error: true
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # If this is the first commit in the checked-out history (no
+          # parent available), fall back to scanning that single commit.
+          # Otherwise diff against the immediate parent so we always scan
+          # exactly what this push actually changed.
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            RANGE="HEAD~1..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          echo "Scanning commit range: $RANGE"
+          gitleaks detect --source . --log-opts="$RANGE" --redact -v --exit-code=1 \
+            --report-format=sarif --report-path=results.sarif
+          echo "gitleaks_exit=$?" >> "$GITHUB_OUTPUT"
 
       # Step 2 — check for insecure code patterns
       - name: Run Semgrep
