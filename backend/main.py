@@ -360,16 +360,41 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
-    # Capped at 200 most recent rows. Without a limit, this returns the
-    # entire table on every poll (the dashboard polls every 4s) — as the
-    # table grows that response eventually gets large enough that Cloud
-    # Run's proxy intermittently rejects it ("Response size was too
-    # large"), causing random 500s that have nothing to do with the data
-    # itself, just its total size. 200 is generous for what the dashboard
-    # actually displays (it only ever shows a handful at once).
-    return (
+    # Capped at 200 most recent rows, AND findings excluded from the
+    # response. findings holds the raw Trivy scan output — every
+    # vulnerability, package, and layer in the image — which can easily run
+    # tens to hundreds of KB per row. The frontend dashboard never reads
+    # this field (confirmed: no `scan.findings` reference anywhere in
+    # App.js), so it was pure dead weight being sent on every single poll
+    # (every 4 seconds). This, not raw row count, is almost certainly what
+    # was tripping Cloud Run's "Response size was too large" rejections —
+    # a handful of real Trivy scans with large findings blobs is enough to
+    # blow past the threshold even well under 200 rows.
+    rows = (
         db.query(ScanResult)
         .order_by(ScanResult.created_at.desc())
         .limit(200)
         .all()
     )
+    return [
+        {
+            "id": r.id,
+            "commit_sha": r.commit_sha,
+            "commit_message": r.commit_message,
+            "repo_name": r.repo_name,
+            "branch": r.branch,
+            "scan_type": r.scan_type,
+            "severity": r.severity,
+            "ai_explanation": r.ai_explanation,
+            "ai_fix": r.ai_fix,
+            "risk_score": r.risk_score,
+            "action_taken": r.action_taken,
+            "ai_feedback": r.ai_feedback,
+            "ai_feedback_note": r.ai_feedback_note,
+            "pipeline_steps": r.pipeline_steps,
+            "status": r.status,
+            "started_at": r.started_at,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
