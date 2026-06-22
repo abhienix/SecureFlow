@@ -91,7 +91,6 @@ jobs:
           gitleaks detect \
             --source . \
             --no-git \
-            --redact \
             -v \
             --exit-code=1 \
             --report-format=json \
@@ -99,6 +98,10 @@ jobs:
 
           if [ "$GITLEAKS_RANGE_FAILED" = "true" ] || [ "$GITLEAKS_FULL_FAILED" = "true" ]; then
             echo "Gitleaks found secrets!"
+            echo "--- gitleaks range results ---"
+            cat gitleaks-results.json 2>/dev/null || echo "no range results file"
+            echo "--- gitleaks full scan results ---"
+            cat gitleaks-full.json 2>/dev/null || echo "no full scan results file"
             exit 1
           fi
 
