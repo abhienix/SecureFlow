@@ -79,7 +79,7 @@ jobs:
 
           # Scan commit range first
           gitleaks detect \
-            --source . \
+            --source . \  
             --log-opts="$RANGE" \
             --redact \
             -v \
@@ -161,9 +161,6 @@ jobs:
             -d "$PAYLOAD" || true
 
       # ── Step 6: Block on code scan failure ──────────────────────────────────
-      # BUG FIX 4: This step was correct in logic, but the exit 1 at the end
-      # means subsequent steps with no condition check would still run.
-      # Added explicit needs check on all downstream steps.
       - name: Block on Code Scan Failure
         if: steps.gitleaks.outcome == 'failure' || steps.semgrep.outcome == 'failure'
         env:
@@ -178,10 +175,38 @@ jobs:
         run: |
           if [ "$GITLEAKS_RESULT" = "failure" ]; then
             REASON="Secret or credential found in code (Gitleaks)"
-            DETAIL="gitleaks=failure — secret detected in commit range"
+
+            # Extract the actual finding from gitleaks JSON — file, line, rule
+            GITLEAKS_DETAIL=$(jq -r '
+              if length > 0 then
+                .[0] | "Rule: \(.RuleID) | File: \(.File):\(.StartLine) | Match: \(.Match // "redacted")"
+              else
+                "secret detected — check gitleaks output above"
+              end
+            ' gitleaks-full.json 2>/dev/null || \
+            jq -r '
+              if length > 0 then
+                .[0] | "Rule: \(.RuleID) | File: \(.File):\(.StartLine)"
+              else
+                "secret detected"
+              end
+            ' gitleaks-results.json 2>/dev/null || echo "gitleaks=failure — see logs above")
+
+            DETAIL="$GITLEAKS_DETAIL"
           else
             REASON="Insecure code pattern detected (Semgrep)"
-            DETAIL="semgrep=failure — security rule violation found"
+
+            # Extract the actual finding from semgrep JSON — rule, file, line, message
+            SEMGREP_DETAIL=$(jq -r '
+              if (.results | length) > 0 then
+                .results[0] |
+                "Rule: \(.check_id | split(".") | last) | File: \(.path):\(.start.line) | \(.extra.message)"
+              else
+                "semgrep=failure — see logs above"
+              end
+            ' semgrep-results.json 2>/dev/null || echo "semgrep=failure — see logs above")
+
+            DETAIL="$SEMGREP_DETAIL"
           fi
 
           RUN_ID_VAL="${RUN_ID:-null}"

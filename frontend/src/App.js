@@ -337,6 +337,7 @@ const CommitCard = ({ scan, feedback, onFeedback }) => {
             }
             {!isRunning && scan.severity && <Badge color={severityColor(scan.severity)}>{scan.severity}</Badge>}
             {scan.risk_score != null && !isRunning && <Badge color={riskColor(scan.risk_score)} small>Risk {scan.risk_score}/10</Badge>}
+            {scan.ai_urgency && !isRunning && <Badge color={scan.ai_urgency === "Fix right now" ? C.red : scan.ai_urgency === "Fix before next deploy" ? C.amber : C.inkMid} small>{scan.ai_urgency}</Badge>}
           </div>
           <div style={{ fontSize: 13, color: C.ink, fontWeight: 600, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {scan.commit_message || scan.repo_name || "—"}
@@ -375,6 +376,14 @@ const CommitCard = ({ scan, feedback, onFeedback }) => {
 
           {scan.vuln_breakdown && <VulnBreakdown breakdown={scan.vuln_breakdown} />}
 
+          {/* ── WHY THIS WAS ALLOWED (shows when high-risk scan still passed) ── */}
+          {scan.allow_reason && (
+            <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.tealBord}`, fontSize: 12, color: C.inkMid, lineHeight: 1.6 }}>
+              <strong style={{ color: C.teal, display: "block", marginBottom: 4, fontSize: 10, letterSpacing: "0.08em" }}>✓ WHY THIS WAS ALLOWED</strong>
+              {scan.allow_reason}
+            </div>
+          )}
+
           {scan.ai_explanation && (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 9, color: C.violet, fontWeight: 800, letterSpacing: "0.1em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -387,6 +396,16 @@ const CommitCard = ({ scan, feedback, onFeedback }) => {
                 <div style={{ marginTop: 8, fontSize: 12, color: C.inkMid, background: C.tealSoft, borderRadius: 10, padding: "10px 14px", border: `1px solid ${C.tealBord}` }}>
                   <strong style={{ color: C.teal, display: "block", marginBottom: 4, fontSize: 10, letterSpacing: "0.08em" }}>REMEDIATION</strong>
                   {scan.ai_fix}
+                </div>
+              )}
+              {/* ── Urgency tag under remediation ── */}
+              {scan.ai_urgency && (
+                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, letterSpacing: "0.08em" }}>URGENCY</span>
+                  <Badge color={
+                    scan.ai_urgency === "Fix right now" ? C.red :
+                    scan.ai_urgency === "Fix before next deploy" ? C.amber : C.inkMid
+                  } small>{scan.ai_urgency}</Badge>
                 </div>
               )}
               <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>

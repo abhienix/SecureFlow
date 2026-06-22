@@ -22,7 +22,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="SecureFlow â€” AI-Powered Security Gate for CI/CD", version="1.0.0")
+app = FastAPI(title="SecureFlow — AI-Powered Security Gate for CI/CD", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,7 +49,7 @@ def get_db():
 
 @app.get("/")
 def root():
-    return {"message": "SecureFlow â€” AI-Powered Security Gate for CI/CD"}
+    return {"message": "SecureFlow — AI-Powered Security Gate for CI/CD"}
 
 
 @app.get("/health")
@@ -62,12 +62,7 @@ def start_scan_run(data: dict, db: Session = Depends(get_db)):
     """
     Called once, right after checkout, before any scanning happens.
     Creates a placeholder row with status="running" so the dashboard can
-    show this commit moving through the pipeline in real time, instead of
-    only ever seeing finished results once everything is already done.
-
-    Returns the row id â€” the workflow passes this back as run_id on later
-    calls to /api/scan-results so we update this same row instead of
-    creating a duplicate.
+    show this commit moving through the pipeline in real time.
     """
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
@@ -95,10 +90,8 @@ def start_scan_run(data: dict, db: Session = Depends(get_db)):
 @app.patch("/api/scan-results/{run_id}/progress")
 def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):
     """
-    Called after each stage finishes (code scan, image build, Trivy scan)
-    so the running row's pipeline_steps fills in live instead of arriving
-    all at once at the end. Merges into whatever pipeline_steps already
-    exist rather than overwriting them.
+    Called after each stage finishes so the running row's pipeline_steps
+    fills in live instead of arriving all at once at the end.
     """
     scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
     if not scan:
@@ -169,31 +162,53 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
     return vulnerabilities
 
 
+def build_allow_reason(policy_result: dict, vuln_count: int) -> str:
+    """
+    When a scan has HIGH/CRITICAL vulns but is still ALLOWED, the dashboard
+    needs to explain WHY — otherwise it just looks wrong. This builds that
+    explanation from the actual policy decision data.
+    """
+    allowlisted = policy_result.get("allowlisted", [])
+    warned = policy_result.get("warned", [])
+    blocked = policy_result.get("blocked", [])
+
+    if vuln_count == 0:
+        return ""
+
+    parts = []
+
+    if blocked:
+        # This shouldn't happen (blocked vulns = BLOCK action) but just in case
+        parts.append(f"{len(blocked)} blocking CVEs found")
+
+    if allowlisted:
+        cve_list = ", ".join(a["cve"] for a in allowlisted[:3])
+        suffix = f" (+{len(allowlisted)-3} more)" if len(allowlisted) > 3 else ""
+        parts.append(f"{len(allowlisted)} CVE(s) are allowlisted in policy.yaml ({cve_list}{suffix}) — manually approved as known/acceptable")
+
+    if warned:
+        parts.append(f"{len(warned)} Medium/Low severity CVEs found — below the blocking threshold")
+
+    if not parts and vuln_count > 0:
+        parts.append(f"{vuln_count} CVEs found but none cross the block threshold (CRITICAL/HIGH with CVSS ≥ 7.0)")
+
+    return " · ".join(parts) if parts else ""
+
+
 @app.post("/api/scan-results")
 def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
-    run_id = data.get("run_id")  # set if /api/scan-results/start was called first
+    run_id = data.get("run_id")
     pipeline_steps = data.get("pipeline_steps", {})
 
     def save_scan(fields: dict):
-        """
-        If run_id points at an existing "running" row, update it in place
-        (this is the normal path now â€” start() created the row, this call
-        finishes it). Otherwise insert a new row, which keeps older workflow
-        runs that never called /start working exactly as before.
-        """
         if run_id:
             scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
             if scan:
                 for key, value in fields.items():
                     setattr(scan, key, value)
                 scan.status = "complete"
-                # Build a brand new dict rather than mutating scan.pipeline_steps
-                # in place. SQLAlchemy only detects column changes on
-                # reassignment to a new object â€” mutating the existing dict
-                # and reassigning the same object back does NOT mark it
-                # dirty, so the update would silently fail to persist.
                 merged_steps = dict(scan.pipeline_steps or {})
                 merged_steps.update(pipeline_steps)
                 scan.pipeline_steps = merged_steps
@@ -207,8 +222,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         db.refresh(scan)
         return scan
 
-    # Code scans (Gitleaks + Semgrep) send severity and action directly
-    # â€” no image findings to parse, no policy engine needed
+    # Code scans (Gitleaks + Semgrep) — no image findings, no policy engine
     if scan_type == "code-scan":
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
@@ -224,7 +238,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": data.get("action", "ALLOW"),
         })
 
-        print(f"code-scan recorded: {scan.action_taken} â€” {data.get('reason', '')}")
+        print(f"code-scan recorded: {scan.action_taken} — {data.get('reason', '')}")
 
         return {
             "status": "processed",
@@ -233,38 +247,40 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "reason": data.get("reason", ""),
         }
 
-    # Image scans (Trivy) â€” run through policy engine as before
+    # Image scans (Trivy) — run through policy engine
     findings = data.get("findings", {})
-    explicit_action = data.get("action")  # set directly by callers like the
-    # code-scan-failure step, which already knows the verdict (BLOCK) and
-    # isn't sending real findings for the policy engine to evaluate.
-    # NOTE: every workflow step currently sends scan_type="full-pipeline",
-    # so the scan_type=="code-scan" branch above never actually runs â€” this
-    # explicit_action check is what makes BLOCK calls from Gitleaks/Semgrep
-    # failures actually take effect instead of being silently overwritten
-    # by the policy engine's "no findings = ALLOW" default.
+    explicit_action = data.get("action")
 
     if explicit_action and not findings:
         ai_explanation = ""
         ai_fix = ""
+        ai_urgency = ""
         risk_score = None
 
-        # Only worth calling the AI when something actually failed â€” an
-        # explicit ALLOW (e.g. "no image changes") has nothing to explain.
         if explicit_action == "BLOCK":
+            # Pull the richest detail available — the workflow now sends
+            # file:line:rule from the actual scanner finding, not just a
+            # generic "semgrep=failure" string.
             code_scan_detail = pipeline_steps.get("code_scan", {}).get("detail", "")
+            scanner = "gitleaks" if "gitleaks" in data.get("reason", "").lower() else "semgrep"
+
             failure_info = {
-                "scanner": "gitleaks/semgrep",
+                "scanner": scanner,
                 "reason": data.get("reason", ""),
+                # This is now the real finding: "Rule: detected-username-and-password-in-uri | File: fix_prod.py:3 | Username and password in URI detected"
                 "detail": code_scan_detail,
             }
+
+            print(f"AI analyzing code-scan failure: {failure_info}")
+
             try:
                 ai_result = analyze_code_scan_failure(failure_info)
                 ai_explanation = ai_result.get("explanation", "")
                 ai_fix = ai_result.get("fix", "")
+                ai_urgency = ai_result.get("urgency", "")
                 risk_score = ai_result.get("risk_score")
             except Exception as e:
-                print(f"AI analysis of code-scan failure errored unexpectedly: {e}")
+                print(f"AI analysis of code-scan failure errored: {e}")
 
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
@@ -280,7 +296,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": explicit_action,
         })
 
-        print(f"explicit action honored: {explicit_action} â€” {data.get('reason', '')}")
+        print(f"explicit action honored: {explicit_action} — {data.get('reason', '')}")
 
         return {
             "status": "processed",
@@ -291,18 +307,25 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "blocked": [],
             "warned": [],
             "allowlisted": [],
-            "ai_analysis": [{"explanation": ai_explanation, "fix": ai_fix, "risk_score": risk_score}] if ai_explanation else [],
+            "ai_analysis": [{
+                "explanation": ai_explanation,
+                "fix": ai_fix,
+                "urgency": ai_urgency,
+                "risk_score": risk_score,
+            }] if ai_explanation else [],
             "vuln_breakdown": {
                 "base_image_count": 0, "fixable_count": 0, "app_count": 0,
                 "total": 0, "fixable_details": [], "base_image_note": "",
             },
         }
 
+    # Full Trivy scan path
     policy_result = evaluate_policy(findings, repo_name)
     vulnerabilities = extract_vulnerabilities(findings)
+    vuln_count = len(vulnerabilities)
 
-    print(f"policy result: {policy_result['action']} â€” {policy_result['reason']}")
-    print(f"vulnerabilities extracted: {len(vulnerabilities)}")
+    print(f"policy result: {policy_result['action']} — {policy_result['reason']}")
+    print(f"vulnerabilities extracted: {vuln_count}")
 
     ai_results = []
     if vulnerabilities:
@@ -311,10 +334,17 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         except Exception as e:
             print(f"AI analysis failed (skipping): {e}")
 
-    first_ai_result = ai_results[0] if ai_results else {}
-    ai_explanation = first_ai_result.get("explanation", "")
-    ai_fix = first_ai_result.get("fix", "")
-    risk_score = first_ai_result.get("risk_score", None)
+    first_ai = ai_results[0] if ai_results else {}
+    ai_explanation = first_ai.get("explanation", "")
+    ai_fix = first_ai.get("fix", "")
+    ai_urgency = first_ai.get("urgency", "")
+    risk_score = first_ai.get("risk_score", None)
+
+    # Build the "why was this ALLOWED despite high risk" explanation
+    # so the dashboard card doesn't look confusing
+    allow_reason = ""
+    if policy_result["action"] == "ALLOW" and vuln_count > 0:
+        allow_reason = build_allow_reason(policy_result, vuln_count)
 
     scan = save_scan({
         "commit_sha": data.get("commit_sha", "unknown"),
@@ -340,11 +370,13 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         "id": scan.id,
         "action": policy_result["action"],
         "reason": policy_result["reason"],
+        "allow_reason": allow_reason,  # NEW — explains WHY high-risk was allowed
         "policy_used": policy_result["policy_used"],
         "blocked": policy_result["blocked"],
         "warned": policy_result["warned"],
         "allowlisted": policy_result["allowlisted"],
         "ai_analysis": ai_results,
+        "ai_urgency": ai_urgency,
     }
 
 
@@ -361,16 +393,6 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
-    # Capped at 200 most recent rows, AND findings excluded from the
-    # response. findings holds the raw Trivy scan output â€” every
-    # vulnerability, package, and layer in the image â€” which can easily run
-    # tens to hundreds of KB per row. The frontend dashboard never reads
-    # this field (confirmed: no `scan.findings` reference anywhere in
-    # App.js), so it was pure dead weight being sent on every single poll
-    # (every 4 seconds). This, not raw row count, is almost certainly what
-    # was tripping Cloud Run's "Response size was too large" rejections â€”
-    # a handful of real Trivy scans with large findings blobs is enough to
-    # blow past the threshold even well under 200 rows.
     rows = (
         db.query(ScanResult)
         .order_by(ScanResult.created_at.desc())
