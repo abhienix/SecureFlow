@@ -127,6 +127,7 @@ jobs:
           if [ "$SEMGREP_FAILED" = "true" ]; then
             FINDING_COUNT=$(jq '.results | length' semgrep-results.json 2>/dev/null || echo "unknown")
             echo "Semgrep found $FINDING_COUNT issues"
+            cat semgrep-results.json
             exit 1
           fi
 
