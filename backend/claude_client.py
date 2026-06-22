@@ -7,7 +7,7 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama3-8b-8192"
+MODEL = "llama3-70b-8192"
 
 
 def _call_groq(prompt: str) -> str:
@@ -18,8 +18,8 @@ def _call_groq(prompt: str) -> str:
     payload = {
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "max_tokens": 512,
+        "temperature": 0.4,
+        "max_tokens": 1024,
     }
     resp = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=30)
     resp.raise_for_status()
@@ -30,17 +30,22 @@ def analyze_scan(vulnerabilities: list) -> list:
     if not vulnerabilities:
         return []
 
-    vuln_summary = json.dumps(vulnerabilities[:5], indent=2)
-    prompt = f"""You are a security expert. Analyze these CVE vulnerabilities found in a Docker image and respond with JSON only.
+    top = vulnerabilities[:8]
+    vuln_lines = "\n".join(
+        f"- {v.get('id','?')} | {v.get('package','?')} | Severity: {v.get('severity','?')} | CVSS: {v.get('score','?')} | Fix: {v.get('fix','none')} | {v.get('description','')[:120]}"
+        for v in top
+    )
 
-Vulnerabilities:
-{vuln_summary}
+    prompt = f"""You are a senior DevSecOps engineer reviewing a Docker image CVE scan for a production deployment.
 
-Respond with this exact JSON structure (no markdown, no extra text):
+Vulnerabilities found:
+{vuln_lines}
+
+Write a detailed security assessment. Respond with this exact JSON (no markdown, no extra text):
 {{
-  "explanation": "2-3 sentence plain-English explanation of the risk",
-  "fix": "specific actionable remediation steps",
-  "risk_score": <integer 1-10>
+  "explanation": "Write 4-5 sentences. Name the most critical CVEs specifically. Explain what they allow an attacker to do. Mention which packages are affected. State the real-world risk to this production service.",
+  "fix": "Write 4-5 actionable steps. Include specific package versions to upgrade to. Mention if base image should be updated. Include any config hardening steps. Be specific and technical.",
+  "risk_score": <integer 1-10 based on highest CVSS and exploitability>
 }}"""
 
     try:
@@ -51,23 +56,23 @@ Respond with this exact JSON structure (no markdown, no extra text):
     except Exception as e:
         print(f"analyze_scan error: {e}")
         return [{
-            "explanation": "AI analysis unavailable.",
-            "fix": "Review vulnerabilities manually.",
+            "explanation": "AI analysis unavailable — review vulnerabilities manually.",
+            "fix": "Check Trivy output and upgrade affected packages.",
             "risk_score": 5,
         }]
 
 
 def analyze_code_scan_failure(failure_info: dict) -> dict:
-    prompt = f"""You are a security expert. A code scan failed with the following details:
+    prompt = f"""You are a senior DevSecOps engineer. A code scan blocked a production deployment.
 
 Scanner: {failure_info.get('scanner', 'unknown')}
 Reason: {failure_info.get('reason', 'unknown')}
 Detail: {failure_info.get('detail', 'unknown')}
 
-Respond with this exact JSON structure (no markdown, no extra text):
+Write a detailed security assessment. Respond with this exact JSON (no markdown, no extra text):
 {{
-  "explanation": "2-3 sentence plain-English explanation of why this is a security risk",
-  "fix": "specific steps to fix the issue",
+  "explanation": "Write 4-5 sentences. Explain exactly what was detected and why it is dangerous. Describe what an attacker could do with this. Explain why this blocked the deployment. State the compliance/security impact.",
+  "fix": "Write 4-5 specific remediation steps. Include how to rotate any exposed credentials. Include how to prevent this in future. Be specific and technical.",
   "risk_score": <integer 1-10>
 }}"""
 
@@ -78,7 +83,7 @@ Respond with this exact JSON structure (no markdown, no extra text):
     except Exception as e:
         print(f"analyze_code_scan_failure error: {e}")
         return {
-            "explanation": "AI analysis unavailable.",
-            "fix": "Review the code scan output manually.",
+            "explanation": "AI analysis unavailable — review code scan output manually.",
+            "fix": "Check Gitleaks/Semgrep output and fix flagged issues.",
             "risk_score": 7,
         }
