@@ -82,6 +82,14 @@ jobs:
             RANGE="HEAD"
           fi
           echo "Scanning commit range: $RANGE"
+
+          # Debug: prove there's actually a diff here before blaming
+          # gitleaks. If this prints nothing, the problem is upstream of
+          # gitleaks entirely (checkout/ref issue), not gitleaks itself.
+          echo "--- DEBUG: raw git diff for this range ---"
+          git log -p -U0 "$RANGE" | head -50
+          echo "--- END DEBUG ---"
+
           gitleaks detect --source . --log-opts="$RANGE" --redact -v --exit-code=1 \
             --report-format=sarif --report-path=results.sarif
           echo "gitleaks_exit=$?" >> "$GITHUB_OUTPUT"
