@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from models import Base, ScanResult
 from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label
-from claude_client import analyze_scan
+from claude_client import analyze_scan, analyze_code_scan_failure
 from slack_notifier import send_slack_alert
 
 load_dotenv()
@@ -244,6 +244,27 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     # by the policy engine's "no findings = ALLOW" default.
 
     if explicit_action and not findings:
+        ai_explanation = ""
+        ai_fix = ""
+        risk_score = None
+
+        # Only worth calling the AI when something actually failed — an
+        # explicit ALLOW (e.g. "no image changes") has nothing to explain.
+        if explicit_action == "BLOCK":
+            code_scan_detail = pipeline_steps.get("code_scan", {}).get("detail", "")
+            failure_info = {
+                "scanner": "gitleaks/semgrep",
+                "reason": data.get("reason", ""),
+                "detail": code_scan_detail,
+            }
+            try:
+                ai_result = analyze_code_scan_failure(failure_info)
+                ai_explanation = ai_result.get("explanation", "")
+                ai_fix = ai_result.get("fix", "")
+                risk_score = ai_result.get("risk_score")
+            except Exception as e:
+                print(f"AI analysis of code-scan failure errored unexpectedly: {e}")
+
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
@@ -252,9 +273,9 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "scan_type": scan_type,
             "severity": data.get("severity", "HIGH"),
             "findings": {},
-            "ai_explanation": "",
-            "ai_fix": "",
-            "risk_score": None,
+            "ai_explanation": ai_explanation,
+            "ai_fix": ai_fix,
+            "risk_score": risk_score,
             "action_taken": explicit_action,
         })
 
@@ -269,7 +290,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "blocked": [],
             "warned": [],
             "allowlisted": [],
-            "ai_analysis": [],
+            "ai_analysis": [{"explanation": ai_explanation, "fix": ai_fix, "risk_score": risk_score}] if ai_explanation else [],
             "vuln_breakdown": {
                 "base_image_count": 0, "fixable_count": 0, "app_count": 0,
                 "total": 0, "fixable_details": [], "base_image_note": "",
