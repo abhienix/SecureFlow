@@ -1,8 +1,9 @@
 import os
 from datetime import datetime
+from typing import List
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import create_engine, text
@@ -39,6 +40,48 @@ app.add_middleware(
 Instrumentator().instrument(app).expose(app)
 
 
+# ------ WebSocket connection manager ---------------------------------------------------------------------------------------------------------------------------------------------
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        print(f"WebSocket connected. Total clients: {len(self.active_connections)}")
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        print(f"WebSocket disconnected. Total clients: {len(self.active_connections)}")
+
+    async def broadcast(self, message: str):
+        dead = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except Exception:
+                dead.append(connection)
+        for d in dead:
+            self.disconnect(d)
+
+
+manager = ConnectionManager()
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive - wait for any message (ping from client)
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception:
+        manager.disconnect(websocket)
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -58,12 +101,7 @@ def health():
 
 
 @app.post("/api/scan-results/start")
-def start_scan_run(data: dict, db: Session = Depends(get_db)):
-    """
-    Called once, right after checkout, before any scanning happens.
-    Creates a placeholder row with status="running" so the dashboard can
-    show this commit moving through the pipeline in real time.
-    """
+async def start_scan_run(data: dict, db: Session = Depends(get_db)):
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
         commit_message=data.get("commit_message", ""),
@@ -84,15 +122,14 @@ def start_scan_run(data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(scan)
 
+    # Notify all connected dashboard clients instantly
+    await manager.broadcast("update")
+
     return {"status": "started", "run_id": scan.id}
 
 
 @app.patch("/api/scan-results/{run_id}/progress")
-def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):
-    """
-    Called after each stage finishes so the running row's pipeline_steps
-    fills in live instead of arriving all at once at the end.
-    """
+async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):
     scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
     if not scan:
         return {"error": "run not found"}
@@ -101,6 +138,9 @@ def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db))
     existing_steps.update(data.get("pipeline_steps", {}))
     scan.pipeline_steps = existing_steps
     db.commit()
+
+    # Notify all connected dashboard clients instantly
+    await manager.broadcast("update")
 
     return {"status": "progress updated", "run_id": run_id}
 
@@ -163,11 +203,6 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
 
 
 def build_allow_reason(policy_result: dict, vuln_count: int) -> str:
-    """
-    When a scan has HIGH/CRITICAL vulns but is still ALLOWED, the dashboard
-    needs to explain WHY - otherwise it just looks wrong. This builds that
-    explanation from the actual policy decision data.
-    """
     allowlisted = policy_result.get("allowlisted", [])
     warned = policy_result.get("warned", [])
     blocked = policy_result.get("blocked", [])
@@ -178,7 +213,6 @@ def build_allow_reason(policy_result: dict, vuln_count: int) -> str:
     parts = []
 
     if blocked:
-        # This shouldn't happen (blocked vulns = BLOCK action) but just in case
         parts.append(f"{len(blocked)} blocking CVEs found")
 
     if allowlisted:
@@ -190,13 +224,13 @@ def build_allow_reason(policy_result: dict, vuln_count: int) -> str:
         parts.append(f"{len(warned)} Medium/Low severity CVEs found - below the blocking threshold")
 
     if not parts and vuln_count > 0:
-        parts.append(f"{vuln_count} CVEs found but none cross the block threshold (CRITICAL/HIGH with CVSS = 7.0)")
+        parts.append(f"{vuln_count} CVEs found but none cross the block threshold")
 
-    return " ? ".join(parts) if parts else ""
+    return " | ".join(parts) if parts else ""
 
 
 @app.post("/api/scan-results")
-def receive_scan_results(data: dict, db: Session = Depends(get_db)):
+async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
     run_id = data.get("run_id")
@@ -222,7 +256,6 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         db.refresh(scan)
         return scan
 
-    # Code scans (Gitleaks + Semgrep) - no image findings, no policy engine
     if scan_type == "code-scan":
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
@@ -238,7 +271,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": data.get("action", "ALLOW"),
         })
 
-        print(f"code-scan recorded: {scan.action_taken} - {data.get('reason', '')}")
+        await manager.broadcast("update")
 
         return {
             "status": "processed",
@@ -247,7 +280,6 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "reason": data.get("reason", ""),
         }
 
-    # Image scans (Trivy) - run through policy engine
     findings = data.get("findings", {})
     explicit_action = data.get("action")
 
@@ -258,20 +290,14 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         risk_score = None
 
         if explicit_action == "BLOCK":
-            # Pull the richest detail available - the workflow now sends
-            # file:line:rule from the actual scanner finding, not just a
-            # generic "semgrep=failure" string.
             code_scan_detail = pipeline_steps.get("code_scan", {}).get("detail", "")
             scanner = "gitleaks" if "gitleaks" in data.get("reason", "").lower() else "semgrep"
 
             failure_info = {
                 "scanner": scanner,
                 "reason": data.get("reason", ""),
-                # This is now the real finding: "Rule: detected-username-and-password-in-uri | File: fix_prod.py:3 | Username and password in URI detected"
                 "detail": code_scan_detail,
             }
-
-            print(f"AI analyzing code-scan failure: {failure_info}")
 
             try:
                 ai_result = analyze_code_scan_failure(failure_info)
@@ -296,7 +322,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": explicit_action,
         })
 
-        print(f"explicit action honored: {explicit_action} - {data.get('reason', '')}")
+        await manager.broadcast("update")
 
         return {
             "status": "processed",
@@ -319,13 +345,9 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             },
         }
 
-    # Full Trivy scan path
     policy_result = evaluate_policy(findings, repo_name)
     vulnerabilities = extract_vulnerabilities(findings)
     vuln_count = len(vulnerabilities)
-
-    print(f"policy result: {policy_result['action']} - {policy_result['reason']}")
-    print(f"vulnerabilities extracted: {vuln_count}")
 
     ai_results = []
     if vulnerabilities:
@@ -340,8 +362,6 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     ai_urgency = first_ai.get("urgency", "")
     risk_score = first_ai.get("risk_score", None)
 
-    # Build the "why was this ALLOWED despite high risk" explanation
-    # so the dashboard card doesn't look confusing
     allow_reason = ""
     if policy_result["action"] == "ALLOW" and vuln_count > 0:
         allow_reason = build_allow_reason(policy_result, vuln_count)
@@ -365,12 +385,15 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Slack alert failed (skipping): {e}")
 
+    # Notify all connected dashboard clients instantly
+    await manager.broadcast("update")
+
     return {
         "status": "processed",
         "id": scan.id,
         "action": policy_result["action"],
         "reason": policy_result["reason"],
-        "allow_reason": allow_reason,  # NEW - explains WHY high-risk was allowed
+        "allow_reason": allow_reason,
         "policy_used": policy_result["policy_used"],
         "blocked": policy_result["blocked"],
         "warned": policy_result["warned"],

@@ -598,8 +598,32 @@ export default function App() {
 
   useEffect(() => {
     fetchAll();
-    const iv = setInterval(fetchAll, 8000);
-    return () => { clearInterval(iv); clearTimeout(retryTimer.current); };
+    const WS_URL = API.replace("https://", "wss://").replace("http://", "ws://");
+    let ws, reconnectTimer, pingTimer;
+
+    const connect = () => {
+      ws = new WebSocket(`${WS_URL}/ws`);
+      ws.onopen = () => {
+        pingTimer = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+        }, 30000);
+      };
+      ws.onmessage = () => { fetchAll(); };
+      ws.onclose = () => {
+        clearInterval(pingTimer);
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+      ws.onerror = () => { ws.close(); };
+    };
+
+    connect();
+
+    return () => {
+      clearInterval(pingTimer);
+      clearTimeout(reconnectTimer);
+      clearTimeout(retryTimer.current);
+      if (ws) ws.close();
+    };
   }, [fetchAll]);
 
   useEffect(() => {
