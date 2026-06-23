@@ -322,6 +322,17 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": explicit_action,
         })
 
+        # This is the Gitleaks/Semgrep code-scan BLOCK path. It used to skip
+        # Slack entirely — only the Trivy/policy path below called this.
+        # Pass ai_explanation/ai_fix through in scan_data so slack_notifier
+        # can use them as the message body (there's no per-CVE ai_results
+        # list here, since this path never reaches Trivy).
+        try:
+            slack_scan_data = {**data, "ai_explanation": ai_explanation, "ai_fix": ai_fix}
+            send_slack_alert(slack_scan_data, [], explicit_action, data.get("reason", ""))
+        except Exception as e:
+            print(f"Slack alert failed (skipping): {e}")
+
         await manager.broadcast("update")
 
         return {
