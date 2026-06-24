@@ -68,7 +68,7 @@ jobs:
       # WHAT CHANGED HERE AND WHY (in plain language):
       #
       # 1. THE BUG: there used to be a line like this:
-      #        --source . \  
+      #        --source . \
       #    See those two trailing spaces after the backslash? In bash, a
       #    backslash only means "continue on the next line" if it is the
       #    VERY LAST character on the line. A space after it breaks that
@@ -389,19 +389,113 @@ jobs:
       # Tag with the commit SHA so every image is uniquely traceable back to
       # the exact code that built it — "latest" tags make rollbacks ambiguous
       - name: Build Backend Image
+        id: docker_build
         if: steps.changes.outputs.image_changed == 'true'
+        # BUG FIX (added): Added id: docker_build so downstream steps can check
+        # whether this step succeeded or failed using steps.docker_build.outcome.
+        # Previously there was no way to detect a build failure from later steps.
         run: |
           docker build \
             -t us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
             -f docker/Dockerfile .
 
       - name: Push Backend Image
+        id: docker_push
         if: steps.changes.outputs.image_changed == 'true'
+        # BUG FIX (added): Added id: docker_push so downstream steps can detect
+        # a push failure (e.g. GCP auth expired, quota exceeded) separately from
+        # a build failure. Without this id, both failures looked identical to the
+        # pipeline and neither was reported to the dashboard.
         run: |
           docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
 
+      # ── Step 10a: Notify dashboard on Docker build/push failure ─────────────
+      # BUG FIX (new step): Previously, if docker build or docker push failed,
+      # the pipeline would exit with an error but NEVER call the backend to
+      # update the run status. This left the dashboard stuck showing "running"
+      # forever — the record was created in Step 1 but never closed.
+      #
+      # "if: failure()" triggers only when a previous step has already failed.
+      # Combined with the image_changed guard so this doesn't fire on
+      # frontend-only pushes where docker steps were skipped entirely.
+      # "|| true" at the end of the curl means a dashboard outage won't
+      # obscure the real error — the job still fails for the right reason.
+      - name: Notify Docker Build/Push Failure
+        if: >
+          failure() &&
+          steps.changes.outputs.image_changed == 'true' &&
+          steps.pipeline_start.outputs.run_id != '' &&
+          (steps.docker_build.outcome == 'failure' || steps.docker_push.outcome == 'failure')
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+          REPO_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          BUILD_OUTCOME: ${{ steps.docker_build.outcome }}
+          PUSH_OUTCOME: ${{ steps.docker_push.outcome }}
+        run: |
+          # Determine which step actually failed for a precise dashboard message
+          if [ "$BUILD_OUTCOME" = "failure" ]; then
+            FAIL_DETAIL="docker build failed — check Dockerfile and requirements.txt for errors"
+          else
+            FAIL_DETAIL="docker push failed — check GCP credentials and Artifact Registry permissions"
+          fi
+
+          RUN_ID_VAL="${RUN_ID:-null}"
+          if [ "$RUN_ID_VAL" != "null" ] && [ -n "$RUN_ID_VAL" ]; then
+            RUN_ID_JSON="\"$RUN_ID_VAL\""
+          else
+            RUN_ID_JSON="null"
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO_NAME" \
+            --arg sha "$COMMIT_SHA" \
+            --arg branch "$BRANCH_NAME" \
+            --arg commit_msg "$COMMIT_MESSAGE" \
+            --arg scan_type "full-pipeline" \
+            --arg severity "HIGH" \
+            --arg action "BLOCK" \
+            --arg reason "Docker build/push failed" \
+            --argjson run_id "$RUN_ID_JSON" \
+            --arg fail_detail "$FAIL_DETAIL" \
+            '{
+              repo_name: $repo,
+              commit_sha: $sha,
+              branch: $branch,
+              commit_message: $commit_msg,
+              scan_type: $scan_type,
+              severity: $severity,
+              action: $action,
+              reason: $reason,
+              run_id: $run_id,
+              findings: {},
+              pipeline_steps: {
+                checkout:  { result: "PASS",   detail: "code checked out" },
+                code_scan: { result: "PASS",   detail: "no secrets or bad patterns found" },
+                docker:    { result: "FAILED", detail: $fail_detail },
+                trivy:     { result: "skipped", detail: "pipeline stopped at docker build/push" },
+                policy:    { result: "skipped", detail: "pipeline stopped at docker build/push" },
+                deploy:    { result: "skipped", detail: "pipeline stopped at docker build/push" }
+              }
+            }')
+
+          curl -sS -X POST "$BACKEND_URL/api/scan-results" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || true
+
       - name: Notify Build Progress
-        if: steps.changes.outputs.image_changed == 'true' && steps.pipeline_start.outputs.run_id != ''
+        if: >
+          steps.changes.outputs.image_changed == 'true' &&
+          steps.pipeline_start.outputs.run_id != '' &&
+          steps.docker_build.outcome == 'success' &&
+          steps.docker_push.outcome == 'success'
+        # BUG FIX (updated condition): Previously this step had no check on
+        # docker_build/push outcomes, so it could fire even after a failed build
+        # (since continue-on-error wasn't set, GitHub sometimes ran subsequent
+        # steps in unexpected order). Now explicitly gated on both succeeding.
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -416,7 +510,14 @@ jobs:
       # Scanning all severities (CRITICAL through LOW) so the dashboard shows
       # the full picture; the policy engine decides what actually blocks.
       - name: Run Trivy CVE Scan
-        if: steps.changes.outputs.image_changed == 'true'
+        if: >
+          steps.changes.outputs.image_changed == 'true' &&
+          steps.docker_build.outcome == 'success' &&
+          steps.docker_push.outcome == 'success'
+        # BUG FIX (updated condition): Previously Trivy would attempt to scan
+        # even if the push failed, causing a confusing "image not found" error
+        # from Trivy rather than a clear "docker push failed" message.
+        # Now Trivy only runs when we know the image is actually in the registry.
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
@@ -425,7 +526,10 @@ jobs:
           severity: CRITICAL,HIGH,MEDIUM,LOW
 
       - name: Upload Trivy Results
-        if: steps.changes.outputs.image_changed == 'true'
+        if: >
+          steps.changes.outputs.image_changed == 'true' &&
+          steps.docker_build.outcome == 'success' &&
+          steps.docker_push.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: trivy-results
@@ -441,7 +545,12 @@ jobs:
       # --argjson which breaks when RUN_ID is a string (jq expects raw JSON
       # for --argjson). Fixed with proper quoting logic before passing to jq.
       - name: Send to Dashboard and Check Policy Gate
-        if: steps.changes.outputs.image_changed == 'true'
+        if: >
+          steps.changes.outputs.image_changed == 'true' &&
+          steps.docker_build.outcome == 'success' &&
+          steps.docker_push.outcome == 'success'
+        # BUG FIX (updated condition): Same guard as Trivy — only run the policy
+        # gate when there's actually a scanned image to evaluate.
         id: gate
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
