@@ -1,66 +1,111 @@
 # SecureFlow
 
-AI-powered DevSecOps pipeline — scans every Docker image for CVEs, makes a policy-based BLOCK/ALLOW decision, and shows everything in a live dashboard with plain-English AI analysis.
+**AI-powered DevSecOps platform that automatically scans code and container images, enforces security policies, and blocks insecure deployments before production.**
 
-**[Live Dashboard →](https://secure-flow-rho.vercel.app/)**
-
----
-
-## How it works
-
-```
-git push
-   │
-   ├── Gitleaks (secrets) ──┐
-   ├── Semgrep (code scan) ─┼── BLOCK? → Stop + Slack alert + AI explanation
-   │                        │
-   └── (if backend changed) │
-       ├── Docker build      │
-       ├── Trivy CVE scan   ─┘
-       ├── Policy engine → BLOCK / ALLOW
-       ├── AI analysis (Groq → Gemini → Ollama fallback)
-       └── Deploy to Cloud Run
-```
+**Live Dashboard:** https://secure-flow-rho.vercel.app/
 
 ---
 
-## Stack
+## Overview
 
-| | |
-|---|---|
-| CI/CD | GitHub Actions |
-| Scanning | Gitleaks · Semgrep · Trivy |
-| Backend | FastAPI · PostgreSQL |
-| AI | Groq → Gemini → Ollama (fallback chain) |
-| Cloud | Google Cloud Run · Artifact Registry |
-| Frontend | React · WebSocket (real-time) · Recharts |
-| Metrics | Prometheus · Grafana |
+SecureFlow integrates security directly into the CI/CD pipeline by combining secret detection, static code analysis, container vulnerability scanning, policy-based enforcement, and AI-driven remediation guidance.
+
+Instead of simply reporting vulnerabilities, SecureFlow makes automated deployment decisions through a custom policy engine that determines whether a build should be **BLOCKED** or **ALLOWED**.
 
 ---
 
-## What makes it interesting
+## Pipeline Flow
 
-- **Policy engine** — per-repo CVE rules in `policy.yaml`. Blocks on severity *and* CVSS score. Allowlist entries have expiry dates so exceptions don't get forgotten.
-- **AI fallback chain** — Groq → Gemini → Ollama. If all three fail, it says so clearly instead of showing fake data.
-- **Fail-safe pipeline** — anything other than an explicit `ALLOW` from the backend blocks the deploy. Network errors, timeouts, malformed responses — all result in BLOCK.
-- **Real-time dashboard** — WebSocket pushes updates as each pipeline stage completes. No polling.
-
----
-
-## Quick start
-
-```bash
-git clone https://github.com/abhienix/SecureFlow
-cd SecureFlow
-cp .env.example .env        # add GROQ_API_KEY + DATABASE_URL
-
-cd backend && pip install -r requirements.txt
-uvicorn app:app --reload    # http://localhost:8000
-
-cd frontend && npm install && npm start   # http://localhost:3000
+```text
+GitHub Push
+     │
+     ▼
+GitHub Actions
+     │
+     ├── Gitleaks (Secret Detection)
+     ├── Semgrep (Static Security Analysis)
+     │
+     └── Docker Build
+             │
+             ▼
+        Trivy Scan
+             │
+             ▼
+       Policy Engine
+       (BLOCK / ALLOW)
+             │
+             ▼
+      AI Analysis Layer
+   (Groq → Gemini → Ollama)
+             │
+             ▼
+      Cloud Run Deployment
+             │
+             ▼
+      Real-Time Dashboard
 ```
 
-Or with Docker: `docker-compose up`
+---
+
+## Key Features
+
+### Policy-Based Security Enforcement
+
+* Custom policy engine using `policy.yaml`
+* Severity and CVSS-based decision making
+* Repository-specific security rules
+* Expiring CVE allowlists to prevent permanent exceptions
+* Fail-safe deployment logic
+
+### AI-Powered Vulnerability Analysis
+
+* Multi-provider fallback architecture
+* Groq → Gemini → Ollama provider chain
+* Plain-English vulnerability explanations
+* Remediation recommendations
+* Risk scoring and impact assessment
+
+### Real-Time Security Visibility
+
+* Live WebSocket updates
+* Pipeline execution timeline
+* Vulnerability tracking dashboard
+* Deployment status monitoring
+* Security health metrics
+
+---
+
+## Technical Highlights
+
+* Designed a fail-safe deployment model where any response other than explicit **ALLOW** results in **BLOCK**
+* Implemented provider fallback architecture to maintain AI availability during service outages
+* Built repository-specific policy management with automatic allowlist expiration
+* Integrated Prometheus metrics and Grafana monitoring for pipeline observability
+* Developed real-time frontend updates using WebSockets instead of polling
+
+---
+
+## Tech Stack
+
+| Layer      | Technologies                        |
+| ---------- | ----------------------------------- |
+| CI/CD      | GitHub Actions                      |
+| Security   | Gitleaks, Semgrep, Trivy            |
+| Backend    | FastAPI, PostgreSQL, SQLAlchemy     |
+| Frontend   | React, Recharts, WebSockets         |
+| AI         | Groq, Gemini, Ollama                |
+| Cloud      | Google Cloud Run, Artifact Registry |
+| Monitoring | Prometheus, Grafana                 |
+
+---
+
+## Impact
+
+* Automated security validation on every commit
+* Prevents vulnerable deployments from reaching production
+* Reduces manual security review effort
+* Provides developers with actionable remediation guidance
+* Delivers real-time visibility into the entire security pipeline
 
 ---
 
