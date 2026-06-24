@@ -162,6 +162,12 @@ async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(ge
     existing_steps = dict(scan.pipeline_steps or {})
     existing_steps.update(data.get("pipeline_steps", {}))
     scan.pipeline_steps = existing_steps
+    
+    # Allow manual status override (e.g. cancel stuck runs)
+    if data.get("status"):
+        scan.status = data.get("status")
+    
+    
     db.commit()
 
     # Push to dashboard after each step so users see Gitleaks → Semgrep → Trivy
