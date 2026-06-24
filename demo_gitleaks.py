@@ -1,3 +1,2 @@
 # config.py - DO NOT COMMIT
-GITHUB_TOKEN = "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890"
-DB_PASSWORD = "Sup3rS3cr3t!Passw0rd"
+GITHUB_TOKEN = "ghp_R7mK9xPqL2vN8wJtYc3bZs5uHfEa1nDo4iG6"
