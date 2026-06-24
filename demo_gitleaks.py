@@ -1,2 +1,3 @@
-# config.py - DO NOT COMMIT
-GITHUB_TOKEN = "ghp_R7mK9xPqL2vN8wJtYc3bZs5uHfEa1nDo4iG6"
+# config.py - secrets loaded from environment variables
+import os
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
