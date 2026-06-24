@@ -17,9 +17,16 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
+          # fetch-depth: 0 fetches the full git history, not just the latest commit.
+          # This is required for Gitleaks to scan all commits, not just HEAD —
+          # without it, secrets committed earlier and then "deleted" would go undetected
           fetch-depth: 0
 
       # ── Step 1: Notify dashboard — pipeline started ─────────────────────────
+      # Creates a "running" DB record immediately so the dashboard shows
+      # the pipeline in progress before any scan results arrive.
+      # The run_id returned here is passed to every subsequent step so they
+      # all update the same record instead of creating duplicates.
       - name: Notify Pipeline Start
         id: pipeline_start
         env:
@@ -46,6 +53,8 @@ jobs:
           echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
 
       # ── Step 2: Install Gitleaks ────────────────────────────────────────────
+      # Pin to a specific version (v8.24.3) rather than "latest" so the pipeline
+      # doesn't break silently when a new Gitleaks release changes CLI flags or output format
       - name: Install Gitleaks
         run: |
           curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz -o gitleaks.tar.gz
@@ -81,6 +90,9 @@ jobs:
       # the full scan also catches old secrets sitting elsewhere in the repo,
       # not just ones in the latest commit), simpler code, one report file.
       #
+      # continue-on-error: true — we don't want GitHub to skip later steps
+      # before we get a chance to report the failure to the dashboard.
+      # We handle the exit manually below.
       - name: Run Gitleaks
         id: gitleaks
         continue-on-error: true
@@ -102,9 +114,11 @@ jobs:
           fi
 
       # ── Step 4: Run Semgrep ─────────────────────────────────────────────────
-      # BUG FIX 3: returntocorp/semgrep-action@v1 is deprecated and often
+      # BUG FIX: returntocorp/semgrep-action@v1 is deprecated and often
       # silently passes without scanning. Replaced with direct CLI install
       # using specific rulesets that actually catch real issues.
+      # We use 4 rulesets rather than "auto" — auto was too permissive and
+      # returned 0 findings even on genuinely insecure code patterns.
       - name: Install and Run Semgrep
         id: semgrep
         continue-on-error: true
@@ -131,6 +145,9 @@ jobs:
           fi
 
       # ── Step 5: Notify code scan progress ──────────────────────────────────
+      # "if: always()" ensures this runs even if Gitleaks or Semgrep failed —
+      # we want the dashboard to show the BLOCK status immediately, not wait
+      # for the rest of the pipeline to finish or time out
       - name: Notify Code Scan Progress
         if: always() && steps.pipeline_start.outputs.run_id != ''
         env:
@@ -167,6 +184,9 @@ jobs:
       # failure — it only removes a leftover fallback that pointed at a file
       # which no longer gets created.
       #
+      # We extract the specific finding (file, line, rule) from the JSON output
+      # so the backend can pass it to the AI for a meaningful explanation,
+      # rather than just saying "secret detected"
       - name: Block on Code Scan Failure
         if: steps.gitleaks.outcome == 'failure' || steps.semgrep.outcome == 'failure'
         env:
@@ -208,6 +228,8 @@ jobs:
             DETAIL="$SEMGREP_DETAIL"
           fi
 
+          # Safely encode run_id as JSON — if empty, send null so the backend
+          # creates a new record rather than failing to find run_id in the DB
           RUN_ID_VAL="${RUN_ID:-null}"
           if [ "$RUN_ID_VAL" != "null" ] && [ -n "$RUN_ID_VAL" ]; then
             RUN_ID_JSON="\"$RUN_ID_VAL\""
@@ -215,6 +237,8 @@ jobs:
             RUN_ID_JSON="null"
           fi
 
+          # Mark all downstream steps as "skipped" in pipeline_steps so the
+          # dashboard shows exactly where the pipeline stopped
           PAYLOAD=$(jq -n \
             --arg repo "$REPO_NAME" \
             --arg sha "$COMMIT_SHA" \
@@ -251,16 +275,19 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" || true
 
+          # exit 1 here is what actually fails the GitHub Actions job and
+          # prevents the deployment steps from running
           exit 1
 
       # ── Step 7: Check if image needs rebuilding ─────────────────────────────
-      # BUG FIX 5: This check ran even after a code scan failure (because
-      # continue-on-error wasn't set and exit 1 should have stopped it, but
-      # the condition wasn't explicit). Now gated on code scan passing.
-      # BUG FIX 6: The grep pattern '^backend/' only matched files starting
+      # Optimization: skip the Docker build + Trivy scan entirely if no backend,
+      # docker, or dependency files changed — frontend-only pushes don't need
+      # a full image scan and this saves ~3-4 minutes per run.
+      #
+      # BUG FIX: The grep pattern '^backend/' only matched files starting
       # with backend/ — but git diff output may include paths like
       # 'backend/main.py' without a leading slash issue on some runners.
-      # Made pattern more robust.
+      # Made pattern more robust with (^|/) to handle both cases.
       - name: Check if image needs rebuilding
         id: changes
         if: steps.gitleaks.outcome != 'failure' && steps.semgrep.outcome != 'failure'
@@ -268,6 +295,7 @@ jobs:
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
             CHANGED=$(git diff --name-only HEAD~1 HEAD)
           else
+            # First commit edge case — diff against empty tree
             CHANGED=$(git diff --name-only $(git hash-object -t tree /dev/null) HEAD)
           fi
           echo "Changed files: $CHANGED"
@@ -281,12 +309,10 @@ jobs:
           fi
 
       # ── Step 8: Report clean (no image changes) ─────────────────────────────
-      # BUG FIX 7 (THE MAIN BUG): Was missing the code scan outcome check.
+      # BUG FIX: Was missing the code scan outcome check.
       # This step was reporting ALLOW/CLEAN even when gitleaks/semgrep had
-      # flagged issues, because Block on Code Scan Failure exits with 1 but
-      # this step's condition only checked image_changed. If code scan fails,
-      # Block on Code Scan Failure runs AND exits 1 — this step should never
-      # run in that case, but the explicit guard makes it bulletproof.
+      # flagged issues, because the condition only checked image_changed.
+      # Added explicit guards so this can never fire after a code scan failure.
       - name: Report Clean (no image changes)
         if: |
           steps.changes.outputs.image_changed == 'false' &&
@@ -343,6 +369,8 @@ jobs:
             -d "$PAYLOAD" || true
 
       # ── Step 9: GCP auth ────────────────────────────────────────────────────
+      # Only runs if backend/docker files actually changed — no point
+      # authenticating to GCP for a frontend-only commit
       - name: Authenticate to Google Cloud
         if: steps.changes.outputs.image_changed == 'true'
         uses: google-github-actions/auth@v2
@@ -358,6 +386,8 @@ jobs:
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       # ── Step 10: Build and push image ───────────────────────────────────────
+      # Tag with the commit SHA so every image is uniquely traceable back to
+      # the exact code that built it — "latest" tags make rollbacks ambiguous
       - name: Build Backend Image
         if: steps.changes.outputs.image_changed == 'true'
         run: |
@@ -381,6 +411,10 @@ jobs:
             -d '{ "pipeline_steps": { "docker": { "result": "PASS", "detail": "image built and pushed" } } }' || true
 
       # ── Step 11: Trivy scan ─────────────────────────────────────────────────
+      # Scan the actual pushed image — not the local build — so what we scan
+      # is exactly what would get deployed to Cloud Run.
+      # Scanning all severities (CRITICAL through LOW) so the dashboard shows
+      # the full picture; the policy engine decides what actually blocks.
       - name: Run Trivy CVE Scan
         if: steps.changes.outputs.image_changed == 'true'
         uses: aquasecurity/trivy-action@master
@@ -398,9 +432,14 @@ jobs:
           path: trivy-results.json
 
       # ── Step 12: Policy gate ────────────────────────────────────────────────
-      # BUG FIX 8: run_id was interpolated as bare ${RUN_ID:-null} in jq
-      # --argjson which breaks when RUN_ID is a string UUID (jq expects raw
-      # JSON for --argjson). Fixed with proper quoting logic.
+      # This is the core security gate — sends Trivy results to the backend,
+      # which runs the policy engine and AI analysis, then returns ALLOW or BLOCK.
+      # The pipeline deploys only if the backend explicitly returns ALLOW —
+      # any error or unexpected response defaults to BLOCK (fail-safe).
+      #
+      # BUG FIX: run_id was interpolated as bare ${RUN_ID:-null} in jq
+      # --argjson which breaks when RUN_ID is a string (jq expects raw JSON
+      # for --argjson). Fixed with proper quoting logic before passing to jq.
       - name: Send to Dashboard and Check Policy Gate
         if: steps.changes.outputs.image_changed == 'true'
         id: gate
@@ -453,6 +492,7 @@ jobs:
 
           echo "Backend response: $RESPONSE"
 
+          # Default to BLOCK if action is missing — fail-safe, not fail-open
           ACTION=$(echo "$RESPONSE" | jq -r '.action // "BLOCK"')
           echo "action=$ACTION" >> "$GITHUB_OUTPUT"
 
@@ -462,6 +502,9 @@ jobs:
           fi
 
       # ── Step 13: Deploy (only if ALLOW) ─────────────────────────────────────
+      # Double-gated: image must have changed AND policy must have returned ALLOW.
+      # Deploying the same SHA that was scanned by Trivy — no bait-and-switch
+      # between what was scanned and what gets deployed.
       - name: Deploy Backend to Cloud Run
         if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
         run: |

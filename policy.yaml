@@ -1,61 +1,121 @@
+# SecureFlow Policy Configuration
+# ---------------------------------
+# This file controls what the policy engine blocks, warns on, and ignores.
+# The policy engine reads this on every scan request — no server restart needed
+# to apply changes, which matters when you need to quickly allowlist a CVE
+# that's blocking a production deployment.
+
+# Default policy applies to any repo not explicitly listed under "repos".
+# Strict by default: block on CRITICAL and HIGH, warn on MEDIUM.
+# New repos get the strictest policy automatically — opt-out, not opt-in.
 default:
   block_on: [CRITICAL, HIGH]
   warn_on: [MEDIUM]
+  # CVSS threshold is a secondary block trigger — catches cases where a vuln
+  # is labeled MEDIUM by the distro but has a CVSS score of 7.0+.
+  # Without this, a MEDIUM with CVSS 9.0 would only warn, not block.
   cvss_threshold: 7.0
+
 repos:
+  # SecureFlow's own image gets a slightly relaxed policy compared to default.
+  # Reason: the base image (Debian slim) ships with OS-level packages like
+  # perl-base, libc6, and tar that have known CVEs with no upstream fix available.
+  # Blocking on HIGH would permanently block our own pipeline on unfixable vulns —
+  # so we drop HIGH to warn_on and only hard-block on CRITICAL.
+  # Each unfixable HIGH CVE is individually allowlisted below with an expiry
+  # date so nothing is silently ignored forever.
   SecureFlow:
     block_on: [CRITICAL]
     warn_on: [HIGH, MEDIUM]
     cvss_threshold: 7.0
     allowlist:
+      # ── Placeholder / example entry ──────────────────────────────────────
       - cve: CVE-2024-1234
         expires: 2026-08-01
         reason: "no fix available yet, monitoring"
+
+      # ── perl-base (OS-level, no upstream fix) ────────────────────────────
+      # These come from the Debian base image itself, not our application code.
+      # There is no patch available from Debian or upstream — the only "fix"
+      # would be switching base images entirely, which is a separate tracked task.
       - cve: CVE-2026-42496
         expires: 2026-09-01
         reason: "perl-base, no upstream fix available, OS-level package"
+
       - cve: CVE-2026-8376
         expires: 2026-09-01
         reason: "perl-base, no upstream fix available, OS-level package"
-      - cve: CVE-2018-20796
-        expires: 2026-12-01
-        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
-      - cve: CVE-2019-1010022
-        expires: 2026-12-01
-        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
-      - cve: CVE-2019-1010023
-        expires: 2026-12-01
-        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
-      - cve: CVE-2019-9192
-        expires: 2026-12-01
-        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
-      - cve: CVE-2025-69720
-        expires: 2026-12-01
-        reason: "libncursesw6/libtinfo6/ncurses, no upstream fix available, OS-level package"
-      - cve: CVE-2025-70873
-        expires: 2026-12-01
-        reason: "libsqlite3-0, no upstream fix available, OS-level package"
+
       - cve: CVE-2026-42497
         expires: 2026-12-01
         reason: "perl-base, no upstream fix available, OS-level package"
+
       - cve: CVE-2026-48962
         expires: 2026-12-01
         reason: "perl-base, no upstream fix available, OS-level package"
+
       - cve: CVE-2026-9538
         expires: 2026-12-01
         reason: "perl-base, no upstream fix available, OS-level package"
+
+      # ── libc-bin / libc6 (OS-level, no upstream fix) ─────────────────────
+      # Ancient glibc issues — some dating back to 2018/2019. These are
+      # well-known in the security community as "won't fix" at the distro level.
+      # Individually allowlisted rather than blanket-ignoring the package
+      # so any new libc CVEs still get caught.
+      - cve: CVE-2018-20796
+        expires: 2026-12-01
+        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
+
+      - cve: CVE-2019-1010022
+        expires: 2026-12-01
+        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
+
+      - cve: CVE-2019-1010023
+        expires: 2026-12-01
+        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
+
+      - cve: CVE-2019-9192
+        expires: 2026-12-01
+        reason: "libc-bin/libc6, no upstream fix available, OS-level package"
+
+      # ── ncurses (OS-level, no upstream fix) ──────────────────────────────
+      - cve: CVE-2025-69720
+        expires: 2026-12-01
+        reason: "libncursesw6/libtinfo6/ncurses, no upstream fix available, OS-level package"
+
+      # ── libsqlite3-0 (OS-level, no upstream fix) ─────────────────────────
+      - cve: CVE-2025-70873
+        expires: 2026-12-01
+        reason: "libsqlite3-0, no upstream fix available, OS-level package"
+
+      # ── tar (OS-level, ancient, no upstream fix) ──────────────────────────
+      # CVE-2005-2541 is from 2005 — it's a theoretical issue with tar's
+      # "extract anywhere" behaviour. Debian ships it unfixed by design.
       - cve: CVE-2005-2541
         expires: 2026-12-01
         reason: "tar, known ancient issue, no upstream fix, OS-level package"
+
+      # ── starlette (dependency conflict) ───────────────────────────────────
+      # These starlette CVEs have fixes available, but the fixed versions
+      # (v0.49.1+, v1.1.0+, v1.3.1+) are incompatible with fastapi 0.115.x
+      # which pins starlette to an older range. We can't upgrade starlette
+      # without breaking FastAPI. Tracked to resolve when FastAPI releases
+      # a compatible version. Short expiry to force a re-review.
       - cve: CVE-2025-62727
         expires: 2026-12-01
         reason: "starlette, fix requires v0.49.1+ which conflicts with fastapi 0.115.x constraint"
+
       - cve: CVE-2026-48818
         expires: 2026-12-01
         reason: "starlette, fix requires v1.1.0+ which conflicts with fastapi 0.115.x constraint"
+
       - cve: CVE-2026-54283
         expires: 2026-12-01
         reason: "starlette, fix requires v1.3.1+ which conflicts with fastapi 0.115.x constraint"
+
+# Notification settings — Slack alerts fire on every BLOCK but not on ALLOW
+# to avoid alert fatigue. A passing scan doesn't need to wake anyone up.
 notifications:
   slack: true
   on_block: true

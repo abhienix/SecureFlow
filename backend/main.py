@@ -16,15 +16,22 @@ from slack_notifier import send_slack_alert
 
 load_dotenv()
 
+# DATABASE_URL comes from .env — keeps connection strings out of source control
+# and makes it easy to swap between local Postgres and Cloud SQL without code changes
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
+# Auto-create tables on startup — no manual migrations needed for dev/staging,
+# and on Cloud Run this runs once per container cold start
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="SecureFlow - AI-Powered Security Gate for CI/CD", version="1.0.0")
 
+# CORS is locked to specific origins — the deployed Cloud Run frontend,
+# the Vercel preview URL, and localhost for local dev.
+# Wildcard CORS would be simpler but unacceptable for a security tool
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -37,10 +44,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Prometheus metrics exposed at /metrics — plugs directly into the Grafana
+# dashboard without any custom instrumentation code
 Instrumentator().instrument(app).expose(app)
 
 
-# ------ WebSocket connection manager ---------------------------------------------------------------------------------------------------------------------------------------------
+# ------ WebSocket connection manager ---------------------------------------------------------------
+# WebSockets let the dashboard update in real time as pipeline stages complete,
+# without the frontend needing to poll every few seconds
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -51,11 +62,15 @@ class ConnectionManager:
         print(f"WebSocket connected. Total clients: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
+        # Guard against double-disconnect — FastAPI can fire disconnect events
+        # more than once in some edge cases
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
         print(f"WebSocket disconnected. Total clients: {len(self.active_connections)}")
 
     async def broadcast(self, message: str):
+        # Collect dead connections during broadcast rather than removing mid-loop,
+        # which would mutate the list we're iterating over
         dead = []
         for connection in self.active_connections:
             try:
@@ -74,7 +89,8 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # Keep connection alive - wait for any message (ping from client)
+            # We don't actually process incoming messages — this just keeps
+            # the connection alive by waiting for client pings
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
@@ -83,6 +99,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 def get_db():
+    # FastAPI dependency injection — yields a DB session per request
+    # and guarantees it's closed even if the handler throws an exception
     db = SessionLocal()
     try:
         yield db
@@ -97,11 +115,15 @@ def root():
 
 @app.get("/health")
 def health():
+    # Simple health check for Cloud Run — GCP uses this to decide
+    # whether to route traffic to this container instance
     return {"status": "healthy"}
 
 
 @app.post("/api/scan-results/start")
 async def start_scan_run(data: dict, db: Session = Depends(get_db)):
+    # Called at the very beginning of the pipeline — creates a "running" record
+    # so the dashboard shows the scan in progress before any results arrive
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
         commit_message=data.get("commit_message", ""),
@@ -122,7 +144,7 @@ async def start_scan_run(data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(scan)
 
-    # Notify all connected dashboard clients instantly
+    # Push update to dashboard immediately so the "running" state shows up
     await manager.broadcast("update")
 
     return {"status": "started", "run_id": scan.id}
@@ -134,12 +156,16 @@ async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(ge
     if not scan:
         return {"error": "run not found"}
 
+    # Merge new pipeline steps into existing ones — each scanner (Gitleaks,
+    # Semgrep, Trivy) calls this independently as it completes, so we can't
+    # just overwrite the whole pipeline_steps field each time
     existing_steps = dict(scan.pipeline_steps or {})
     existing_steps.update(data.get("pipeline_steps", {}))
     scan.pipeline_steps = existing_steps
     db.commit()
 
-    # Notify all connected dashboard clients instantly
+    # Push to dashboard after each step so users see Gitleaks → Semgrep → Trivy
+    # complete in real time rather than waiting for the full pipeline to finish
     await manager.broadcast("update")
 
     return {"status": "progress updated", "run_id": run_id}
@@ -147,6 +173,8 @@ async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(ge
 
 @app.get("/api/migrate")
 def migrate(db: Session = Depends(get_db)):
+    # One-off migration endpoint — used when adding new columns to an existing
+    # Cloud SQL table without dropping and recreating it
     db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
     db.commit()
     return {"status": "migrated"}
@@ -154,6 +182,8 @@ def migrate(db: Session = Depends(get_db)):
 
 @app.get("/api/backfill-severity")
 def backfill_severity(db: Session = Depends(get_db)):
+    # Utility endpoint to fix historical records that got saved with severity="unknown"
+    # before the severity extraction logic was added — ran once, kept for safety
     scans = db.query(ScanResult).filter(ScanResult.severity == "unknown").all()
     updated = 0
     for scan in scans:
@@ -167,6 +197,9 @@ def backfill_severity(db: Session = Depends(get_db)):
 
 @app.get("/api/metrics")
 def get_metrics(db: Session = Depends(get_db)):
+    # Aggregated stats for the dashboard summary cards —
+    # computed here rather than in the frontend to avoid sending 200 full scan
+    # records to the browser just to count them
     scans = db.query(ScanResult).all()
     total = len(scans)
 
@@ -188,6 +221,8 @@ def get_metrics(db: Session = Depends(get_db)):
 
 
 def extract_vulnerabilities(findings: dict) -> list[dict]:
+    # Trivy returns a nested structure: Results[] → Vulnerabilities[]
+    # This flattens it into a simple list the AI analysis function can consume
     vulnerabilities = []
     for result in findings.get("Results", []):
         for vuln in result.get("Vulnerabilities", []):
@@ -197,12 +232,16 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
                 "severity": vuln.get("Severity"),
                 "score": get_highest_cvss_score(vuln),
                 "fix": vuln.get("FixedVersion", "no fix available"),
+                # Cap description at 300 chars — full CVE descriptions can be
+                # thousands of chars and blow up the AI prompt token budget
                 "description": vuln.get("Description", "")[:300],
             })
     return vulnerabilities
 
 
 def build_allow_reason(policy_result: dict, vuln_count: int) -> str:
+    # Builds a human-readable explanation for why a scan was ALLOWED despite
+    # having vulnerabilities — important for audit trails and developer clarity
     allowlisted = policy_result.get("allowlisted", [])
     warned = policy_result.get("warned", [])
     blocked = policy_result.get("blocked", [])
@@ -216,6 +255,8 @@ def build_allow_reason(policy_result: dict, vuln_count: int) -> str:
         parts.append(f"{len(blocked)} blocking CVEs found")
 
     if allowlisted:
+        # Show first 3 CVE IDs inline so the reason is immediately readable,
+        # with a count for the rest rather than an overwhelming full list
         cve_list = ", ".join(a["cve"] for a in allowlisted[:3])
         suffix = f" (+{len(allowlisted)-3} more)" if len(allowlisted) > 3 else ""
         parts.append(f"{len(allowlisted)} CVE(s) are allowlisted in policy.yaml ({cve_list}{suffix}) - manually approved as known/acceptable")
@@ -237,12 +278,16 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     pipeline_steps = data.get("pipeline_steps", {})
 
     def save_scan(fields: dict):
+        # If a run_id exists, update the existing "running" record created by
+        # /start — this keeps the same DB row through the whole pipeline lifecycle
+        # instead of creating duplicate records per scan stage
         if run_id:
             scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
             if scan:
                 for key, value in fields.items():
                     setattr(scan, key, value)
                 scan.status = "complete"
+                # Merge steps rather than overwrite — same reason as /progress endpoint
                 merged_steps = dict(scan.pipeline_steps or {})
                 merged_steps.update(pipeline_steps)
                 scan.pipeline_steps = merged_steps
@@ -250,12 +295,14 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
                 db.refresh(scan)
                 return scan
 
+        # Fallback: create a new record if no run_id (e.g. direct API calls in tests)
         scan = ScanResult(**fields, pipeline_steps=pipeline_steps, status="complete")
         db.add(scan)
         db.commit()
         db.refresh(scan)
         return scan
 
+    # --- Code scan path (Gitleaks / Semgrep result with no Trivy findings) ---
     if scan_type == "code-scan":
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
@@ -283,6 +330,8 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     findings = data.get("findings", {})
     explicit_action = data.get("action")
 
+    # --- Explicit action path (pipeline sent BLOCK/ALLOW without Trivy findings) ---
+    # This handles Gitleaks/Semgrep blocks that short-circuit before Trivy runs
     if explicit_action and not findings:
         ai_explanation = ""
         ai_fix = ""
@@ -290,6 +339,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         risk_score = None
 
         if explicit_action == "BLOCK":
+            # Determine which scanner blocked — used to tailor the AI explanation
             code_scan_detail = pipeline_steps.get("code_scan", {}).get("detail", "")
             scanner = "gitleaks" if "gitleaks" in data.get("reason", "").lower() else "semgrep"
 
@@ -306,6 +356,8 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
                 ai_urgency = ai_result.get("urgency", "")
                 risk_score = ai_result.get("risk_score")
             except Exception as e:
+                # AI failure should never prevent the block from being recorded —
+                # security enforcement takes priority over AI insights
                 print(f"AI analysis of code-scan failure errored: {e}")
 
         scan = save_scan({
@@ -322,15 +374,15 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": explicit_action,
         })
 
-        # This is the Gitleaks/Semgrep code-scan BLOCK path. It used to skip
-        # Slack entirely — only the Trivy/policy path below called this.
-        # Pass ai_explanation/ai_fix through in scan_data so slack_notifier
-        # can use them as the message body (there's no per-CVE ai_results
-        # list here, since this path never reaches Trivy).
+        # Pass ai_explanation/ai_fix into slack_scan_data so the Slack notifier
+        # can use them — this path has no per-CVE ai_results list since Trivy
+        # never ran, so we inject the AI output manually
         try:
             slack_scan_data = {**data, "ai_explanation": ai_explanation, "ai_fix": ai_fix}
             send_slack_alert(slack_scan_data, [], explicit_action, data.get("reason", ""))
         except Exception as e:
+            # Slack failure should never block the API response —
+            # alerting is best-effort, not a hard dependency
             print(f"Slack alert failed (skipping): {e}")
 
         await manager.broadcast("update")
@@ -356,6 +408,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             },
         }
 
+    # --- Full Trivy scan path — evaluate policy then run AI analysis ---
     policy_result = evaluate_policy(findings, repo_name)
     vulnerabilities = extract_vulnerabilities(findings)
     vuln_count = len(vulnerabilities)
@@ -365,6 +418,8 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         try:
             ai_results = analyze_scan(vulnerabilities)
         except Exception as e:
+            # AI failure is non-fatal — policy decision has already been made,
+            # we just won't have AI insights for this scan
             print(f"AI analysis failed (skipping): {e}")
 
     first_ai = ai_results[0] if ai_results else {}
@@ -373,6 +428,8 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     ai_urgency = first_ai.get("urgency", "")
     risk_score = first_ai.get("risk_score", None)
 
+    # Only build allow_reason when the scan passed despite having vulns —
+    # clean scans and blocked scans don't need this explanation
     allow_reason = ""
     if policy_result["action"] == "ALLOW" and vuln_count > 0:
         allow_reason = build_allow_reason(policy_result, vuln_count)
@@ -396,7 +453,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Slack alert failed (skipping): {e}")
 
-    # Notify all connected dashboard clients instantly
+    # Final broadcast — dashboard now shows the completed scan with full results
     await manager.broadcast("update")
 
     return {
@@ -416,6 +473,8 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
 
 @app.post("/api/scan-results/{scan_id}/feedback")
 def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db)):
+    # Lets developers flag whether the AI analysis was accurate —
+    # useful for measuring AI quality over time and catching bad outputs
     scan = db.query(ScanResult).filter(ScanResult.id == scan_id).first()
     if not scan:
         return {"error": "scan not found"}
@@ -427,6 +486,8 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
+    # Limit to 200 most recent — the full table can grow large over time,
+    # and the dashboard doesn't need more than that for the history view
     rows = (
         db.query(ScanResult)
         .order_by(ScanResult.created_at.desc())
