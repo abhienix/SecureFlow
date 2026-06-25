@@ -1589,15 +1589,15 @@ export default function App() {
       const data = await res.json();
       const normalized = Array.isArray(data) ? data.map(s => ({
         ...s,
-        pipeline: s.pipeline || (s.pipeline_steps
+        pipeline: s.pipeline_steps
           ? Object.entries(s.pipeline_steps).map(([name, info], i) => ({
               id: name + i,
-              name: name.replace(/_/g, " ").replace(/\w/g, c => c.toUpperCase()),
-              status: info.result === "PASS" ? "passed" : info.result === "FAIL" ? "failed" : info.result === "running" ? "running" : "passed",
+              name: name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+              status: ["PASS", "SCANNED"].includes(info.result) ? "passed" : ["FAIL", "FAILED", "BLOCK"].includes(info.result) ? "failed" : info.result === "running" ? "running" : info.result === "skipped" ? "skipped" : "passed",
               duration_ms: null,
               logs: info.detail ? [info.detail] : ["Completed"],
             }))
-          : []),
+          : [],
         author: s.author || null,
         ai_confidence: s.ai_confidence || null,
       })) : [];
