@@ -32,10 +32,21 @@ app = FastAPI(title="SecureFlow - AI-Powered Security Gate for CI/CD", version="
 # CORS is locked to specific origins — the deployed Cloud Run frontend,
 # the Vercel preview URL, and localhost for local dev.
 # Wildcard CORS would be simpler but unacceptable for a security tool
+#
+# BUG FIX: Cloud Run can expose a service under TWO valid URL formats —
+# the numeric-project-number style (...-1083585992526.us-central1.run.app)
+# and the short-hash style (...-xppzpzy5ra-uc.a.run.app). Both resolve to
+# the SAME running frontend service, but a browser request's Origin header
+# will be whichever exact URL the user actually opened. The old list only
+# had the numeric-style URL, so any visit via the hash-style URL was
+# blocked by CORS — request failed, frontend silently fell back to demo
+# data. Both URLs are now allow-listed so it doesn't matter which one is
+# used to reach the frontend.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://secureflow-frontend-1083585992526.us-central1.run.app",
+        "https://secureflow-frontend-xppzpzy5ra-uc.a.run.app",
         "https://secure-flow-rho.vercel.app",
         "http://localhost:3000",
         "http://localhost:3001",
@@ -162,12 +173,12 @@ async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(ge
     existing_steps = dict(scan.pipeline_steps or {})
     existing_steps.update(data.get("pipeline_steps", {}))
     scan.pipeline_steps = existing_steps
-    
+
     # Allow manual status override (e.g. cancel stuck runs)
     if data.get("status"):
         scan.status = data.get("status")
-    
-    
+
+
     db.commit()
 
     # Push to dashboard after each step so users see Gitleaks → Semgrep → Trivy
@@ -521,4 +532,4 @@ def get_scan_results(db: Session = Depends(get_db)):
             "created_at": r.created_at,
         }
         for r in rows
-    ]# trigger rebuild 06/25/2026 08:56:32
+    ]
