@@ -1585,14 +1585,14 @@ export default function App() {
   const fetchScans = useCallback(async () => {
     try {
       const res = await fetch("https://secureflow-backend-1083585992526.us-central1.run.app/api/scan-results", { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
-      if (Array.isArray(data) && data.length) {
-        setScans(data);
-        setIsDemo(false);
-      } else throw new Error("empty");
-    } catch {
-      setScans(generateDemoScans(66));
-      setIsDemo(true);
+      setScans(Array.isArray(data) ? data : []);
+      setIsDemo(false);
+    } catch (err) {
+      console.error("Failed to fetch scans:", err);
+      setScans([]);
+      setIsDemo(false);
     } finally {
       setLoading(false);
       setLastUpdated(new Date());
@@ -1601,47 +1601,11 @@ export default function App() {
 
   useEffect(() => { fetchScans(); }, [fetchScans]);
 
-  // ── DEMO: inject a live running scan every 6s, auto-complete after 10s ──
+  // Auto-refresh real data every 30s
   useEffect(() => {
-    if (!isDemo) return;
-
-    const tick = setInterval(() => {
-      const newScan = makeDemoScan(0, "running");
-
-      setScans(prev => [newScan, ...prev.slice(0, 79)]);
-      setLastUpdated(new Date());
-
-      // Animate pipeline stages forward every 2s
-      let stageIdx = 1;
-      const stageTimer = setInterval(() => {
-        setScans(prev => prev.map(s => {
-          if (s.id !== newScan.id) return s;
-          if (stageIdx >= STAGE_NAMES.length) return s;
-          return {
-            ...s,
-            pipeline: buildDemoPipeline(s.action_taken, s.severity, stageIdx),
-          };
-        }));
-        stageIdx++;
-        if (stageIdx >= STAGE_NAMES.length) clearInterval(stageTimer);
-      }, 2000);
-
-      // Complete after 10s
-      setTimeout(() => {
-        clearInterval(stageTimer);
-        setScans(prev => prev.map(s => {
-          if (s.id !== newScan.id) return s;
-          return {
-            ...s,
-            status: "completed",
-            pipeline: buildDemoPipeline(s.action_taken, s.severity),
-          };
-        }));
-      }, 10000);
-    }, 6000);
-
-    return () => clearInterval(tick);
-  }, [isDemo]);
+    const iv = setInterval(fetchScans, 30000);
+    return () => clearInterval(iv);
+  }, [fetchScans]);
 
   // Escape key
   useEffect(() => {
