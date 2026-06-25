@@ -1,8 +1,11 @@
 import os
+import json
+import asyncio
 from datetime import datetime
+from typing import Set
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import create_engine, text
@@ -24,8 +27,35 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localho
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
-# Create all tables on startup if they don't already exist
 Base.metadata.create_all(bind=engine)
+
+# ---------------------------------------------------------------------------
+# WebSocket connection manager
+# ---------------------------------------------------------------------------
+
+class ConnectionManager:
+    def __init__(self):
+        self.active: Set[WebSocket] = set()
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.active.add(ws)
+
+    def disconnect(self, ws: WebSocket):
+        self.active.discard(ws)
+
+    async def broadcast(self, data: dict):
+        """Broadcast a JSON payload to all connected clients. Dead sockets are removed."""
+        message = json.dumps(data)
+        dead = set()
+        for ws in self.active:
+            try:
+                await ws.send_text(message)
+            except Exception:
+                dead.add(ws)
+        self.active -= dead
+
+manager = ConnectionManager()
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -45,12 +75,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Expose /metrics endpoint for Prometheus scraping
 Instrumentator().instrument(app).expose(app)
 
 
 def get_db():
-    """Dependency that yields a DB session and closes it after the request."""
     db = SessionLocal()
     try:
         yield db
@@ -70,8 +98,33 @@ def root():
 @app.get("/health")
 @app.head("/health")
 def health():
-    """Health check — also accepts HEAD so UptimeRobot doesn't get 405s."""
     return {"status": "healthy"}
+
+
+# ---------------------------------------------------------------------------
+# WebSocket endpoint
+# ---------------------------------------------------------------------------
+
+@app.websocket("/ws/scans")
+async def websocket_scans(ws: WebSocket):
+    """
+    Clients connect here to receive real-time scan updates.
+    On connect we immediately push all current scans so the UI
+    doesn't have to wait for the first event.
+    On every PATCH /progress or POST /scan-results we broadcast
+    the updated row, so clients see changes within milliseconds.
+    """
+    await manager.connect(ws)
+    try:
+        while True:
+            try:
+                await asyncio.wait_for(ws.receive_text(), timeout=30.0)
+            except asyncio.TimeoutError:
+                await ws.send_text(json.dumps({"type": "ping"}))
+    except WebSocketDisconnect:
+        manager.disconnect(ws)
+    except Exception:
+        manager.disconnect(ws)
 
 
 # ---------------------------------------------------------------------------
@@ -80,16 +133,6 @@ def health():
 
 @app.post("/api/scan-results/start")
 def start_scan_run(data: dict, db: Session = Depends(get_db)):
-    """
-    Called once, right after checkout, before any scanning happens.
-    Creates a placeholder row with status="running" so the dashboard can
-    show this commit moving through the pipeline in real time, instead of
-    only ever seeing finished results once everything is already done.
-
-    Returns the row id — the workflow passes this back as run_id on later
-    calls to /api/scan-results so we update this same row instead of
-    creating a duplicate.
-    """
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
         commit_message=data.get("commit_message", ""),
@@ -110,16 +153,25 @@ def start_scan_run(data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(scan)
 
+    asyncio.create_task(manager.broadcast({
+        "type": "scan_started",
+        "run_id": scan.id,
+        "commit_sha": scan.commit_sha,
+        "repo_name": scan.repo_name,
+        "branch": scan.branch,
+        "status": "running",
+        "pipeline_steps": {},
+        "started_at": scan.started_at.isoformat() if scan.started_at else None,
+    }))
+
     return {"status": "started", "run_id": scan.id}
 
 
 @app.patch("/api/scan-results/{run_id}/progress")
 def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):
     """
-    Called after each stage finishes (code scan, image build, Trivy scan)
-    so the running row's pipeline_steps fills in live instead of arriving
-    all at once at the end. Merges into whatever pipeline_steps already
-    exist rather than overwriting them.
+    Called after each stage finishes. Merges pipeline_steps and broadcasts
+    the updated state to all connected WebSocket clients immediately.
     """
     scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
     if not scan:
@@ -130,6 +182,13 @@ def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db))
     scan.pipeline_steps = existing_steps
     db.commit()
 
+    asyncio.create_task(manager.broadcast({
+        "type": "scan_progress",
+        "run_id": run_id,
+        "pipeline_steps": existing_steps,
+        "status": "running",
+    }))
+
     return {"status": "progress updated", "run_id": run_id}
 
 
@@ -139,7 +198,6 @@ def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db))
 
 @app.get("/api/migrate")
 def migrate(db: Session = Depends(get_db)):
-    """One-shot migration to add commit_message column if it's missing."""
     db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
     db.commit()
     return {"status": "migrated"}
@@ -147,10 +205,6 @@ def migrate(db: Session = Depends(get_db)):
 
 @app.get("/api/backfill-severity")
 def backfill_severity(db: Session = Depends(get_db)):
-    """
-    Retroactively set severity on rows that were saved with 'unknown'.
-    Useful after a bug fix or policy change that affects severity labeling.
-    """
     scans = db.query(ScanResult).filter(ScanResult.severity == "unknown").all()
     updated = 0
     for scan in scans:
@@ -164,17 +218,13 @@ def backfill_severity(db: Session = Depends(get_db)):
 
 @app.get("/api/metrics")
 def get_metrics(db: Session = Depends(get_db)):
-    """Aggregate metrics for the dashboard summary cards."""
     scans = db.query(ScanResult).all()
     total = len(scans)
-
     blocked = len([s for s in scans if s.action_taken == "BLOCK"])
     allowed = len([s for s in scans if s.action_taken == "ALLOW"])
     critical = len([s for s in scans if s.severity == "CRITICAL"])
-
     avg_risk = round(sum(s.risk_score or 0 for s in scans) / total, 1) if total else 0
     block_rate = round(blocked / total * 100, 1) if total else 0
-
     return {
         "total_scans": total,
         "blocked": blocked,
@@ -190,10 +240,6 @@ def get_metrics(db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 def extract_vulnerabilities(findings: dict) -> list[dict]:
-    """
-    Flatten Trivy's nested Results -> Vulnerabilities structure into a
-    simple list of dicts that the AI analysis functions expect.
-    """
     vulnerabilities = []
     for result in findings.get("Results", []):
         for vuln in result.get("Vulnerabilities", []):
@@ -203,11 +249,31 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
                 "severity": vuln.get("Severity"),
                 "score": get_highest_cvss_score(vuln),
                 "fix": vuln.get("FixedVersion", "no fix available"),
-                # Cap description at 300 chars — enough context for the AI
-                # without blowing up the prompt size
                 "description": vuln.get("Description", "")[:300],
             })
     return vulnerabilities
+
+
+def _scan_to_ws_payload(scan: ScanResult) -> dict:
+    """Serialize a ScanResult into a WebSocket broadcast payload."""
+    return {
+        "type": "scan_complete",
+        "id": scan.id,
+        "commit_sha": scan.commit_sha,
+        "commit_message": scan.commit_message,
+        "repo_name": scan.repo_name,
+        "branch": scan.branch,
+        "scan_type": scan.scan_type,
+        "severity": scan.severity,
+        "ai_explanation": scan.ai_explanation,
+        "ai_fix": scan.ai_fix,
+        "risk_score": scan.risk_score,
+        "action_taken": scan.action_taken,
+        "pipeline_steps": scan.pipeline_steps or {},
+        "status": scan.status,
+        "started_at": scan.started_at.isoformat() if scan.started_at else None,
+        "created_at": scan.created_at.isoformat() if scan.created_at else None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -218,48 +284,29 @@ def extract_vulnerabilities(findings: dict) -> list[dict]:
 def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
-    # run_id is set if /api/scan-results/start was called first — lets us
-    # update the existing "running" row instead of creating a duplicate
     run_id = data.get("run_id")
     pipeline_steps = data.get("pipeline_steps", {})
 
     def save_scan(fields: dict):
-        """
-        If run_id points at an existing "running" row, update it in place
-        (this is the normal path now — start() created the row, this call
-        finishes it). Otherwise insert a new row, which keeps older workflow
-        runs that never called /start working exactly as before.
-        """
         if run_id:
             scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
             if scan:
                 for key, value in fields.items():
                     setattr(scan, key, value)
                 scan.status = "complete"
-                # Build a brand new dict rather than mutating scan.pipeline_steps
-                # in place. SQLAlchemy only detects column changes on
-                # reassignment to a new object — mutating the existing dict
-                # and reassigning the same object back does NOT mark it
-                # dirty, so the update would silently fail to persist.
                 merged_steps = dict(scan.pipeline_steps or {})
                 merged_steps.update(pipeline_steps)
                 scan.pipeline_steps = merged_steps
                 db.commit()
                 db.refresh(scan)
                 return scan
-
-        # No run_id or row not found — insert fresh
         scan = ScanResult(**fields, pipeline_steps=pipeline_steps, status="complete")
         db.add(scan)
         db.commit()
         db.refresh(scan)
         return scan
 
-    # ------------------------------------------------------------------
     # Code scans (Gitleaks + Semgrep)
-    # ------------------------------------------------------------------
-    # These send severity and action directly — no image findings to parse,
-    # no policy engine needed.
     if scan_type == "code-scan":
         scan = save_scan({
             "commit_sha": data.get("commit_sha", "unknown"),
@@ -274,9 +321,8 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "risk_score": None,
             "action_taken": data.get("action", "ALLOW"),
         })
-
         print(f"code-scan recorded: {scan.action_taken} — {data.get('reason', '')}")
-
+        asyncio.create_task(manager.broadcast(_scan_to_ws_payload(scan)))
         return {
             "status": "processed",
             "id": scan.id,
@@ -284,16 +330,6 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "reason": data.get("reason", ""),
         }
 
-    # ------------------------------------------------------------------
-    # Explicit action override (e.g. BLOCK from code-scan-failure step)
-    # ------------------------------------------------------------------
-    # Some callers already know the verdict (BLOCK) and aren't sending real
-    # findings for the policy engine to evaluate. Honor that directly.
-    # NOTE: every workflow step currently sends scan_type="full-pipeline",
-    # so the scan_type=="code-scan" branch above never actually runs — this
-    # explicit_action check is what makes BLOCK calls from Gitleaks/Semgrep
-    # failures actually take effect instead of being silently overwritten
-    # by the policy engine's "no findings = ALLOW" default.
     findings = data.get("findings", {})
     explicit_action = data.get("action")
 
@@ -301,9 +337,6 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         ai_explanation = ""
         ai_fix = ""
         risk_score = None
-
-        # Only worth calling the AI when something actually failed — an
-        # explicit ALLOW (e.g. "no image changes") has nothing to explain.
         if explicit_action == "BLOCK":
             code_scan_detail = pipeline_steps.get("code_scan", {}).get("detail", "")
             failure_info = {
@@ -332,9 +365,8 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "risk_score": risk_score,
             "action_taken": explicit_action,
         })
-
         print(f"explicit action honored: {explicit_action} — {data.get('reason', '')}")
-
+        asyncio.create_task(manager.broadcast(_scan_to_ws_payload(scan)))
         return {
             "status": "processed",
             "id": scan.id,
@@ -351,12 +383,9 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             },
         }
 
-    # ------------------------------------------------------------------
-    # Image scans (Trivy) — run through policy engine
-    # ------------------------------------------------------------------
+    # Image scans (Trivy)
     policy_result = evaluate_policy(findings, repo_name)
     vulnerabilities = extract_vulnerabilities(findings)
-
     print(f"policy result: {policy_result['action']} — {policy_result['reason']}")
     print(f"vulnerabilities extracted: {len(vulnerabilities)}")
 
@@ -386,11 +415,12 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         "action_taken": policy_result["action"],
     })
 
-    # Slack alert is best-effort — don't let a Slack outage block the response
     try:
         send_slack_alert(data, ai_results, policy_result["action"], policy_result["reason"])
     except Exception as e:
         print(f"Slack alert failed (skipping): {e}")
+
+    asyncio.create_task(manager.broadcast(_scan_to_ws_payload(scan)))
 
     return {
         "status": "processed",
@@ -411,11 +441,9 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
 
 @app.post("/api/scan-results/{scan_id}/feedback")
 def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db)):
-    """Let the dashboard record whether AI analysis was accurate or not."""
     scan = db.query(ScanResult).filter(ScanResult.id == scan_id).first()
     if not scan:
         return {"error": "scan not found"}
-
     scan.ai_feedback = feedback.get("feedback")
     db.commit()
     return {"status": "feedback saved", "scan_id": scan_id}
@@ -427,13 +455,6 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.get("/api/scan-results")
 def get_scan_results(db: Session = Depends(get_db)):
-    """
-    Returns the 200 most recent scans, intentionally excluding the raw
-    findings blob. findings holds the full Trivy scan output which can be
-    hundreds of KB per row — the frontend never reads it, so sending it
-    on every poll (every 4 seconds) was causing Cloud Run response size
-    rejections even at low row counts.
-    """
     rows = (
         db.query(ScanResult)
         .order_by(ScanResult.created_at.desc())
@@ -466,4 +487,6 @@ def get_scan_results(db: Session = Depends(get_db)):
         }
         for r in rows
     ]
-# pipeline test trigger 2026-06-25 16:02
+
+
+

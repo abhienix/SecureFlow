@@ -810,105 +810,300 @@ function ScanDetail({ scan, onClose, onWhyBlocked, feedback, onFeedback }) {
 }
 
 // ─── AI Copilot Sidebar ───────────────────────────────────────────────────────
+ 
 function AICopilot({ scans }) {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [greeting, setGreeting] = useState("");
-  const endRef = useRef(null);
-  const blocked = scans.filter(s => s.action_taken === "BLOCK");
+  const [messages,  setMessages]  = useState([]);
+  const [input,     setInput]     = useState("");
+  const [loading,   setLoading]   = useState(false);
+  const [isTyping,  setIsTyping]  = useState(true);
+  const [greeting,  setGreeting]  = useState("");
+  const endRef   = useRef(null);
+  const inputRef = useRef(null);
+ 
+  const blocked   = scans.filter(s => s.action_taken === "BLOCK");
   const critCount = scans.filter(s => (s.severity || "").toUpperCase() === "CRITICAL").length;
-
+  const running   = scans.filter(s => s.status === "running");
+  const avgRisk   = scans.length
+    ? (scans.reduce((a, s) => a + (s.risk_score || 0), 0) / scans.length).toFixed(1)
+    : "—";
+ 
+  // Typed greeting
   useEffect(() => {
     const h = new Date().getHours();
-    const summary = `${h < 12 ? "Good morning" : "Good afternoon"}! Here's your security pulse:\n\n• ${scans.length} total scans\n• ${blocked.length} deploys blocked\n• ${critCount} critical findings\n\nTop concern: ${blocked[0]?.repo_name || "all clear"} — ask me anything!`;
+    const greet = h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening";
+    const topRepo = blocked[0]?.repo_name;
+    const summary =
+      `${greet}. Here's your security pulse:\n\n` +
+      `• ${scans.length} total scans · ${blocked.length} blocked · ${critCount} critical\n` +
+      `• Avg risk score ${avgRisk}/10${running.length ? ` · ${running.length} running now` : ""}\n` +
+      (topRepo ? `• Top concern: ${topRepo}\n` : "") +
+      `\nAsk me anything about your pipeline.`;
+ 
     let i = 0;
-    const iv = setInterval(() => { setGreeting(summary.slice(0, ++i)); if (i >= summary.length) clearInterval(iv); }, 18);
+    setIsTyping(true);
+    const iv = setInterval(() => {
+      setGreeting(summary.slice(0, ++i));
+      if (i >= summary.length) { clearInterval(iv); setIsTyping(false); }
+    }, 14);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, greeting]);
-
-  const send = useCallback(async () => {
-    if (!input.trim() || loading) return;
-    const userMsg = { role: "user", text: input.trim() };
-    setMessages(m => [...m, userMsg]);
+  }, [scans.length]);
+ 
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, greeting]);
+ 
+  // Build rich context for Claude
+  const buildContext = (question) => {
+    const topBlocked = blocked.slice(0, 5).map(s =>
+      `• ${s.repo_name} (${s.severity}) — ${s.ai_explanation?.slice(0, 120) || "no AI note"}`
+    ).join("\n") || "none";
+ 
+    const topRisks = [...scans]
+      .filter(s => s.risk_score)
+      .sort((a, b) => b.risk_score - a.risk_score)
+      .slice(0, 3)
+      .map(s => `${s.repo_name}: ${s.risk_score}/10`)
+      .join(", ") || "none";
+ 
+    return [
+      "You are SecureFlow AI Copilot, a senior DevSecOps assistant embedded in a CI/CD security dashboard.",
+      "Be direct, specific, and actionable. Use bullet points for lists. Keep answers under 200 words unless asked for detail.",
+      "",
+      "=== LIVE DASHBOARD CONTEXT ===",
+      `Total scans: ${scans.length}`,
+      `Blocked deploys: ${blocked.length}`,
+      `Critical severity: ${critCount}`,
+      `Average risk score: ${avgRisk}/10`,
+      `Running pipelines: ${running.length}`,
+      "",
+      "Recent blocked repos:",
+      topBlocked,
+      "",
+      `Highest risk repos: ${topRisks}`,
+      "",
+      "=== USER QUESTION ===",
+      question,
+    ].join("\n");
+  };
+ 
+  const QUICK_PROMPTS = [
+    "What's my biggest risk right now?",
+    "Why are deploys being blocked?",
+    "Which repo needs attention most?",
+    "How do I fix the top CVEs?",
+  ];
+ 
+  const send = useCallback(async (text) => {
+    const q = (text || input).trim();
+    if (!q || loading) return;
+    setMessages(m => [...m, { role: "user", text: q }]);
     setInput("");
     setLoading(true);
-    const ctx = [
-      "You are SecureFlow AI Copilot, a DevSecOps security dashboard assistant. Be concise and actionable.",
-      `Context: ${scans.length} scans total, ${blocked.length} blocked, ${critCount} critical severity.`,
-      `Most recent blocked repo: ${blocked[0]?.repo_name || "none"}.`,
-      `Recent blocked reasons: ${blocked.slice(0,3).map(s => s.ai_explanation?.slice(0,80) || s.severity).join("; ") || "none"}.`,
-      `User question: ${userMsg.text}`,
-    ].join("\n");
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: ctx }] }),
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          messages: [{ role: "user", content: buildContext(q) }],
+        }),
       });
       const data = await res.json();
-      const text = data.content?.map(c => c.text || "").join("") || "Connection error — try again.";
-      setMessages(m => [...m, { role: "ai", text }]);
+      const reply = data.content?.map(c => c.text || "").join("") || "Connection error — try again.";
+      setMessages(m => [...m, { role: "ai", text: reply }]);
     } catch {
-      setMessages(m => [...m, { role: "ai", text: "Connection error. Please check your network." }]);
+      setMessages(m => [...m, { role: "ai", text: "Connection error. Check your network." }]);
     }
     setLoading(false);
-  }, [input, loading, scans, blocked, critCount]);
-
+    setTimeout(() => inputRef.current?.focus(), 50);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, loading, scans, blocked, critCount, avgRisk, running]);
+ 
+  const hasMessages = messages.length > 0;
+ 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 8 }}>
-        <div style={{ background: C.tealSoft, border: `1px solid ${C.tealBord}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-            <Sparkles size={12} color={C.teal} />
-            <span style={{ fontSize: 9, fontWeight: 800, color: C.teal, letterSpacing: "0.12em", textTransform: "uppercase" }}>Daily Summary</span>
-          </div>
-          <pre style={{ fontSize: 11, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0, fontFamily: C.sans }}>
-            {greeting}<span style={{ opacity: 0.5 }} className="running-dot">|</span>
-          </pre>
-        </div>
-        {messages.map((m, i) => (
-          <div key={i} className="anim-fadeUp" style={{
-            padding: "10px 12px", borderRadius: 10, marginBottom: 8, fontSize: 12, lineHeight: 1.6,
-            background: m.role === "user" ? C.blueSoft : C.bgSurface,
-            border: `1px solid ${m.role === "user" ? C.blue + "30" : C.border}`,
-            color: C.ink,
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 0 }}>
+ 
+      {/* ── Stats bar ── */}
+      <div style={{
+        display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
+        gap: 6, marginBottom: 14,
+      }}>
+        {[
+          { label: "Blocked",  value: blocked.length,  color: blocked.length  > 0 ? C.red    : C.teal  },
+          { label: "Critical", value: critCount,        color: critCount       > 0 ? C.amber  : C.teal  },
+          { label: "Avg Risk", value: `${avgRisk}/10`,  color: parseFloat(avgRisk) >= 7 ? C.red : parseFloat(avgRisk) >= 4 ? C.amber : C.teal },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{
+            background: C.bgSurface, borderRadius: 9,
+            border: `1px solid ${C.border}`,
+            padding: "8px 10px", textAlign: "center",
           }}>
-            {m.role === "ai" && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
-                <Sparkles size={10} color={C.teal} />
-                <span style={{ fontSize: 9, color: C.teal, fontWeight: 700 }}>AI Copilot</span>
-              </div>
-            )}
-            {m.text}
+            <div style={{ fontSize: 15, fontWeight: 900, color, fontFamily: C.mono, lineHeight: 1 }}>{value}</div>
+            <div style={{ fontSize: 9, color: C.inkLow, marginTop: 3, letterSpacing: "0.07em" }}>{label.toUpperCase()}</div>
           </div>
         ))}
-        {loading && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkMid, fontSize: 11, padding: "8px 12px" }}>
-            <Loader2 size={12} className="spin" /> Thinking…
+      </div>
+ 
+      {/* ── Chat area ── */}
+      <div style={{
+        flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8,
+        paddingBottom: 8, minHeight: 0,
+      }}>
+ 
+        {/* Greeting bubble */}
+        <div style={{
+          background: `linear-gradient(135deg, ${C.tealDim}80, ${C.bgSurface})`,
+          border: `1px solid ${C.tealBord}`, borderRadius: 12,
+          padding: "12px 14px",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
+            <div style={{ width: 20, height: 20, borderRadius: 6, background: C.teal + "25", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Sparkles size={10} color={C.teal} />
+            </div>
+            <span style={{ fontSize: 9, fontWeight: 800, color: C.teal, letterSpacing: "0.1em" }}>AI COPILOT</span>
+            {isTyping && (
+              <span style={{ fontSize: 9, color: C.inkLow, display: "flex", alignItems: "center", gap: 3 }}>
+                <span className="running-dot" style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: C.teal }} />
+                typing
+              </span>
+            )}
+          </div>
+          <pre style={{
+            fontSize: 11, color: C.ink, lineHeight: 1.75,
+            whiteSpace: "pre-wrap", margin: 0, fontFamily: C.sans,
+          }}>
+            {greeting}
+            {isTyping && <span style={{ opacity: 0.5 }} className="running-dot">▋</span>}
+          </pre>
+        </div>
+ 
+        {/* Quick prompts — only if no messages yet */}
+        {!hasMessages && !isTyping && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <div style={{ fontSize: 9, color: C.inkLow, letterSpacing: "0.1em", marginBottom: 2 }}>QUICK QUESTIONS</div>
+            {QUICK_PROMPTS.map((q, i) => (
+              <button
+                key={i}
+                onClick={() => send(q)}
+                style={{
+                  textAlign: "left", padding: "8px 11px", borderRadius: 9,
+                  fontSize: 11, color: C.inkMid, lineHeight: 1.4,
+                  background: C.bgSurface, border: `1px solid ${C.border}`,
+                  cursor: "pointer", transition: "all 0.12s",
+                  display: "flex", alignItems: "center", gap: 7,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = C.tealBord; e.currentTarget.style.color = C.ink; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.inkMid; }}
+              >
+                <ArrowRight size={9} color={C.teal} style={{ flexShrink: 0 }} />
+                {q}
+              </button>
+            ))}
           </div>
         )}
+ 
+        {/* Conversation messages */}
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className="anim-fadeUp"
+            style={{
+              padding: "10px 13px", borderRadius: 11, fontSize: 12, lineHeight: 1.65,
+              background: m.role === "user"
+                ? `linear-gradient(135deg, ${C.blueSoft}, ${C.bgSurface})`
+                : C.bgSurface,
+              border: `1px solid ${m.role === "user" ? C.blue + "30" : C.border}`,
+              color: C.ink,
+              alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+              maxWidth: "92%",
+            }}
+          >
+            {m.role === "ai" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                <Sparkles size={9} color={C.teal} />
+                <span style={{ fontSize: 9, color: C.teal, fontWeight: 800, letterSpacing: "0.08em" }}>AI COPILOT</span>
+              </div>
+            )}
+            <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+          </div>
+        ))}
+ 
+        {/* Thinking indicator */}
+        {loading && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 13px", borderRadius: 11,
+            background: C.bgSurface, border: `1px solid ${C.border}`,
+            fontSize: 11, color: C.inkMid, alignSelf: "flex-start",
+          }}>
+            <Loader2 size={11} className="spin" color={C.teal} />
+            Analyzing your pipeline…
+          </div>
+        )}
+ 
         <div ref={endRef} />
       </div>
-      <div style={{ display: "flex", gap: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && send()}
-          placeholder="Ask about security…"
-          style={{ flex: 1, background: C.bgSurface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink, outline: "none" }}
-        />
-        <button onClick={send} disabled={loading} style={{ background: C.teal, border: "none", borderRadius: 8, padding: "8px 14px", color: C.bg, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+ 
+      {/* ── Input bar ── */}
+      <div style={{
+        paddingTop: 10, borderTop: `1px solid ${C.border}`,
+        display: "flex", gap: 7, alignItems: "flex-end",
+      }}>
+        <div style={{ flex: 1, position: "relative" }}>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            placeholder="Ask about your pipeline…"
+            rows={1}
+            style={{
+              width: "100%", resize: "none",
+              background: C.bgSurface, border: `1px solid ${C.border}`,
+              borderRadius: 10, padding: "9px 12px",
+              fontSize: 12, color: C.ink, outline: "none",
+              lineHeight: 1.5, fontFamily: C.sans,
+              maxHeight: 100, overflowY: "auto",
+              boxSizing: "border-box",
+            }}
+            onInput={e => {
+              e.target.style.height = "auto";
+              e.target.style.height = Math.min(e.target.scrollHeight, 100) + "px";
+            }}
+          />
+        </div>
+        <button
+          onClick={() => send()}
+          disabled={loading || !input.trim()}
+          title="Send (Enter)"
+          style={{
+            background: input.trim() && !loading ? C.teal : C.bgSurface,
+            border: `1px solid ${input.trim() && !loading ? C.teal : C.border}`,
+            borderRadius: 10, padding: "9px 13px",
+            color: input.trim() && !loading ? C.bg : C.inkLow,
+            fontWeight: 700, fontSize: 12, cursor: input.trim() && !loading ? "pointer" : "default",
+            transition: "all 0.15s", flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
           {loading ? <Loader2 size={13} className="spin" /> : <ArrowRight size={13} />}
         </button>
+      </div>
+      <div style={{ fontSize: 9, color: C.inkLow, textAlign: "right", paddingTop: 5 }}>
+        Enter to send · Shift+Enter for newline
       </div>
     </div>
   );
 }
-
+ 
 // ─── Severity Donut ───────────────────────────────────────────────────────────
 function SeverityDonut({ scans, activeSev, onSelect }) {
   const counts = useMemo(() => {
@@ -1591,12 +1786,123 @@ export default function App() {
   // Initial fetch
   useEffect(() => { fetchScans(); }, [fetchScans]);
 
-  // Auto-refresh: 10s when running scans exist, 30s otherwise
+  
+  // ── WebSocket for real-time updates ──────────────────────────────────
+  // Falls back to polling if WS disconnects or fails.
+  const wsRef       = useRef(null);
+  const wsAliveRef  = useRef(false);
+ 
   useEffect(() => {
-    const interval = hasRunning ? 10000 : 30000;
-    const iv = setInterval(fetchScans, interval);
-    return () => clearInterval(iv);
-  }, [fetchScans, hasRunning]);
+    const WS_URL = BACKEND.replace(/^https/, "wss").replace(/^http/, "ws") + "/ws/scans";
+    let reconnectTimer = null;
+    let pollFallback   = null;
+ 
+    function stopPollFallback() {
+      if (pollFallback) { clearInterval(pollFallback); pollFallback = null; }
+    }
+ 
+    function startPollFallback() {
+      if (pollFallback) return; // already running
+      pollFallback = setInterval(fetchScans, hasRunning ? 10000 : 30000);
+    }
+ 
+    function connect() {
+      try {
+        const ws = new WebSocket(WS_URL);
+        wsRef.current = ws;
+ 
+        ws.onopen = () => {
+          wsAliveRef.current = true;
+          stopPollFallback();          // WS is live — kill polling
+          console.log("[SecureFlow] WebSocket connected");
+        };
+ 
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "ping") return; // keep-alive — ignore
+ 
+            if (msg.type === "scan_started") {
+              // Insert a "running" placeholder so the UI shows immediately
+              setScans(prev => {
+                if (prev.some(s => s.id === msg.run_id)) return prev;
+                const placeholder = normaliseScan({
+                  id:             msg.run_id,
+                  commit_sha:     msg.commit_sha,
+                  repo_name:      msg.repo_name,
+                  branch:         msg.branch,
+                  status:         "running",
+                  action_taken:   null,
+                  severity:       null,
+                  pipeline_steps: {},
+                  created_at:     msg.started_at || new Date().toISOString(),
+                });
+                return [placeholder, ...prev];
+              });
+            }
+ 
+            if (msg.type === "scan_progress") {
+              setScans(prev => prev.map(s =>
+                s.id === msg.run_id
+                  ? normaliseScan({ ...s, pipeline_steps: msg.pipeline_steps, status: "running" })
+                  : s
+              ));
+            }
+ 
+            if (msg.type === "scan_complete") {
+              setScans(prev => {
+                const exists = prev.some(s => s.id === msg.id);
+                const normalised = normaliseScan(msg);
+                return exists
+                  ? prev.map(s => s.id === msg.id ? normalised : s)
+                  : [normalised, ...prev];
+              });
+              setLastUpdated(new Date());
+            }
+          } catch (err) {
+            console.warn("[SecureFlow] WS message parse error:", err);
+          }
+        };
+ 
+        ws.onerror = () => {
+          wsAliveRef.current = false;
+          startPollFallback();
+        };
+ 
+        ws.onclose = () => {
+          wsAliveRef.current = false;
+          startPollFallback();
+          // Reconnect after 5s
+          reconnectTimer = setTimeout(connect, 5000);
+        };
+      } catch (err) {
+        console.warn("[SecureFlow] WS init failed, using polling:", err);
+        startPollFallback();
+      }
+    }
+ 
+    connect();
+ 
+    return () => {
+      clearTimeout(reconnectTimer);
+      stopPollFallback();
+      if (wsRef.current) {
+        wsRef.current.onclose = null; // prevent reconnect loop on unmount
+        wsRef.current.close();
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchScans]); // re-run if fetchScans identity changes (it won't, it's useCallback)
+ 
+  // Keep poll-fallback interval fresh when hasRunning changes
+  useEffect(() => {
+    if (!wsAliveRef.current) {
+      // WS isn't live — nudge the poll interval
+      fetchScans();
+    }
+  }, [hasRunning, fetchScans]);
+ 
+ 
 
   // Escape key closes panels
   useEffect(() => {
