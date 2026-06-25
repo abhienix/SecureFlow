@@ -113,7 +113,7 @@ async def websocket_scans(ws: WebSocket):
             try:
                 await asyncio.wait_for(ws.receive_text(), timeout=30.0)
             except asyncio.TimeoutError:
-                await ws.send_text(json.dumps({"type": "ping"}))
+                await ws.send_text(json.dumps({"type": "ping"})
     except WebSocketDisconnect:
         manager.disconnect(ws)
     except Exception:
@@ -126,7 +126,7 @@ async def websocket_scans(ws: WebSocket):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results/start")
-async def start_scan_run(data: dict, db: Session = Depends(get_db)):  # FIX: async def
+async def start_scan_run(data: dict, db: Session = Depends(get_db):  # FIX: async def
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
         commit_message=data.get("commit_message", ""),
@@ -162,13 +162,13 @@ async def start_scan_run(data: dict, db: Session = Depends(get_db)):  # FIX: asy
 
 
 @app.patch("/api/scan-results/{run_id}/progress")
-async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):  # FIX: async def
+async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db):  # FIX: async def
     scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
     if not scan:
         return {"error": "run not found"}
 
     existing_steps = dict(scan.pipeline_steps or {})
-    existing_steps.update(data.get("pipeline_steps", {}))
+    existing_steps.update(data.get("pipeline_steps", {})
     scan.pipeline_steps = existing_steps
     db.commit()
 
@@ -187,14 +187,14 @@ async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(ge
 # ---------------------------------------------------------------------------
 
 @app.get("/api/migrate")
-def migrate(db: Session = Depends(get_db)):
-    db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
+def migrate(db: Session = Depends(get_db):
+    db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT")
     db.commit()
     return {"status": "migrated"}
 
 
 @app.get("/api/backfill-severity")
-def backfill_severity(db: Session = Depends(get_db)):
+def backfill_severity(db: Session = Depends(get_db):
     scans = db.query(ScanResult).filter(ScanResult.severity == "unknown").all()
     updated = 0
     for scan in scans:
@@ -207,7 +207,7 @@ def backfill_severity(db: Session = Depends(get_db)):
 
 
 @app.get("/api/metrics")
-def get_metrics(db: Session = Depends(get_db)):
+def get_metrics(db: Session = Depends(get_db):
     scans = db.query(ScanResult).all()
     total = len(scans)
     blocked = len([s for s in scans if s.action_taken == "BLOCK"])
@@ -272,7 +272,7 @@ def _scan_to_ws_payload(scan: ScanResult) -> dict:
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results")
-async def receive_scan_results(data: dict, db: Session = Depends(get_db)):  # FIX: async def
+async def receive_scan_results(data: dict, db: Session = Depends(get_db):  # FIX: async def
     scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
     run_id = data.get("run_id")
@@ -313,7 +313,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):  # FI
             "action_taken": data.get("action", "ALLOW"),
         })
         print(f"code-scan recorded: {scan.action_taken} — {data.get('reason', '')}")
-        await manager.broadcast(_scan_to_ws_payload(scan))  # FIX: await directly
+        await manager.broadcast(_scan_to_ws_payload(scan)  # FIX: await directly
         return {
             "status": "processed",
             "id": scan.id,
@@ -357,7 +357,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):  # FI
             "action_taken": explicit_action,
         })
         print(f"explicit action honored: {explicit_action} — {data.get('reason', '')}")
-        await manager.broadcast(_scan_to_ws_payload(scan))  # FIX: await directly
+        await manager.broadcast(_scan_to_ws_payload(scan)  # FIX: await directly
         return {
             "status": "processed",
             "id": scan.id,
@@ -411,7 +411,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):  # FI
     except Exception as e:
         print(f"Slack alert failed (skipping): {e}")
 
-    await manager.broadcast(_scan_to_ws_payload(scan))  # FIX: await directly
+    await manager.broadcast(_scan_to_ws_payload(scan)  # FIX: await directly
 
     return {
         "status": "processed",
@@ -431,7 +431,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):  # FI
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results/{scan_id}/feedback")
-def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db)):
+def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db):
     scan = db.query(ScanResult).filter(ScanResult.id == scan_id).first()
     if not scan:
         return {"error": "scan not found"}
@@ -445,10 +445,10 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 # ---------------------------------------------------------------------------
 
 @app.get("/api/scan-results")
-def get_scan_results(db: Session = Depends(get_db)):
+def get_scan_results(db: Session = Depends(get_db):
     rows = (
         db.query(ScanResult)
-        .order_by(ScanResult.created_at.desc())
+        .order_by(ScanResult.created_at.desc()
         .limit(200)
         .all()
     )
@@ -470,12 +470,13 @@ def get_scan_results(db: Session = Depends(get_db)):
             "pipeline_steps": r.pipeline_steps,
             "pipeline": r.pipeline_steps,
             "author": None,
-            "ai_confidence": min(99, max(60, int(r.risk_score * 10))) if r.risk_score else None,
-            "duration_ms": int((r.created_at - (r.started_at or r.created_at)).total_seconds() * 1000) if r.started_at and r.created_at else None,
+            "ai_confidence": min(99, max(60, int(r.risk_score * 10)) if r.risk_score else None,
+            "duration_ms": int((r.created_at - (r.started_at or r.created_at).total_seconds() * 1000) if r.started_at and r.created_at else None,
             "status": r.status,
             "started_at": r.started_at,
             "created_at": r.created_at,
         }
         for r in rows
     ]
+
 
