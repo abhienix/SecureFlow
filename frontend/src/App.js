@@ -72,7 +72,7 @@ const fmt     = (iso) => { if (!iso) return "—"; const d = new Date(iso); retu
 const fmtFull = (iso) => { if (!iso) return "—"; const d = new Date(iso); return isNaN(d) ? "—" : d.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); };
 const fmtTime = (d)   => d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 const fmtDur  = (ms)  => { if (!ms) return "—"; if (ms < 1000) return `${ms}ms`; return `${(ms / 1000).toFixed(1)}s`; };
-const relTime = (iso) => { if (!iso) return "—"; const m = Math.floor((Date.now() - new Date(iso)) / 60000); if (m < 1) return "just now"; if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; };
+const relTime = (iso) => { if (!iso) return "—"; const fixedIso = /Z$|[+-]\d\d:\d\d$/.test(iso) ? iso : iso + "Z"; const m = Math.floor((Date.now() - new Date(fixedIso)) / 60000); if (m < 1) return "just now"; if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; };
 
 const severityColor = (s) => ({ CRITICAL: C.red, HIGH: C.amber, MEDIUM: C.blue, LOW: C.inkMid, CLEAN: C.teal }[String(s || "").toUpperCase()] || C.inkMid);
 const riskColor     = (n) => n >= 7 ? C.red : n >= 4 ? C.amber : C.teal;
