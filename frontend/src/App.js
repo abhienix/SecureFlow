@@ -1316,7 +1316,7 @@ export default function App() {
   // ─── Data fetch with exponential retry ──────────────────────────────────────
   const fetchScans = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/api/scans`, { timeout: 8000 });
+      const res = await axios.get(`${API}/api/scan-results`, { timeout: 8000 });
       const data = Array.isArray(res.data) ? res.data : res.data?.scans || [];
       setScans(data.length ? data : generateDemoScans());
       setIsDemo(!data.length);
