@@ -107,13 +107,6 @@ def health():
 
 @app.websocket("/ws/scans")
 async def websocket_scans(ws: WebSocket):
-    """
-    Clients connect here to receive real-time scan updates.
-    On connect we immediately push all current scans so the UI
-    doesn't have to wait for the first event.
-    On every PATCH /progress or POST /scan-results we broadcast
-    the updated row, so clients see changes within milliseconds.
-    """
     await manager.connect(ws)
     try:
         while True:
@@ -129,10 +122,11 @@ async def websocket_scans(ws: WebSocket):
 
 # ---------------------------------------------------------------------------
 # Pipeline lifecycle endpoints
+# FIX: changed to async def + await manager.broadcast() directly
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results/start")
-def start_scan_run(data: dict, db: Session = Depends(get_db)):
+async def start_scan_run(data: dict, db: Session = Depends(get_db)):  # FIX: async def
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
         commit_message=data.get("commit_message", ""),
@@ -153,7 +147,7 @@ def start_scan_run(data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(scan)
 
-    asyncio.create_task(manager.broadcast({
+    await manager.broadcast({  # FIX: await directly instead of asyncio.create_task
         "type": "scan_started",
         "run_id": scan.id,
         "commit_sha": scan.commit_sha,
@@ -162,17 +156,13 @@ def start_scan_run(data: dict, db: Session = Depends(get_db)):
         "status": "running",
         "pipeline_steps": {},
         "started_at": scan.started_at.isoformat() if scan.started_at else None,
-    }))
+    })
 
     return {"status": "started", "run_id": scan.id}
 
 
 @app.patch("/api/scan-results/{run_id}/progress")
-def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):
-    """
-    Called after each stage finishes. Merges pipeline_steps and broadcasts
-    the updated state to all connected WebSocket clients immediately.
-    """
+async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):  # FIX: async def
     scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
     if not scan:
         return {"error": "run not found"}
@@ -182,12 +172,12 @@ def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db))
     scan.pipeline_steps = existing_steps
     db.commit()
 
-    asyncio.create_task(manager.broadcast({
+    await manager.broadcast({  # FIX: await directly instead of asyncio.create_task
         "type": "scan_progress",
         "run_id": run_id,
         "pipeline_steps": existing_steps,
         "status": "running",
-    }))
+    })
 
     return {"status": "progress updated", "run_id": run_id}
 
@@ -278,10 +268,11 @@ def _scan_to_ws_payload(scan: ScanResult) -> dict:
 
 # ---------------------------------------------------------------------------
 # Main scan ingestion endpoint
+# FIX: changed to async def + await manager.broadcast() directly
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results")
-def receive_scan_results(data: dict, db: Session = Depends(get_db)):
+async def receive_scan_results(data: dict, db: Session = Depends(get_db)):  # FIX: async def
     scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
     run_id = data.get("run_id")
@@ -322,7 +313,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": data.get("action", "ALLOW"),
         })
         print(f"code-scan recorded: {scan.action_taken} — {data.get('reason', '')}")
-        asyncio.create_task(manager.broadcast(_scan_to_ws_payload(scan)))
+        await manager.broadcast(_scan_to_ws_payload(scan))  # FIX: await directly
         return {
             "status": "processed",
             "id": scan.id,
@@ -366,7 +357,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "action_taken": explicit_action,
         })
         print(f"explicit action honored: {explicit_action} — {data.get('reason', '')}")
-        asyncio.create_task(manager.broadcast(_scan_to_ws_payload(scan)))
+        await manager.broadcast(_scan_to_ws_payload(scan))  # FIX: await directly
         return {
             "status": "processed",
             "id": scan.id,
@@ -420,7 +411,7 @@ def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Slack alert failed (skipping): {e}")
 
-    asyncio.create_task(manager.broadcast(_scan_to_ws_payload(scan)))
+    await manager.broadcast(_scan_to_ws_payload(scan))  # FIX: await directly
 
     return {
         "status": "processed",
@@ -487,6 +478,3 @@ def get_scan_results(db: Session = Depends(get_db)):
         }
         for r in rows
     ]
-
-
-
