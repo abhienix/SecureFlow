@@ -284,10 +284,27 @@ jobs:
       # docker, or dependency files changed — frontend-only pushes don't need
       # a full image scan and this saves ~3-4 minutes per run.
       #
-      # BUG FIX: The grep pattern '^backend/' only matched files starting
-      # with backend/ — but git diff output may include paths like
-      # 'backend/main.py' without a leading slash issue on some runners.
-      # Made pattern more robust with (^|/) to handle both cases.
+      # BUG FIX (previous): The grep pattern '^backend/' only matched files
+      # starting with backend/ — made more robust with (^|/) to handle paths
+      # without a leading slash on some runners.
+      #
+      # *** NEW BUG FIX (this version) ***
+      # THE BUG: this step only ever produced ONE flag — `image_changed` —
+      # and that flag was computed purely from BACKEND/docker paths
+      # (backend/, docker/, policy.yaml, requirements*.txt, Dockerfile).
+      # Every later step that deploys the FRONTEND (Build and Push Frontend,
+      # Deploy Frontend to Cloud Run) was gated on that same `image_changed`
+      # flag. So a frontend-only commit set image_changed=false, which
+      # correctly skipped the backend build — but it ALSO skipped the
+      # frontend build and deploy, because they were checking the wrong flag.
+      # Net effect: frontend-only pushes ran "Report Clean", went green,
+      # and never built or deployed a new frontend image at all.
+      #
+      # THE FIX: compute a second, independent flag — `frontend_changed` —
+      # based on the frontend/ path. The two flags are now decoupled: a
+      # backend-only change no longer silently skips frontend deploys and
+      # vice versa. Downstream steps are updated to check the flag that
+      # actually matches what they do (see Steps 9, 14, 15, 16 below).
       - name: Check if image needs rebuilding
         id: changes
         if: steps.gitleaks.outcome != 'failure' && steps.semgrep.outcome != 'failure'
@@ -308,11 +325,28 @@ jobs:
             echo "No backend/docker files changed — skipping image scan"
           fi
 
+          # NEW: independent flag for frontend changes. This is what the
+          # frontend build/deploy steps should gate on, NOT image_changed.
+          if echo "$CHANGED" | grep -qE '(^|/)frontend/'; then
+            echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Frontend files changed — frontend rebuild required"
+          else
+            echo "frontend_changed=false" >> "$GITHUB_OUTPUT"
+            echo "No frontend files changed — skipping frontend build"
+          fi
+
       # ── Step 8: Report clean (no image changes) ─────────────────────────────
-      # BUG FIX: Was missing the code scan outcome check.
+      # BUG FIX (previous): Was missing the code scan outcome check.
       # This step was reporting ALLOW/CLEAN even when gitleaks/semgrep had
       # flagged issues, because the condition only checked image_changed.
       # Added explicit guards so this can never fire after a code scan failure.
+      #
+      # NOTE: this step's condition is unchanged — it still only fires when
+      # the BACKEND image didn't change. That's correct and intentional:
+      # even on a frontend-only push, we still want a "clean" pipeline
+      # record showing the code scan passed and no backend image was built.
+      # The frontend deploy itself runs independently afterward (Step 14-16),
+      # gated on frontend_changed — it is no longer tied to this step at all.
       - name: Report Clean (no image changes)
         if: |
           steps.changes.outputs.image_changed == 'false' &&
@@ -369,25 +403,32 @@ jobs:
             -d "$PAYLOAD" || true
 
       # ── Step 9: GCP auth ────────────────────────────────────────────────────
-      # Only runs if backend/docker files actually changed — no point
-      # authenticating to GCP for a frontend-only commit
+      # BUG FIX: previously gated ONLY on image_changed == 'true', so on a
+      # frontend-only push GCP auth never ran — and later, even after fixing
+      # the frontend deploy steps' condition (Steps 14-16), they would have
+      # failed with "no credentials" because this step still skipped itself.
+      # Now also runs when frontend_changed == 'true', since the frontend
+      # deploy steps need an authenticated gcloud session too.
       - name: Authenticate to Google Cloud
-        if: steps.changes.outputs.image_changed == 'true'
+        if: steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up Cloud SDK
-        if: steps.changes.outputs.image_changed == 'true'
+        if: steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        if: steps.changes.outputs.image_changed == 'true'
+        if: steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true'
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
-      # ── Step 10: Build and push image ───────────────────────────────────────
+      # ── Step 10: Build and push backend image ───────────────────────────────
       # Tag with the commit SHA so every image is uniquely traceable back to
       # the exact code that built it — "latest" tags make rollbacks ambiguous
+      #
+      # Unchanged from before — still correctly gated on image_changed only,
+      # since this step builds the BACKEND image specifically.
       - name: Build Backend Image
         id: docker_build
         if: steps.changes.outputs.image_changed == 'true'
@@ -410,10 +451,11 @@ jobs:
           docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
 
       # ── Step 10a: Notify dashboard on Docker build/push failure ─────────────
-      # BUG FIX (new step): Previously, if docker build or docker push failed,
-      # the pipeline would exit with an error but NEVER call the backend to
-      # update the run status. This left the dashboard stuck showing "running"
-      # forever — the record was created in Step 1 but never closed.
+      # BUG FIX (new step, previous version): Previously, if docker build or
+      # docker push failed, the pipeline would exit with an error but NEVER
+      # call the backend to update the run status. This left the dashboard
+      # stuck showing "running" forever — the record was created in Step 1
+      # but never closed.
       #
       # "if: failure()" triggers only when a previous step has already failed.
       # Combined with the image_changed guard so this doesn't fire on
@@ -492,10 +534,11 @@ jobs:
           steps.pipeline_start.outputs.run_id != '' &&
           steps.docker_build.outcome == 'success' &&
           steps.docker_push.outcome == 'success'
-        # BUG FIX (updated condition): Previously this step had no check on
-        # docker_build/push outcomes, so it could fire even after a failed build
-        # (since continue-on-error wasn't set, GitHub sometimes ran subsequent
-        # steps in unexpected order). Now explicitly gated on both succeeding.
+        # BUG FIX (updated condition, previous version): Previously this step
+        # had no check on docker_build/push outcomes, so it could fire even
+        # after a failed build (since continue-on-error wasn't set, GitHub
+        # sometimes ran subsequent steps in unexpected order). Now explicitly
+        # gated on both succeeding.
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -514,10 +557,11 @@ jobs:
           steps.changes.outputs.image_changed == 'true' &&
           steps.docker_build.outcome == 'success' &&
           steps.docker_push.outcome == 'success'
-        # BUG FIX (updated condition): Previously Trivy would attempt to scan
-        # even if the push failed, causing a confusing "image not found" error
-        # from Trivy rather than a clear "docker push failed" message.
-        # Now Trivy only runs when we know the image is actually in the registry.
+        # BUG FIX (updated condition, previous version): Previously Trivy would
+        # attempt to scan even if the push failed, causing a confusing "image
+        # not found" error from Trivy rather than a clear "docker push failed"
+        # message. Now Trivy only runs when we know the image is actually in
+        # the registry.
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
@@ -549,8 +593,8 @@ jobs:
           steps.changes.outputs.image_changed == 'true' &&
           steps.docker_build.outcome == 'success' &&
           steps.docker_push.outcome == 'success'
-        # BUG FIX (updated condition): Same guard as Trivy — only run the policy
-        # gate when there's actually a scanned image to evaluate.
+        # BUG FIX (updated condition, previous version): Same guard as Trivy —
+        # only run the policy gate when there's actually a scanned image to evaluate.
         id: gate
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
@@ -610,10 +654,12 @@ jobs:
             exit 1
           fi
 
-      # ── Step 13: Deploy (only if ALLOW) ─────────────────────────────────────
+      # ── Step 13: Deploy backend (only if backend image changed AND ALLOW) ───
       # Double-gated: image must have changed AND policy must have returned ALLOW.
       # Deploying the same SHA that was scanned by Trivy — no bait-and-switch
       # between what was scanned and what gets deployed.
+      #
+      # Unchanged — still correctly scoped to the backend image/gate only.
       - name: Deploy Backend to Cloud Run
         if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
         run: |
@@ -622,8 +668,28 @@ jobs:
             --region us-central1 \
             --allow-unauthenticated
 
+      # ── Step 14: Build and push frontend image ──────────────────────────────
+      # *** THIS IS THE MAIN FIX ***
+      # BUG (previous version): condition was
+      #   if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
+      # which meant the frontend would ONLY ever build/deploy when the
+      # BACKEND image also changed in the same push, AND the policy gate
+      # ran and returned ALLOW. On any frontend-only commit, image_changed
+      # was false, steps.gate never ran at all (it's gated on image_changed
+      # too), so steps.gate.outputs.action was empty — and the whole step
+      # was skipped. Frontend changes never deployed.
+      #
+      # FIX: gate on frontend_changed (the new, independent flag from Step 7)
+      # instead. We still respect the security gate when it's relevant: if
+      # the backend image ALSO changed in this push, we wait for that gate's
+      # result before deploying the frontend, so a BLOCKed backend doesn't
+      # let a frontend pointing at a bad/blocked backend version slip out.
+      # If the backend did NOT change (image_changed == 'false'), there is no
+      # gate to wait for, so we proceed based on frontend_changed alone.
       - name: Build and Push Frontend
-        if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
+        if: >
+          steps.changes.outputs.frontend_changed == 'true' &&
+          (steps.changes.outputs.image_changed == 'false' || steps.gate.outputs.action == 'ALLOW')
         run: |
           docker build \
             -t us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }} \
@@ -631,8 +697,13 @@ jobs:
             -f frontend/Dockerfile frontend/
           docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}
 
+      # ── Step 15: Deploy frontend ─────────────────────────────────────────────
+      # Same fix as Step 14 — gated on frontend_changed instead of
+      # image_changed, with the same backend-gate passthrough logic.
       - name: Deploy Frontend to Cloud Run
-        if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
+        if: >
+          steps.changes.outputs.frontend_changed == 'true' &&
+          (steps.changes.outputs.image_changed == 'false' || steps.gate.outputs.action == 'ALLOW')
         run: |
           gcloud run deploy secureflow-frontend \
             --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }} \
