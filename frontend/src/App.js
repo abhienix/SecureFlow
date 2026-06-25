@@ -1587,7 +1587,21 @@ export default function App() {
       const res = await fetch("https://secureflow-backend-1083585992526.us-central1.run.app/api/scan-results", { signal: AbortSignal.timeout(8000) });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
-      setScans(Array.isArray(data) ? data : []);
+      const normalized = Array.isArray(data) ? data.map(s => ({
+        ...s,
+        pipeline: s.pipeline || (s.pipeline_steps
+          ? Object.entries(s.pipeline_steps).map(([name, info], i) => ({
+              id: name + i,
+              name: name.replace(/_/g, " ").replace(/\w/g, c => c.toUpperCase()),
+              status: info.result === "PASS" ? "passed" : info.result === "FAIL" ? "failed" : info.result === "running" ? "running" : "passed",
+              duration_ms: null,
+              logs: info.detail ? [info.detail] : ["Completed"],
+            }))
+          : []),
+        author: s.author || null,
+        ai_confidence: s.ai_confidence || null,
+      })) : [];
+      setScans(normalized);
       setIsDemo(false);
     } catch (err) {
       console.error("Failed to fetch scans:", err);
