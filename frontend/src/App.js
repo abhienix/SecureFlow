@@ -1,5 +1,5 @@
-/**
- * SecureFlow — Final Merged App.jsx
+﻿/**
+ * SecureFlow â€” Final Merged App.jsx
  *
  * BUGS FIXED vs previous version:
  *   1. EmptyChart / EmptyState / Badge / Card / GlassCard / SectionTitle /
@@ -9,7 +9,7 @@
  *   4. Pipeline connector line: last segment uses correct stage color.
  *   5. SeverityDonut onSelect no longer auto-navigates.
  *   6. Missing React key props added in NotificationPanel rows.
- *   7. renderNav extracted as useCallback — stable reference across renders.
+ *   7. renderNav extracted as useCallback â€” stable reference across renders.
  *   8. WhyBlockedModal business fallback improved per severity tier.
  *   9. parseFixLines now safely handles scans with no vuln_breakdown.
  *  10. ScanFeed filter badge shows both sev + repo when both are active.
@@ -32,12 +32,12 @@ import {
   ArrowRight, ListChecks, Radio, Loader2,
 } from "lucide-react";
 
-// ─── Backend URL ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Backend URL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const API =
   process.env.REACT_APP_BACKEND_URL ||
   "https://secureflow-backend-1083585992526.us-central1.run.app";
 
-// ─── Design tokens ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Design tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const C = {
   bg:           "#0a0e13",
   bgCard:       "#0f1419",
@@ -77,12 +77,12 @@ const TABS = [
   { id: "metrics",  label: "Metrics",   icon: TrendingUp },
 ];
 
-// ─── Formatters ────────────────────────────────────────────────────────────────
-const fmt     = (iso) => { if (!iso) return "—"; const d = new Date(iso); return isNaN(d) ? "—" : d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }); };
-const fmtFull = (iso) => { if (!iso) return "—"; const d = new Date(iso); return isNaN(d) ? "—" : d.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); };
+// â”€â”€â”€ Formatters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const fmt     = (iso) => { if (!iso) return "â€”"; const d = new Date(iso); return isNaN(d) ? "â€”" : d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }); };
+const fmtFull = (iso) => { if (!iso) return "â€”"; const d = new Date(iso); return isNaN(d) ? "â€”" : d.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); };
 const fmtTime = (d)   => d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-const fmtDur  = (ms)  => { if (!ms) return "—"; if (ms < 1000) return `${ms}ms`; return `${(ms / 1000).toFixed(1)}s`; };
-const relTime = (iso) => { if (!iso) return "—"; const m = Math.floor((Date.now() - new Date(iso)) / 60000); if (m < 1) return "just now"; if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; };
+const fmtDur  = (ms)  => { if (!ms) return "â€”"; if (ms < 1000) return `${ms}ms`; return `${(ms / 1000).toFixed(1)}s`; };
+const relTime = (iso) => { if (!iso) return "â€”"; const m = Math.floor((Date.now() - new Date(iso)) / 60000); if (m < 1) return "just now"; if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; };
 
 const severityColor = (s) => ({ CRITICAL: C.red, HIGH: C.amber, MEDIUM: C.blue, LOW: C.inkMid, CLEAN: C.teal }[String(s || "").toUpperCase()] || C.inkMid);
 const riskColor     = (n) => n >= 7 ? C.red : n >= 4 ? C.amber : C.teal;
@@ -90,13 +90,13 @@ const healthColor   = (h) => h >= 90 ? C.teal : h >= 75 ? C.green : h >= 55 ? C.
 
 const TT = { background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 12, color: C.ink };
 
-// ─── localStorage helpers ──────────────────────────────────────────────────────
+// â”€â”€â”€ localStorage helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const lsGet = (k, fb) => { try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : fb; } catch { return fb; } };
 const lsSet = (k, v)  => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // DEMO DATA
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const DEMO_REPOS    = ["secureflow-api","payments-service","auth-gateway","web-dashboard","ml-inference","notification-worker","billing-cron"];
 const DEMO_BRANCHES = ["main","develop","feat/checkout","hotfix/auth","release/2.4"];
 const DEMO_AUTHORS  = ["a.rao","j.chen","m.silva","k.patel","d.novak","s.kim"];
@@ -140,7 +140,7 @@ function buildDemoPipeline(action, severity) {
     if (i === failAt)    status = "failed";
     else if (i > failAt) status = "skipped";
     const logs = status === "failed"
-      ? [`$ running ${name.toLowerCase()}`, `[error] ${severity} severity finding detected`, "[gate] policy violation — blocking deploy"]
+      ? [`$ running ${name.toLowerCase()}`, `[error] ${severity} severity finding detected`, "[gate] policy violation â€” blocking deploy"]
       : status === "skipped"
       ? ["[skipped] upstream stage failed"]
       : [`$ running ${name.toLowerCase()}`, `[ok] ${name} completed`, "[ok] no blocking issues"];
@@ -195,9 +195,9 @@ function generateDemoScans(count = 64) {
   return scans.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SHARED PRIMITIVES — defined FIRST (const arrow fns don't hoist)
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// SHARED PRIMITIVES â€” defined FIRST (const arrow fns don't hoist)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 const EmptyChart = () => (
   <div style={{ height: 150, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLow, fontSize: 13 }}>No data yet</div>
@@ -267,9 +267,9 @@ const SkeletonCard = () => (
   </div>
 );
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // SMALL UI COMPONENTS
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 const StatusDot = ({ status }) => {
   const color = status === "running" ? C.teal : status === "completed" ? C.green : status === "failed" ? C.red : C.inkMid;
@@ -310,9 +310,9 @@ const ConfidencePip = ({ value }) => {
   );
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // NOTIFICATION PANEL
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function NotificationPanel({ scans, dismissed, onDismiss, onDismissAll, onClose }) {
   const items = scans
@@ -352,9 +352,9 @@ function NotificationPanel({ scans, dismissed, onDismiss, onDismissAll, onClose 
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // COMMAND PALETTE
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function CommandPalette({ scans, onClose, onNavigate }) {
   const [q, setQ] = useState("");
@@ -364,7 +364,7 @@ function CommandPalette({ scans, onClose, onNavigate }) {
 
   const navItems = TABS.map(t => ({ type: "nav", label: t.label, id: t.id }));
   const scanItems = scans.slice(0, 20).map(s => ({
-    type: "scan", label: `${s.repo_name} · ${s.commit_sha}`, id: s.id,
+    type: "scan", label: `${s.repo_name} Â· ${s.commit_sha}`, id: s.id,
     sub: relTime(s.created_at), color: severityColor(s.severity),
   }));
   const all = [...navItems, ...scanItems];
@@ -381,7 +381,7 @@ function CommandPalette({ scans, onClose, onNavigate }) {
             ref={inputRef}
             value={q}
             onChange={e => setQ(e.target.value)}
-            placeholder="Search tabs, scans…"
+            placeholder="Search tabs, scansâ€¦"
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: C.ink, fontSize: 14, fontFamily: C.sans }}
           />
           <kbd style={{ fontSize: 9, background: C.bgSurface, border: `1px solid ${C.border}`, borderRadius: 4, padding: "2px 6px", color: C.inkMid }}>ESC</kbd>
@@ -407,9 +407,9 @@ function CommandPalette({ scans, onClose, onNavigate }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // WHY BLOCKED MODAL
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function WhyBlockedModal({ scan, onClose }) {
   const [tab, setTab] = useState("human");
@@ -463,7 +463,7 @@ function WhyBlockedModal({ scan, onClose }) {
                     pip install {f.fix}
                   </div>
                 ))}
-                {!(scan.vuln_breakdown?.fixable_details?.length) && <span style={{ fontSize: 12, color: C.inkMid }}>No auto-fix available — review the AI explanation.</span>}
+                {!(scan.vuln_breakdown?.fixable_details?.length) && <span style={{ fontSize: 12, color: C.inkMid }}>No auto-fix available â€” review the AI explanation.</span>}
               </div>
             </div>
           )}
@@ -477,7 +477,7 @@ function WhyBlockedModal({ scan, onClose }) {
                     <span style={{ color: C.inkLow }}>{f.id}</span>
                   </div>
                   <div style={{ color: C.ink }}>{f.package}</div>
-                  <div style={{ color: C.teal, marginTop: 4 }}>→ {f.fix}</div>
+                  <div style={{ color: C.teal, marginTop: 4 }}>â†’ {f.fix}</div>
                 </div>
               ))}
             </div>
@@ -497,9 +497,9 @@ function WhyBlockedModal({ scan, onClose }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // FIX DIFF VIEW
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function FixDiffView({ scan }) {
   const [copied, setCopied] = useState(false);
@@ -536,9 +536,9 @@ function FixDiffView({ scan }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // CONFIDENCE PANEL
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function ConfidencePanel({ scan }) {
   const conf = scan.ai_confidence || 0;
@@ -570,9 +570,9 @@ function ConfidencePanel({ scan }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // SCAN DETAIL PANEL
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function ScanDetail({ scan, onClose, onWhyBlocked }) {
   const [showConf, setShowConf] = useState(false);
@@ -664,9 +664,9 @@ function ScanDetail({ scan, onClose, onWhyBlocked }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // SEVERITY DONUT
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function SeverityDonut({ scans, activeSev, onSelect }) {
   const counts = useMemo(() => {
@@ -735,9 +735,9 @@ function SeverityDonut({ scans, activeSev, onSelect }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // REPO HEALTH CARDS
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function RepoHealthCards({ scans, onFilterRepo }) {
   const repos = useMemo(() => {
@@ -789,9 +789,9 @@ function RepoHealthCards({ scans, onFilterRepo }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // THREAT FEED PANEL
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function ThreatFeedPanel() {
   return (
@@ -816,9 +816,9 @@ function ThreatFeedPanel() {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // AI COPILOT SIDEBAR
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function AICopilot({ scans }) {
   const [messages, setMessages] = useState([]);
@@ -832,7 +832,7 @@ function AICopilot({ scans }) {
 
   // Daily summary on mount
   useEffect(() => {
-    const summary = `Good ${new Date().getHours() < 12 ? "morning" : "afternoon"}! Here's your security pulse:\n\n• ${scans.length} total scans today\n• ${blocked.length} deploys blocked\n• ${critCount} critical findings\n\nTop concern: ${blocked[0]?.repo_name || "all clear"} — ask me anything!`;
+    const summary = `Good ${new Date().getHours() < 12 ? "morning" : "afternoon"}! Here's your security pulse:\n\nâ€¢ ${scans.length} total scans today\nâ€¢ ${blocked.length} deploys blocked\nâ€¢ ${critCount} critical findings\n\nTop concern: ${blocked[0]?.repo_name || "all clear"} â€” ask me anything!`;
     let i = 0;
     const iv = setInterval(() => {
       setTypeText(summary.slice(0, ++i));
@@ -872,7 +872,7 @@ function AICopilot({ scans }) {
         }),
       });
       const data = await res.json();
-      const text = data.content?.map(c => c.text || "").join("") || "I couldn't process that — try again.";
+      const text = data.content?.map(c => c.text || "").join("") || "I couldn't process that â€” try again.";
       setMessages(m => [...m, { role: "ai", text }]);
     } catch {
       setMessages(m => [...m, { role: "ai", text: "Connection error. Please check your network." }]);
@@ -908,7 +908,7 @@ function AICopilot({ scans }) {
         {loading && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkMid, fontSize: 11, padding: "8px 12px" }}>
             <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
-            Thinking…
+            Thinkingâ€¦
           </div>
         )}
         <div ref={endRef} />
@@ -918,7 +918,7 @@ function AICopilot({ scans }) {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === "Enter" && send()}
-          placeholder="Ask about security…"
+          placeholder="Ask about securityâ€¦"
           style={{
             flex: 1, background: C.bgSurface, border: `1px solid ${C.border}`,
             borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.ink,
@@ -936,13 +936,21 @@ function AICopilot({ scans }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // PIPELINE STAGE VIEWER
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function PipelineView({ scan }) {
   const [expanded, setExpanded] = useState(null);
-  if (!scan?.pipeline?.length) return <EmptyState text="No pipeline data" />;
+  const steps = scan?.pipeline_steps;
+  if (!steps || !Object.keys(steps).length) return <EmptyState text="No pipeline data" />;
+  const pipeline = Object.entries(steps).map(([key, val]) => ({
+    id: key,
+    name: key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+    status: val.result === "PASS" || val.result === "SCANNED" ? "passed" : (val.result === "BLOCK" || val.result === "FAILED" ? "failed" : "skipped"),
+    duration_ms: 0,
+    logs: [val.detail || ""],
+  }));
 
   const stageColor = (s) => s === "passed" ? C.teal : s === "failed" ? C.red : C.inkLow;
   const stageIcon  = (s) =>
@@ -952,8 +960,8 @@ function PipelineView({ scan }) {
 
   return (
     <div style={{ position: "relative" }}>
-      {scan.pipeline.map((stage, i) => {
-        const isLast = i === scan.pipeline.length - 1;
+      {pipeline.map((stage, i) => {
+        const isLast = i === pipeline.length - 1;
         const sc = stageColor(stage.status);
         return (
           <div key={stage.id} style={{ display: "flex", gap: 14, marginBottom: 4 }}>
@@ -997,9 +1005,9 @@ function PipelineView({ scan }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // SCAN FEED TAB
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function ScanFeedTab({ scans, sevFilter, repoFilter, onClearSevFilter, onClearRepoFilter, onSelect }) {
   const [actionFilter, setActionFilter] = useState("ALL");
@@ -1112,9 +1120,9 @@ function ScanFeedTab({ scans, sevFilter, repoFilter, onClearSevFilter, onClearRe
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // METRICS TAB
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function MetricsTab({ scans }) {
   const byDay = useMemo(() => {
@@ -1202,9 +1210,9 @@ function MetricsTab({ scans }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // OVERVIEW TAB
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function OverviewTab({ scans, activeSev, onSevSelect, onFilterRepo, onNavigateToFeed }) {
   const total    = scans.length;
@@ -1261,12 +1269,12 @@ function OverviewTab({ scans, activeSev, onSevSelect, onFilterRepo, onNavigateTo
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // PIPELINE TAB
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 function PipelineTab({ scans, onSelect }) {
-  const recent = scans.filter(s => s.pipeline?.length).slice(0, 12);
+  const recent = scans.filter(s => s.pipeline_steps && Object.keys(s.pipeline_steps).length).slice(0, 12);
 
   if (!recent.length) return <EmptyState text="No pipeline data available" />;
 
@@ -1288,9 +1296,9 @@ function PipelineTab({ scans, onSelect }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // MAIN APP
-// ═══════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export default function App() {
   const [scans,       setScans]       = useState([]);
@@ -1313,7 +1321,7 @@ export default function App() {
   useEffect(() => { lsSet("sf_tab", activeTab); }, [activeTab]);
   useEffect(() => { lsSet("sf_dismissed", [...dismissed]); }, [dismissed]);
 
-  // ─── Data fetch with exponential retry ──────────────────────────────────────
+  // â”€â”€â”€ Data fetch with exponential retry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const fetchScans = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/api/scan-results`, { timeout: 8000 });
@@ -1369,14 +1377,14 @@ export default function App() {
     return () => clearInterval(iv);
   }, [isDemo]);
 
-  // ⌘K command palette
+  // âŒ˜K command palette
   useEffect(() => {
     const handler = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setShowCmd(v => !v); } };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // ─── Derived state ───────────────────────────────────────────────────────────
+  // â”€â”€â”€ Derived state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const alertCount = scans.filter(s => s.action_taken === "BLOCK" && !dismissed.has(s.id)).length;
 
   // FIX #7: stable renderNav via useCallback
@@ -1423,7 +1431,7 @@ export default function App() {
     setActiveTab("feed");
   }, []);
 
-  // ─── Styles ──────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const styles = `
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
     *, *::before, *::after { box-sizing: border-box; }
@@ -1452,7 +1460,7 @@ export default function App() {
     .donut-legend-btn:hover { transform: scale(1.08); }
   `;
 
-  // ─── Render ──────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <>
       <style>{styles}</style>
@@ -1462,7 +1470,7 @@ export default function App() {
       {showWhy && <WhyBlockedModal scan={selectedScan} onClose={() => setShowWhy(false)} />}
 
       <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-        {/* ── Header ── */}
+        {/* â”€â”€ Header â”€â”€ */}
         <header style={{
           position: "sticky", top: 0, zIndex: 80,
           background: "rgba(10,14,19,0.85)", backdropFilter: "blur(16px)",
@@ -1488,7 +1496,7 @@ export default function App() {
               color: C.inkMid, fontSize: 11, cursor: "pointer",
             }}>
               <Command size={12} />
-              <span>⌘K</span>
+              <span>âŒ˜K</span>
             </button>
 
             <button onClick={fetchScans} style={{ background: "none", border: "none", cursor: "pointer", color: C.inkMid, padding: 6 }}>
@@ -1531,7 +1539,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* ── Body ── */}
+        {/* â”€â”€ Body â”€â”€ */}
         <div style={{ flex: 1, display: "flex", maxWidth: 1400, margin: "0 auto", width: "100%", padding: "0 24px" }}>
           {/* Main content */}
           <main style={{ flex: 1, paddingTop: 24, paddingBottom: 40, minWidth: 0, paddingRight: showCopilot ? 24 : 0 }}>
