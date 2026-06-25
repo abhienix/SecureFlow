@@ -810,8 +810,26 @@ function ScanDetail({ scan, onClose, onWhyBlocked, feedback, onFeedback }) {
 }
 
 // ─── AI Copilot Sidebar ───────────────────────────────────────────────────────
- 
-function AICopilot({ scans }) {
+
+
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
+const GEMINI_URL =`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AICopilot({ scans, pastScans = [], backendStats = {} }) {
+  //
+  // pastScans   — array of historical scan objects (same shape as `scans`)
+  //               e.g. fetched from your DB / API for the last 30 days
+  //
+  // backendStats — freeform object from your backend, e.g.:
+  //   {
+  //     totalScansAllTime: 1240,
+  //     avgRiskLast30d: 3.1,
+  //     mostVulnerableRepo: "abhienix/SecureFlow",
+  //     topCVEs: ["CVE-2023-43804", "CVE-2024-37891"],
+  //     openIssues: 14,
+  //   }
+
   const [messages,  setMessages]  = useState([]);
   const [input,     setInput]     = useState("");
   const [loading,   setLoading]   = useState(false);
@@ -819,15 +837,25 @@ function AICopilot({ scans }) {
   const [greeting,  setGreeting]  = useState("");
   const endRef   = useRef(null);
   const inputRef = useRef(null);
- 
+
+  // ── Live stats from current scans ──────────────────────────────────────────
   const blocked   = scans.filter(s => s.action_taken === "BLOCK");
   const critCount = scans.filter(s => (s.severity || "").toUpperCase() === "CRITICAL").length;
   const running   = scans.filter(s => s.status === "running");
   const avgRisk   = scans.length
     ? (scans.reduce((a, s) => a + (s.risk_score || 0), 0) / scans.length).toFixed(1)
     : "—";
- 
-  // Typed greeting
+
+  // ── Past scan stats (historical) ───────────────────────────────────────────
+  const pastBlocked   = pastScans.filter(s => s.action_taken === "BLOCK").length;
+  const pastAvgRisk   = pastScans.length
+    ? (pastScans.reduce((a, s) => a + (s.risk_score || 0), 0) / pastScans.length).toFixed(1)
+    : null;
+  const pastCritCount = pastScans.filter(
+    s => (s.severity || "").toUpperCase() === "CRITICAL"
+  ).length;
+
+  // ── Typed greeting ─────────────────────────────────────────────────────────
   useEffect(() => {
     const h = new Date().getHours();
     const greet = h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening";
@@ -838,7 +866,7 @@ function AICopilot({ scans }) {
       `• Avg risk score ${avgRisk}/10${running.length ? ` · ${running.length} running now` : ""}\n` +
       (topRepo ? `• Top concern: ${topRepo}\n` : "") +
       `\nAsk me anything about your pipeline.`;
- 
+
     let i = 0;
     setIsTyping(true);
     const iv = setInterval(() => {
@@ -848,24 +876,48 @@ function AICopilot({ scans }) {
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scans.length]);
- 
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, greeting]);
- 
-  // Build rich context for Claude
+
+  // ── Build rich context for Gemini ──────────────────────────────────────────
   const buildContext = (question) => {
+    // Current session top blocked repos
     const topBlocked = blocked.slice(0, 5).map(s =>
       `• ${s.repo_name} (${s.severity}) — ${s.ai_explanation?.slice(0, 120) || "no AI note"}`
     ).join("\n") || "none";
- 
+
+    // Current session top risk repos
     const topRisks = [...scans]
       .filter(s => s.risk_score)
       .sort((a, b) => b.risk_score - a.risk_score)
       .slice(0, 3)
       .map(s => `${s.repo_name}: ${s.risk_score}/10`)
       .join(", ") || "none";
- 
+
+    // Historical scan summary
+    const historicalSection = pastScans.length > 0 ? [
+      "",
+      "=== HISTORICAL DATA (past scans) ===",
+      `Past scans loaded: ${pastScans.length}`,
+      `Past blocked deploys: ${pastBlocked}`,
+      `Past critical CVEs: ${pastCritCount}`,
+      pastAvgRisk ? `Past avg risk score: ${pastAvgRisk}/10` : "",
+    ].filter(Boolean).join("\n") : "";
+
+    // Backend / DB stats section
+    const backendSection = Object.keys(backendStats).length > 0 ? [
+      "",
+      "=== BACKEND / DATABASE STATS ===",
+      backendStats.totalScansAllTime   ? `All-time scans: ${backendStats.totalScansAllTime}` : "",
+      backendStats.avgRiskLast30d      ? `Avg risk (30d): ${backendStats.avgRiskLast30d}/10` : "",
+      backendStats.mostVulnerableRepo  ? `Most vulnerable repo: ${backendStats.mostVulnerableRepo}` : "",
+      backendStats.topCVEs?.length     ? `Top CVEs: ${backendStats.topCVEs.join(", ")}` : "",
+      backendStats.openIssues != null  ? `Open issues: ${backendStats.openIssues}` : "",
+      // Add any extra backendStats fields here
+    ].filter(Boolean).join("\n") : "";
+
     return [
       "You are SecureFlow AI Copilot, a senior DevSecOps assistant embedded in a CI/CD security dashboard.",
       "Be direct, specific, and actionable. Use bullet points for lists. Keep answers under 200 words unless asked for detail.",
@@ -881,51 +933,75 @@ function AICopilot({ scans }) {
       topBlocked,
       "",
       `Highest risk repos: ${topRisks}`,
+      historicalSection,
+      backendSection,
       "",
       "=== USER QUESTION ===",
       question,
     ].join("\n");
   };
- 
+
   const QUICK_PROMPTS = [
     "What's my biggest risk right now?",
     "Why are deploys being blocked?",
     "Which repo needs attention most?",
     "How do I fix the top CVEs?",
+    "Compare current vs historical risk",   // new — uses past data
+    "Any trends in my past scans?",         // new — uses past data
   ];
- 
+
+  // ── Send to Gemini ──────────────────────────────────────────────────────────
   const send = useCallback(async (text) => {
     const q = (text || input).trim();
     if (!q || loading) return;
     setMessages(m => [...m, { role: "user", text: q }]);
     setInput("");
     setLoading(true);
+
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch(GEMINI_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: buildContext(q) }],
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: buildContext(q) }],
+            },
+          ],
+          generationConfig: {
+            maxOutputTokens: 1000,
+            temperature: 0.4,
+          },
         }),
       });
+
       const data = await res.json();
-      const reply = data.content?.map(c => c.text || "").join("") || "Connection error — try again.";
+
+      // Gemini response path: candidates[0].content.parts[0].text
+      const reply =
+        data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        data?.error?.message ||
+        "No response from Gemini.";
+
       setMessages(m => [...m, { role: "ai", text: reply }]);
-    } catch {
-      setMessages(m => [...m, { role: "ai", text: "Connection error. Check your network." }]);
+    } catch (err) {
+      setMessages(m => [
+        ...m,
+        { role: "ai", text: "Connection error. Check your network or API key." },
+      ]);
     }
+
     setLoading(false);
     setTimeout(() => inputRef.current?.focus(), 50);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, loading, scans, blocked, critCount, avgRisk, running]);
- 
+  }, [input, loading, scans, pastScans, backendStats, blocked, critCount, avgRisk, running]);
+
   const hasMessages = messages.length > 0;
- 
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 0 }}>
- 
+
       {/* ── Stats bar ── */}
       <div style={{
         display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
@@ -946,16 +1022,16 @@ function AICopilot({ scans }) {
           </div>
         ))}
       </div>
- 
+
       {/* ── Chat area ── */}
       <div style={{
         flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8,
         paddingBottom: 8, minHeight: 0,
       }}>
- 
+
         {/* Greeting bubble */}
         <div style={{
-          background: `linear-gradient(135deg, ${C.tealDim}80, ${C.bgSurface})`,
+          background: C.bgSurface,
           border: `1px solid ${C.tealBord}`, borderRadius: 12,
           padding: "12px 14px",
         }}>
@@ -979,7 +1055,7 @@ function AICopilot({ scans }) {
             {isTyping && <span style={{ opacity: 0.5 }} className="running-dot">▋</span>}
           </pre>
         </div>
- 
+
         {/* Quick prompts — only if no messages yet */}
         {!hasMessages && !isTyping && (
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -1004,7 +1080,7 @@ function AICopilot({ scans }) {
             ))}
           </div>
         )}
- 
+
         {/* Conversation messages */}
         {messages.map((m, i) => (
           <div
@@ -1012,9 +1088,7 @@ function AICopilot({ scans }) {
             className="anim-fadeUp"
             style={{
               padding: "10px 13px", borderRadius: 11, fontSize: 12, lineHeight: 1.65,
-              background: m.role === "user"
-                ? `linear-gradient(135deg, ${C.blueSoft}, ${C.bgSurface})`
-                : C.bgSurface,
+              background: m.role === "user" ? C.bgSurface : C.bgSurface,
               border: `1px solid ${m.role === "user" ? C.blue + "30" : C.border}`,
               color: C.ink,
               alignSelf: m.role === "user" ? "flex-end" : "flex-start",
@@ -1030,23 +1104,23 @@ function AICopilot({ scans }) {
             <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
           </div>
         ))}
- 
-        {/* Thinking indicator */}
-        {loading && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "10px 13px", borderRadius: 11,
-            background: C.bgSurface, border: `1px solid ${C.border}`,
-            fontSize: 11, color: C.inkMid, alignSelf: "flex-start",
-          }}>
-            <Loader2 size={11} className="spin" color={C.teal} />
-            Analyzing your pipeline…
-          </div>
-        )}
- 
+
         <div ref={endRef} />
       </div>
- 
+
+      {/* ── Typing indicator — sits ABOVE input bar, not inside chat ── */}
+      {loading && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 13px",
+          borderTop: `1px solid ${C.border}`,
+          fontSize: 11, color: C.inkMid,
+        }}>
+          <Loader2 size={11} className="spin" color={C.teal} />
+          Analyzing your pipeline…
+        </div>
+      )}
+
       {/* ── Input bar ── */}
       <div style={{
         paddingTop: 10, borderTop: `1px solid ${C.border}`,
@@ -1103,7 +1177,7 @@ function AICopilot({ scans }) {
     </div>
   );
 }
- 
+
 // ─── Severity Donut ───────────────────────────────────────────────────────────
 function SeverityDonut({ scans, activeSev, onSelect }) {
   const counts = useMemo(() => {
