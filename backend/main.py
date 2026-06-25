@@ -521,4 +521,5 @@ def get_scan_results(db: Session = Depends(get_db)):
             "created_at": r.created_at,
         }
         for r in rows
-    ]
+    ]#   t r i g g e r   r e b u i l d   0 6 / 2 5 / 2 0 2 6   0 8 : 5 1 : 2 7  
+ 
