@@ -668,6 +668,28 @@ jobs:
             --region us-central1 \
             --allow-unauthenticated
 
+      # ── Step 13a: Notify dashboard — policy + deploy succeeded ─────────────────────
+      - name: Notify Deploy Success
+        if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+        run: |
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d '{ "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" }, "deploy": { "result": "PASS", "detail": "deployed to Cloud Run" } } }' || true
+
+      # ── Step 13b: Notify dashboard — deploy command failed ───────────────────────
+      - name: Notify Deploy Failure
+        if: failure() && steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+        run: |
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d '{ "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" }, "deploy": { "result": "FAILED", "detail": "gcloud run deploy command failed" } } }' || true
+
       # ── Step 14: Build and push frontend image ──────────────────────────────
       # *** THIS IS THE MAIN FIX ***
       # BUG (previous version): condition was
