@@ -466,5 +466,4 @@ def get_scan_results(db: Session = Depends(get_db)):
         }
         for r in rows
     ]
-#   p i p e l i n e   t e s t   t r i g g e r   2 0 2 6 - 0 6 - 2 5   1 6 : 0 2  
- 
+# pipeline test trigger 2026-06-25 16:02
