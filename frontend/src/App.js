@@ -218,8 +218,8 @@ const Badge = ({ color, children, small }) => (
   }}>{children}</span>
 );
 
-const Card = ({ children, style, glow }) => (
-  <div style={{
+const Card = ({ children, style, glow, className }) => (
+  <div className={className} style={{
     background: C.bgCard, borderRadius: 14,
     border: `1px solid ${glow ? C.tealBord : C.border}`,
     padding: "18px 20px", marginBottom: 12,
@@ -277,7 +277,7 @@ const StatusDot = ({ status }) => {
     <span style={{
       display: "inline-block", width: 7, height: 7, borderRadius: "50%",
       background: color, flexShrink: 0,
-      boxShadow: status === "running" ? `0 0 6px ${color}` : "none",
+      animation: status === "running" ? "pulseRing 1.6s ease-out infinite" : "none",
     }} />
   );
 };
@@ -325,6 +325,7 @@ function NotificationPanel({ scans, dismissed, onDismiss, onDismissAll, onClose 
       background: C.bgCard, border: `1px solid ${C.border}`,
       borderRadius: 14, boxShadow: "0 16px 48px #00000060",
       zIndex: 100, overflow: "hidden",
+      animation: "dropDown 0.18s ease",
     }}>
       <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontWeight: 700, fontSize: 13 }}>Alerts</span>
@@ -372,8 +373,8 @@ function CommandPalette({ scans, onClose, onNavigate }) {
     : all;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#00000080", zIndex: 999, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 80 }} onClick={onClose}>
-      <div style={{ background: C.bgCard, border: `1px solid ${C.borderBright}`, borderRadius: 16, width: 540, maxHeight: 420, overflow: "hidden", boxShadow: "0 24px 64px #00000080" }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: "fixed", inset: 0, background: "#00000080", zIndex: 999, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 80, animation: "backdropIn 0.15s ease" }} onClick={onClose}>
+      <div style={{ background: C.bgCard, border: `1px solid ${C.borderBright}`, borderRadius: 16, width: 540, maxHeight: 420, overflow: "hidden", boxShadow: "0 24px 64px #00000080", animation: "scaleIn 0.18s ease" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
           <Search size={16} color={C.inkMid} />
           <input
@@ -716,7 +717,7 @@ function SeverityDonut({ scans, activeSev, onSelect }) {
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", marginTop: 10 }}>
         {data.map(d => (
-          <button key={d.name} onClick={() => onSelect(activeSev === d.name ? null : d.name)}
+          <button key={d.name} className="donut-legend-btn" onClick={() => onSelect(activeSev === d.name ? null : d.name)}
             style={{
               display: "flex", alignItems: "center", gap: 5, padding: "3px 8px",
               borderRadius: 999, fontSize: 10, cursor: "pointer", fontFamily: C.mono,
@@ -1068,15 +1069,17 @@ function ScanFeedTab({ scans, sevFilter, repoFilter, onClearSevFilter, onClearRe
 
       {filtered.length === 0
         ? <EmptyState text="No scans match the current filters" />
-        : filtered.map(s => (
+        : filtered.map((s, idx) => (
           <div key={s.id}
+            className="scan-card"
             onClick={() => onSelect(s)}
             style={{
               background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12,
-              padding: "14px 16px", marginBottom: 8, cursor: "pointer", transition: "border-color 0.15s",
+              padding: "14px 16px", marginBottom: 8, cursor: "pointer",
+              animation: `fadeUp 0.22s ease ${Math.min(idx, 12) * 0.04}s both`,
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = C.borderBright}
-            onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = C.borderBright; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -1219,12 +1222,12 @@ function OverviewTab({ scans, activeSev, onSevSelect, onFilterRepo, onNavigateTo
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, marginBottom: 16 }}>
-        {stats.map(s => (
-          <Card key={s.label} style={{ marginBottom: 0 }}>
+        {stats.map((s, i) => (
+          <Card key={s.label} className="stat-card" style={{ marginBottom: 0, cursor: "default" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
               <span style={{ color: C.inkMid }}>{s.icon}</span>
             </div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: s.color, fontFamily: C.mono }}>{s.val}</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: s.color, fontFamily: C.mono, animation: `countUp 0.4s ease ${i * 0.07}s both` }}>{s.val}</div>
             <div style={{ fontSize: 10, color: C.inkLow, letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 2 }}>{s.label}</div>
           </Card>
         ))}
@@ -1428,14 +1431,25 @@ export default function App() {
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: ${C.bgElevated}; border-radius: 3px; }
-    @keyframes shimmer { 0%,100%{opacity:0.5} 50%{opacity:1} }
-    @keyframes spin    { to{transform:rotate(360deg)} }
-    @keyframes blink   { 50%{opacity:0} }
-    @keyframes scaleIn { from{transform:scale(0.92);opacity:0} to{transform:scale(1);opacity:1} }
-    @keyframes slideIn { from{transform:translateX(40px);opacity:0} to{transform:translateX(0);opacity:1} }
-    @keyframes tabIn   { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes shimmer    { 0%,100%{opacity:0.5} 50%{opacity:1} }
+    @keyframes spin       { to{transform:rotate(360deg)} }
+    @keyframes blink      { 50%{opacity:0} }
+    @keyframes scaleIn    { from{transform:scale(0.92);opacity:0} to{transform:scale(1);opacity:1} }
+    @keyframes slideIn    { from{transform:translateX(40px);opacity:0} to{transform:translateX(0);opacity:1} }
+    @keyframes tabIn      { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes dropDown   { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes fadeUp     { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes countUp    { from{opacity:0;transform:scale(0.7)} to{opacity:1;transform:scale(1)} }
+    @keyframes pulseRing  { 0%{box-shadow:0 0 0 0 ${C.teal}40} 70%{box-shadow:0 0 0 8px ${C.teal}00} 100%{box-shadow:0 0 0 0 ${C.teal}00} }
+    @keyframes backdropIn { from{opacity:0} to{opacity:1} }
     button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
     input:focus { border-color: ${C.tealBord} !important; }
+    .scan-card { transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; }
+    .scan-card:hover { transform: translateY(-1px); box-shadow: 0 4px 20px #00000040; }
+    .stat-card { transition: transform 0.2s, box-shadow 0.2s; }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 28px #00000050; }
+    .donut-legend-btn { transition: transform 0.15s; }
+    .donut-legend-btn:hover { transform: scale(1.08); }
   `;
 
   // ─── Render ──────────────────────────────────────────────────────────────────
