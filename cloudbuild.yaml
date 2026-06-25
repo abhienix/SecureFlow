@@ -1,0 +1,5 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/secureflow-499814/cloud-run-source-deploy/secureflow-backend', '-f', 'docker/Dockerfile', '.']
+images:
+- 'us-central1-docker.pkg.dev/secureflow-499814/cloud-run-source-deploy/secureflow-backend'
