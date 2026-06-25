@@ -478,3 +478,4 @@ def get_scan_results(db: Session = Depends(get_db)):
         }
         for r in rows
     ]
+
