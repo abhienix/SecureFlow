@@ -1,0 +1,19 @@
+# SecureFlow — Gitleaks config
+# Scans run in CI with --log-opts (push delta only). This file excludes
+# known false-positive paths and report artifacts.
+
+title = "SecureFlow Gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore scan report artifacts and local env files"
+paths = [
+  '''(?i)(^|/)report\.json$''',
+  '''(?i)(^|/)gitleaks-full\.json$''',
+  '''(?i)(^|/)leaks-report\.json$''',
+  '''(?i)(^|/)gitleaks-results\.json$''',
+  '''(?i)(^|/)\.env(\..*)?$''',
+  '''(?i)(^|/)node_modules/''',
+]

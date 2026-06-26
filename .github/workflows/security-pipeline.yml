@@ -155,13 +155,28 @@ jobs:
           exit 1
 
       # ── Step 3: Run Gitleaks ────────────────────────────────────────────────
+      # Scan ONLY commits in this push — not full history. With fetch-depth: 0
+      # a full-history scan re-detects secrets in old commits forever and blocks
+      # every deploy even when the current commit is clean.
       - name: Run Gitleaks
         id: gitleaks
         if: steps.gitleaks_install.outcome == 'success'
         continue-on-error: true
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
         run: |
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_SHA" ]; then
+            LOG_OPTS="-n 1"
+            echo "First push or unknown before-SHA — scanning latest commit only"
+          else
+            LOG_OPTS="${BEFORE_SHA}..${AFTER_SHA}"
+            echo "Scanning commits in push: $LOG_OPTS"
+          fi
+
           gitleaks detect \
             --source . \
+            --log-opts="$LOG_OPTS" \
             --redact \
             -v \
             --exit-code=1 \
@@ -169,11 +184,12 @@ jobs:
             --report-path=gitleaks-results.json || GITLEAKS_FAILED=true
 
           if [ "$GITLEAKS_FAILED" = "true" ]; then
-            echo "Gitleaks found secrets!"
+            echo "Gitleaks found secrets in this push!"
             echo "--- gitleaks results ---"
             cat gitleaks-results.json 2>/dev/null || echo "no results file"
             exit 1
           fi
+          echo "Gitleaks passed — no secrets in commits being pushed"
 
       # ── Step 4: Run Semgrep ─────────────────────────────────────────────────
       - name: Install and Run Semgrep
@@ -239,11 +255,16 @@ jobs:
           GITLEAKS_RESULT: ${{ steps.gitleaks.outcome }}
           SEMGREP_RESULT: ${{ steps.semgrep.outcome }}
         run: |
+          set -euo pipefail
+          COMMIT_MSG=$(printf '%s' "$COMMIT_MESSAGE" | head -1 | tr -d '\0')
+
           if [ "$GITLEAKS_RESULT" = "failure" ]; then
             REASON="Secret or credential found in code (Gitleaks)"
             GITLEAKS_DETAIL=$(jq -r '
-              if length > 0 then
-                .[0] | "Rule: \(.RuleID) | File: \(.File):\(.StartLine)"
+              if type == "array" and length > 0 then
+                .[0] | "Rule: \(.RuleID // .RuleId // "secret") | File: \(.File // .file // "?"):\(.StartLine // .startLine // "?")"
+              elif type == "object" then
+                "Rule: \(.RuleID // .RuleId // "secret") | File: \(.File // .file // "?"):\(.StartLine // .startLine // "?")"
               else
                 "secret detected — check gitleaks output above"
               end
@@ -262,11 +283,10 @@ jobs:
             DETAIL="$SEMGREP_DETAIL"
           fi
 
-          RUN_ID_VAL="${RUN_ID:-null}"
-          if [ "$RUN_ID_VAL" != "null" ] && [ -n "$RUN_ID_VAL" ]; then
-            RUN_ID_JSON="\"$RUN_ID_VAL\""
+          if [ -n "${RUN_ID:-}" ] && [ "$RUN_ID" != "null" ]; then
+            RUN_ID_ARG="$RUN_ID"
           else
-            RUN_ID_JSON="null"
+            RUN_ID_ARG=""
           fi
 
           if [ "$GITLEAKS_RESULT" = "failure" ] && [ -f gitleaks-results.json ]; then
@@ -281,23 +301,23 @@ jobs:
             SEMGREP_JSON='[]'
           fi
 
-          PAYLOAD=$(jq -n \
+          jq -n \
             --arg repo "$REPO_NAME" \
             --arg sha "$COMMIT_SHA" \
             --arg branch "$BRANCH_NAME" \
-            --arg commit_msg "$COMMIT_MESSAGE" \
+            --arg commit_msg "$COMMIT_MSG" \
             --arg scan_type "full-pipeline" \
             --arg severity "HIGH" \
             --arg action "BLOCK" \
             --arg reason "$REASON" \
-            --argjson run_id "$RUN_ID_JSON" \
+            --arg run_id "$RUN_ID_ARG" \
             --arg code_detail "$DETAIL" \
             --argjson gitleaks "$GITLEAKS_JSON" \
             --argjson semgrep "$SEMGREP_JSON" \
             '{
               repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
               scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
-              run_id: $run_id,
+              run_id: (if $run_id == "" then null else ($run_id | tonumber) end),
               gitleaks: $gitleaks,
               semgrep: $semgrep,
               findings: {},
@@ -309,18 +329,20 @@ jobs:
                 policy:    { result: "skipped", detail: "pipeline stopped at code scan" },
                 deploy:    { result: "skipped", detail: "pipeline stopped at code scan" }
               }
-            }')
+            }' > block-payload.json
 
-          RESPONSE=$(echo "$PAYLOAD" | curl -sS -X POST "$BACKEND_URL/api/scan-results" \
+          echo "Notifying backend of BLOCK..."
+          RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results" \
             -H "Content-Type: application/json" \
-            -d @-)
+            -d @block-payload.json) || RESPONSE='{"action":"BLOCK"}'
 
           echo "Backend response: $RESPONSE"
           BACKEND_ACTION=$(echo "$RESPONSE" | jq -r '.action // "BLOCK"')
           if [ "$BACKEND_ACTION" != "BLOCK" ]; then
-            echo "Warning: backend returned action=$BACKEND_ACTION but code scan failed — pipeline still blocked"
+            echo "::warning::Backend returned action=$BACKEND_ACTION — deploy blocked anyway (code scan failed)"
           fi
 
+          echo "::error::Pipeline blocked — $REASON. Fix the finding or rotate the exposed secret."
           exit 1
 
       # ── Step 7: Check if image needs rebuilding ─────────────────────────────
