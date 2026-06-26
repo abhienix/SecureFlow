@@ -135,8 +135,15 @@ def evaluate_policy(scan_findings, repo_name):
     """
     Main entry point. Takes Trivy's scan output and decides ALLOW or BLOCK.
     """
-    gitleaks_findings = scan_findings.get("gitleaks") or []
-    semgrep_findings = scan_findings.get("semgrep") or []
+    def _as_list(items):
+        if isinstance(items, dict):
+            items = items.get("findings") or items.get("results") or [items]
+        if not isinstance(items, list):
+            return [items] if items else []
+        return [i for i in items if isinstance(i, dict)]
+
+    gitleaks_findings = _as_list(scan_findings.get("gitleaks"))
+    semgrep_findings = _as_list(scan_findings.get("semgrep"))
 
     if gitleaks_findings:
         return {

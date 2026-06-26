@@ -159,6 +159,32 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   60%  { opacity: 1; transform: scale(1.02) translateY(-2px); }
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
+@keyframes pipelineFlow {
+  0%   { background-position: 0% 50%; opacity: .6; }
+  50%  { opacity: 1; }
+  100% { background-position: 200% 50%; opacity: .6; }
+}
+@keyframes nodePulse3d {
+  0%, 100% { transform: scale(1) translateZ(0); box-shadow: 0 0 0 0 rgba(59,130,246,.35); }
+  50%      { transform: scale(1.08) translateZ(8px); box-shadow: 0 0 0 8px rgba(59,130,246,0); }
+}
+@keyframes scanBeam {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+.pipe-flow {
+  background: linear-gradient(90deg, ${C.border} 0%, ${C.blue} 50%, ${C.border} 100%);
+  background-size: 200% 100%;
+  animation: pipelineFlow 1.6s linear infinite;
+}
+.pipe-flow-active {
+  height: 3px !important;
+  border-radius: 2px;
+}
+.node-running-3d {
+  animation: nodePulse3d 1.8s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
 
 .spin        { animation: spin 1s linear infinite; }
 .pulse-dot   { animation: pulse 1.8s ease-in-out infinite; }
@@ -430,9 +456,9 @@ function buildVulnerabilities(raw, vuln_breakdown, pipeline) {
     gitleaks.forEach(g => {
       vulnerabilities.push({
         severity:    "HIGH",
-        id:          g.RuleID || g.rule || "secret",
-        cve_id:      g.RuleID || g.rule || "secret",
-        package:     g.File || g.file || "source",
+        id:          g.RuleID || g.ruleID || g.rule || "secret",
+        cve_id:      g.RuleID || g.ruleID || g.rule || "secret",
+        package:     g.File || g.file || g.SourceFile || "source",
         description: g.Description || g.description || "Secret detected by Gitleaks",
       });
     });
@@ -496,15 +522,30 @@ function normaliseScan(raw) {
     : null;
 
   const steps = raw.pipeline_steps || {};
-  const pipeline = PIPELINE_STAGES.map(({ key, label, Icon }) => {
+  let pipeline = PIPELINE_STAGES.map(({ key, label, Icon }) => {
     const info = steps[key] || {};
     return {
       id: key, name: label, Icon,
-     status: resultToStatus(info, overallOutcome),
+      status: resultToStatus(info, overallOutcome),
       result:  info.result  || info.status || "",
       detail:  info.detail  || "",
     };
   });
+
+  /* While scan is live, mark the active stage as running for UI animation */
+  if (raw.status === "running") {
+    const hasRunning = pipeline.some(p => p.status === "running");
+    if (!hasRunning) {
+      let lastDone = -1;
+      pipeline.forEach((p, i) => {
+        if (["passed", "failed", "skipped"].includes(p.status)) lastDone = i;
+      });
+      const activeIdx = lastDone + 1 < pipeline.length ? lastDone + 1 : 0;
+      if (pipeline[activeIdx]?.status === "pending") {
+        pipeline[activeIdx] = { ...pipeline[activeIdx], status: "running", result: "running" };
+      }
+    }
+  }
 
   let vuln_breakdown = raw.vuln_breakdown || null;
   if (!vuln_breakdown && raw.findings?.Results) {
@@ -804,10 +845,105 @@ const RiskBar = ({ score }) => {
   );
 };
 
+const AIFeedbackRow = ({ scanId, feedback, onFeedback, label = "Was this AI analysis accurate?" }) => {
+  if (!onFeedback || !scanId) return null;
+  const myFb = feedback?.[scanId];
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      style={{
+        marginTop: 12, paddingTop: 12,
+        borderTop: `1px solid ${C.border}`,
+        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+      }}
+    >
+      <span style={{ fontSize: 11, color: C.inkLow, fontWeight: 500 }}>{label}</span>
+      {["accept", "reject"].map(type => (
+        <motion.button
+          key={type}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => onFeedback(scanId, type)}
+          style={{
+            display: "flex", alignItems: "center", gap: 5,
+            padding: "5px 12px", borderRadius: 999,
+            background: myFb === type ? (type === "accept" ? C.greenSoft : C.redSoft) : C.bgSurface,
+            border: `1px solid ${myFb === type ? (type === "accept" ? C.greenBord : C.redBord) : C.border}`,
+            color: myFb === type ? (type === "accept" ? C.green : C.red) : C.inkMid,
+            fontSize: 11, fontWeight: 600,
+          }}
+        >
+          {type === "accept" ? <ThumbsUp size={12} /> : <ThumbsDown size={12} />}
+          {type === "accept" ? "Accurate" : "Not accurate"}
+        </motion.button>
+      ))}
+      {myFb && (
+        <span style={{ fontSize: 10, color: C.teal, fontWeight: 600 }}>
+          ✓ Feedback saved
+        </span>
+      )}
+    </motion.div>
+  );
+};
+
+function RunningPipelineBanner({ scans }) {
+  const running = scans.filter(s => s.status === "running");
+  if (!running.length) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -12 }}
+      animate={{ opacity: 1, y: 0 }}
+      style={{
+        marginBottom: 18, padding: "16px 18px",
+        background: `linear-gradient(135deg, ${C.blueSoft} 0%, ${C.cyanSoft} 100%)`,
+        border: `1px solid ${C.blueBord}`,
+        borderRadius: 16,
+        boxShadow: `0 8px 32px ${C.blue}14`,
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      <div aria-hidden style={{
+        position: "absolute", inset: 0, opacity: .35,
+        background: `linear-gradient(105deg, transparent 40%, ${C.blue}22 50%, transparent 60%)`,
+        animation: "scanBeam 2.2s linear infinite",
+      }} />
+      <div style={{ position: "relative", zIndex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            style={{
+              width: 28, height: 28, borderRadius: "50%",
+              border: `2px solid ${C.blueBord}`,
+              borderTopColor: C.blue,
+            }}
+          />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.blue }}>
+              {running.length} pipeline{running.length > 1 ? "s" : ""} running live
+            </div>
+            <div style={{ fontSize: 11, color: C.inkMid }}>Stages update in real time via WebSocket</div>
+          </div>
+        </div>
+        {running.slice(0, 3).map(scan => (
+          <div key={scan.id} style={{ marginBottom: running.length > 1 ? 10 : 0 }}>
+            <div style={{ fontSize: 11, color: C.inkMid, marginBottom: 6, fontFamily: C.mono }}>
+              {scan.commit_sha?.slice(0, 8)} · {scan.repo_name}
+            </div>
+            <PipelineMiniNodes pipeline={scan.pipeline} live />
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    PIPELINE NODES
 ───────────────────────────────────────────── */
-function PipelineMiniNodes({ pipeline }) {
+function PipelineMiniNodes({ pipeline, live = false }) {
   if (!pipeline?.length) return null;
   return (
     <div style={{ display:"flex", alignItems:"center", gap:0, margin:"14px 0 4px", overflowX:"auto", paddingBottom:4 }}>
@@ -822,14 +958,19 @@ function PipelineMiniNodes({ pipeline }) {
         return (
           <React.Fragment key={stage.id}>
             {i > 0 && (
-              <div style={{
+              <div className={pipeline[i-1].status === "running" || stage.status === "running" ? "pipe-flow pipe-flow-active" : ""} style={{
                 flex:1, height:2, minWidth:8, maxWidth:28,
                 background: pipeline[i-1].status === "passed"
-                  ? `linear-gradient(90deg,${C.teal}60,${color}60)` : C.border,
+                  ? `linear-gradient(90deg,${C.teal}60,${color}60)`
+                  : (pipeline[i-1].status === "running" || stage.status === "running") ? undefined : C.border,
               }} />
             )}
             <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, minWidth:52 }}>
-              <div style={{
+              <motion.div
+                className={stage.status === "running" ? "node-running-3d" : ""}
+                animate={stage.status === "running" ? { scale: [1, 1.06, 1] } : {}}
+                transition={stage.status === "running" ? { duration: 1.6, repeat: Infinity } : {}}
+                style={{
                 width:34, height:34, borderRadius:"50%",
                 border:`2px solid ${color}`,
                 background: color+"12",
@@ -837,14 +978,14 @@ function PipelineMiniNodes({ pipeline }) {
                 color,
                 boxShadow: stage.status === "running"
                   ? `0 0 0 4px ${color}20, 0 0 16px ${color}40` : `0 0 8px ${color}20`,
-                animation: stage.status === "running" ? "pulseRing 1.5s infinite" : "none",
+                transformStyle: "preserve-3d",
               }}>
                 {stage.status === "running" ? <Loader2 size={15} className="spin" /> :
                  stage.status === "passed"  ? <CheckCircle size={15} /> :
                  stage.status === "failed"  ? <XCircle size={15} /> :
                  stage.status === "skipped" ? <span style={{ fontSize:11 }}>—</span> :
                  Icon ? <Icon size={13} /> : null}
-              </div>
+              </motion.div>
               <div style={{ fontSize:9, color:C.inkMid, textAlign:"center", whiteSpace:"nowrap" }}>
                 {stage.name}
               </div>
@@ -919,7 +1060,7 @@ function PipelineFullView({ pipeline }) {
    / "ok but empty" / success, and renders a visible error state instead
    of silently resetting to the "Show remedy" button.
 ───────────────────────────────────────────── */
-function AIAnalysisBlock({ scan, compact=false }) {
+function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
   const [loadingRemedy, setLoadingRemedy] = useState(false);
   const [remedy, setRemedy] = useState(scan.ai_remedy || null);
   const [remedyError, setRemedyError] = useState(null);
@@ -1033,6 +1174,15 @@ function AIAnalysisBlock({ scan, compact=false }) {
         }}>
           <Wrench size={11} /> Show remedy
         </button>
+      )}
+
+      {(scan.ai_explanation || remedy || scan.ai_remedy) && (
+        <AIFeedbackRow
+          scanId={scan.id}
+          feedback={feedback}
+          onFeedback={onFeedback}
+          label={remedy ? "Was this remedy helpful?" : "Was this AI analysis accurate?"}
+        />
       )}
     </div>
   );
@@ -1179,10 +1329,10 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
         <div style={{ marginTop:16, paddingTop:16, borderTop:`1px solid ${C.border}`, animation:"fadeIn .25s ease" }}>
           <PipelineFullView pipeline={scan.pipeline} />
           {scan.vuln_breakdown && <VulnBreakdown breakdown={scan.vuln_breakdown} />}
-          <AIAnalysisBlock scan={scan} />
+          <AIAnalysisBlock scan={scan} feedback={feedback} onFeedback={onFeedback} />
           {!isRunning && (
             <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:14 }}>
-              <span style={{ fontSize:11, color:C.inkLow }}>Assessment accurate?</span>
+              <span style={{ fontSize:11, color:C.inkLow }}>Overall scan assessment?</span>
               {["accept","reject"].map(type => (
                 <button key={type} onClick={() => onFeedback?.(scan.id, type)} style={{
                   display:"flex", alignItems:"center", gap:4,
@@ -1499,7 +1649,7 @@ function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked }) {
           </div>
         </>
       )}
-      <AIAnalysisBlock scan={scan} />
+      <AIAnalysisBlock scan={scan} feedback={feedback} onFeedback={onFeedback} />
       {scan.action_taken === "BLOCK" && (
         <button onClick={() => onWhyBlocked(scan)} style={{
           marginTop:20, padding:"12px", width:"100%",
@@ -1776,6 +1926,7 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
 
   return (
     <div style={{ animation:"fadeInUp .4s ease" }}>
+      <RunningPipelineBanner scans={scans} />
       {/* KPI row */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:14, marginBottom:16 }}>
         {[
@@ -2138,7 +2289,7 @@ function AIInsightsTab({ scans, feedback, onFeedback, onOpenWhyBlocked }) {
           ))}
 
           {/* AI analysis + remedy (always visible for blocked) */}
-          <AIAnalysisBlock scan={scan} />
+          <AIAnalysisBlock scan={scan} feedback={feedback} onFeedback={onFeedback} />
 
           {/* Vuln quick summary */}
           {scan.vuln_breakdown?.total > 0 && (
