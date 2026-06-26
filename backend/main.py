@@ -535,5 +535,4 @@ def get_scan_results(db: Session = Depends(get_db)):
 def migrate(db: Session = Depends(get_db)):
     db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
     db.commit()
-    return {"status": "migrated"}#   u p d a t e d  
- 
+    return {"status": "migrated"}# updated
