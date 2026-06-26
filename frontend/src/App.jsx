@@ -29,6 +29,11 @@
  *   very bottom of this file for what to check/fix server-side.
  */
 
+/**
+ * SecureFlow — App.jsx (v3.2 — Light Professional Dashboard)
+ * Real-time CI/CD Security Dashboard
+ */
+
 import React, {
   useState, useEffect, useCallback, useRef, useMemo,
 } from "react";
@@ -47,46 +52,43 @@ import {
   Wrench, Eye, Wifi, WifiOff, Clock, BarChart2, AlertCircle,
 } from "lucide-react";
 
-/* ─────────────────────────────────────────────
-   DESIGN TOKENS
-───────────────────────────────────────────── */
 const C = {
-  bg:          "#060a0f",
-  bgCard:      "#0b1017",
-  bgSurface:   "#111820",
-  bgElevated:  "#17202a",
-  border:      "#1a2d40",
-  borderBright:"#254055",
-  ink:         "#e2eaf4",
-  inkMid:      "#7d8fa3",
-  inkLow:      "#334455",
+  bg:          "#f8fafc",
+  bgCard:      "#ffffff",
+  bgSurface:   "#f1f5f9",
+  bgElevated:  "#e2e8f0",
+  border:      "#e2e8f0",
+  borderBright:"#cbd5e1",
+  ink:         "#0f172a",
+  inkMid:      "#475569",
+  inkLow:      "#64748b",
 
-  teal:        "#00e5b0",
-  tealSoft:    "#00e5b018",
-  tealBord:    "#00e5b030",
+  teal:        "#14b8a6",
+  tealSoft:    "#14b8a620",
+  tealBord:    "#14b8a640",
 
-  blue:        "#4db8ff",
-  blueSoft:    "#4db8ff12",
-  blueBord:    "#4db8ff30",
+  blue:        "#3b82f6",
+  blueSoft:    "#3b82f620",
+  blueBord:    "#3b82f640",
 
-  green:       "#3ddc84",
-  greenSoft:   "#3ddc8412",
-  greenBord:   "#3ddc8430",
+  green:       "#10b981",
+  greenSoft:   "#10b98120",
+  greenBord:   "#10b98140",
 
-  red:         "#ff4d6a",
-  redSoft:     "#ff4d6a12",
-  redBord:     "#ff4d6a30",
+  red:         "#ef4444",
+  redSoft:     "#ef444420",
+  redBord:     "#ef444440",
 
-  amber:       "#ffb347",
-  amberSoft:   "#ffb34712",
-  amberBord:   "#ffb34730",
+  amber:       "#f59e0b",
+  amberSoft:   "#f59e0b20",
+  amberBord:   "#f59e0b40",
 
-  violet:      "#c084fc",
-  violetSoft:  "#c084fc12",
-  violetBord:  "#c084fc30",
+  violet:      "#8b5cf6",
+  violetSoft:  "#8b5cf620",
+  violetBord:  "#8b5cf640",
 
-  cyan:        "#22d3ee",
-  cyanSoft:    "#22d3ee12",
+  cyan:        "#06b6d4",
+  cyanSoft:    "#06b6d420",
 
   mono: "'JetBrains Mono','Fira Mono','Consolas',monospace",
   sans: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
@@ -102,6 +104,41 @@ const PIPELINE_STAGES = [
   { key: "policy",    label: "Policy Gate",  Icon: Lock        },
   { key: "deploy",    label: "Deploy",       Icon: Globe       },
 ];
+
+/* GLOBAL CSS — Light Theme */
+const GLOBAL_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { background:${C.bg}; color:${C.ink}; font-family:${C.sans}; -webkit-font-smoothing:antialiased; }
+
+button { cursor:pointer; font-family:${C.sans}; outline:none; }
+button:focus-visible { outline: 2px solid ${C.teal}; outline-offset:2px; }
+
+.sf-card-hover:hover {
+  border-color: ${C.borderBright};
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.1);
+}
+
+.sf-tab.active { background:white; color:${C.teal}; border:1px solid ${C.tealBord}; }
+.sf-msg-user { background:${C.tealSoft}; border:1px solid ${C.tealBord}; color:${C.ink}; }
+.sf-msg-bot { background:${C.bgSurface}; border:1px solid ${C.border}; }
+.sf-chat-input { background:white; border:1px solid ${C.border}; }
+.remedy-block { background: linear-gradient(135deg, ${C.greenSoft}, ${C.tealSoft}); border:1px solid ${C.tealBord}; }
+`;
+
+// Inject CSS
+if (typeof document !== "undefined") {
+  let style = document.getElementById("sf-css");
+  if (style) style.remove();
+  style = document.createElement("style");
+  style.id = "sf-css";
+  style.textContent = GLOBAL_CSS;
+  document.head.appendChild(style);
+}
+
 
 /* ─────────────────────────────────────────────
    GLOBAL CSS
