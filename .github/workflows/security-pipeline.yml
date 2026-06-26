@@ -162,7 +162,6 @@ jobs:
         run: |
           gitleaks detect \
             --source . \
-            --no-git \
             --redact \
             -v \
             --exit-code=1 \
@@ -270,6 +269,18 @@ jobs:
             RUN_ID_JSON="null"
           fi
 
+          if [ "$GITLEAKS_RESULT" = "failure" ] && [ -f gitleaks-results.json ]; then
+            GITLEAKS_JSON=$(jq -c '.' gitleaks-results.json 2>/dev/null || echo '[]')
+          else
+            GITLEAKS_JSON='[]'
+          fi
+
+          if [ "$SEMGREP_RESULT" = "failure" ] && [ -f semgrep-results.json ]; then
+            SEMGREP_JSON=$(jq -c '.results // []' semgrep-results.json 2>/dev/null || echo '[]')
+          else
+            SEMGREP_JSON='[]'
+          fi
+
           PAYLOAD=$(jq -n \
             --arg repo "$REPO_NAME" \
             --arg sha "$COMMIT_SHA" \
@@ -281,10 +292,15 @@ jobs:
             --arg reason "$REASON" \
             --argjson run_id "$RUN_ID_JSON" \
             --arg code_detail "$DETAIL" \
+            --argjson gitleaks "$GITLEAKS_JSON" \
+            --argjson semgrep "$SEMGREP_JSON" \
             '{
               repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
               scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
-              run_id: $run_id, findings: {},
+              run_id: $run_id,
+              gitleaks: $gitleaks,
+              semgrep: $semgrep,
+              findings: {},
               pipeline_steps: {
                 checkout:  { result: "PASS",    detail: "code checked out" },
                 code_scan: { result: "BLOCK",   detail: $code_detail },
@@ -333,6 +349,7 @@ jobs:
       - name: Report Clean (no image changes)
         if: |
           steps.changes.outputs.image_changed == 'false' &&
+          steps.changes.outputs.frontend_changed == 'false' &&
           steps.gitleaks.outcome != 'failure' &&
           steps.semgrep.outcome != 'failure'
         env:

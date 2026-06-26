@@ -188,6 +188,52 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   transition: box-shadow .25s, border-color .25s, transform .25s;
   transform-style: preserve-3d;
 }
+.glass-card {
+  background: linear-gradient(145deg, rgba(255,255,255,.96) 0%, rgba(248,250,252,.92) 100%);
+  border: 1px solid rgba(226,232,240,.9);
+  border-radius: 18px;
+  box-shadow:
+    0 1px 2px rgba(15,23,42,.04),
+    0 12px 40px rgba(15,23,42,.06),
+    inset 0 1px 0 rgba(255,255,255,.8);
+  backdrop-filter: blur(12px);
+  transform-style: preserve-3d;
+}
+.glass-card-glow {
+  position: relative;
+  overflow: hidden;
+}
+.glass-card-glow::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 19px;
+  padding: 1px;
+  background: linear-gradient(135deg, ${C.teal}55, ${C.violet}33, ${C.blue}22);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.kpi-shine {
+  position: relative;
+  overflow: hidden;
+}
+.kpi-shine::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -60%;
+  width: 40%;
+  height: 200%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
+  transform: rotate(25deg);
+  animation: shimmer 3.5s ease-in-out infinite;
+}
+.sf-tab.active {
+  box-shadow: 0 4px 14px ${C.teal}18;
+  transform: translateY(-1px);
+}
 .sf-card-flat {
   background: ${C.bgCard};
   border: 1px solid ${C.border};
@@ -357,6 +403,91 @@ function resultToStatus(stage, fallbackStatus) {
 }
 
 
+function sevNorm(s) {
+  return String(s || "").toUpperCase();
+}
+
+function buildVulnerabilities(raw, vuln_breakdown, pipeline) {
+  let vulnerabilities = raw.vulnerabilities || [];
+
+  if (!vulnerabilities.length && raw.findings?.Results) {
+    (raw.findings.Results || []).forEach(r => {
+      (r.Vulnerabilities || []).forEach(v => {
+        vulnerabilities.push({
+          severity:    v.Severity,
+          id:          v.VulnerabilityID,
+          cve_id:      v.VulnerabilityID,
+          package:     v.PkgName,
+          version:     v.InstalledVersion,
+          description: v.Title || v.Description || "",
+        });
+      });
+    });
+  }
+
+  const gitleaks = raw.findings?.gitleaks;
+  if (Array.isArray(gitleaks)) {
+    gitleaks.forEach(g => {
+      vulnerabilities.push({
+        severity:    "HIGH",
+        id:          g.RuleID || g.rule || "secret",
+        cve_id:      g.RuleID || g.rule || "secret",
+        package:     g.File || g.file || "source",
+        description: g.Description || g.description || "Secret detected by Gitleaks",
+      });
+    });
+  }
+
+  const semgrep = raw.findings?.semgrep;
+  if (Array.isArray(semgrep)) {
+    semgrep.forEach(r => {
+      const sev = sevNorm(r.extra?.severity || r.severity || "HIGH");
+      vulnerabilities.push({
+        severity:    sev === "ERROR" ? "HIGH" : sev,
+        id:          r.check_id || r.rule_id || "semgrep",
+        cve_id:      r.check_id || r.rule_id,
+        package:     r.path || "source",
+        description: r.extra?.message || r.message || "Insecure pattern (Semgrep)",
+      });
+    });
+  }
+
+  if (!vulnerabilities.length && vuln_breakdown?.all_details?.length) {
+    vulnerabilities = vuln_breakdown.all_details.map(v => ({
+      severity: v.severity,
+      id:       v.id,
+      cve_id:   v.id,
+      package:  v.package,
+      description: v.description || "",
+    }));
+  }
+
+  if (!vulnerabilities.length && raw.action_taken === "BLOCK") {
+    const codeStep = (raw.pipeline_steps || {}).code_scan;
+    if (codeStep?.detail) {
+      vulnerabilities.push({
+        severity:    raw.severity && raw.severity !== "UNKNOWN" ? raw.severity : "HIGH",
+        id:          "code-scan",
+        cve_id:      "CODE-SCAN",
+        package:     raw.repo_name,
+        description: codeStep.detail,
+      });
+    }
+  }
+
+  return vulnerabilities;
+}
+
+function getSeverityCounts(vulnerabilities) {
+  const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+  (vulnerabilities || []).forEach(v => {
+    const s = sevNorm(v.severity);
+    if (counts[s] !== undefined) counts[s]++;
+    else if (s === "ERROR") counts.HIGH++;
+  });
+  return counts;
+}
+
 function normaliseScan(raw) {
   // Used by resultToStatus() as a fallback signal when a stage has no
   // explicit result of its own.
@@ -383,6 +514,18 @@ function normaliseScan(raw) {
     vuln_breakdown = {
       total:         all.length,
       fixable_count: fixable.length,
+      critical:      all.filter(v => sevNorm(v.Severity) === "CRITICAL").length,
+      high:          all.filter(v => sevNorm(v.Severity) === "HIGH").length,
+      medium:        all.filter(v => sevNorm(v.Severity) === "MEDIUM").length,
+      low:           all.filter(v => sevNorm(v.Severity) === "LOW").length,
+      all_details:   all.slice(0, 20).map(v => ({
+        id:          v.VulnerabilityID,
+        package:     v.PkgName,
+        severity:    v.Severity,
+        fix:         v.FixedVersion || "—",
+        cvss:        v.CVSS ? Math.max(...Object.values(v.CVSS).map(c => c.V3Score||c.V2Score||0)) : 0,
+        description: v.Title || v.Description || "",
+      })),
       fixable_details: fixable.slice(0,6).map(v => ({
         id:       v.VulnerabilityID,
         package:  v.PkgName,
@@ -413,35 +556,15 @@ function normaliseScan(raw) {
     }
   }
 
-  let vulnerabilities = raw.vulnerabilities || [];
-  if (!vulnerabilities.length && raw.findings?.Results) {
-    (raw.findings.Results || []).forEach(r => {
-      (r.Vulnerabilities || []).forEach(v => {
-        vulnerabilities.push({
-          severity:    v.Severity,
-          id:          v.VulnerabilityID,
-          cve_id:      v.VulnerabilityID,
-          package:     v.PkgName,
-          version:     v.InstalledVersion,
-          description: v.Title || v.Description || "",
-        });
-      });
-    });
-  }
-  if (!vulnerabilities.length && vuln_breakdown?.fixable_details) {
-    vulnerabilities = vuln_breakdown.fixable_details.map(v => ({
-      severity: v.severity,
-      id:       v.id,
-      cve_id:   v.id,
-      package:  v.package,
-    }));
-  }
+  const vulnerabilities = buildVulnerabilities(raw, vuln_breakdown, pipeline);
+  const severity_counts = getSeverityCounts(vulnerabilities);
 
   return {
     ...raw,
     pipeline,
     vuln_breakdown,
     vulnerabilities,
+    severity_counts,
     ai_confidence:  aiConf,
     ai_explanation,
     ai_remedy,
@@ -521,23 +644,53 @@ const Spinner = ({ size=14 }) => (
 
 const Card = ({ children, glow, style={}, className="" }) => (
   <motion.div
-    className={`sf-card-hover ${className}`}
-    initial={{ opacity: 0, y: 16, rotateX: 8 }}
-    animate={{ opacity: 1, y: 0, rotateX: 0 }}
-    whileHover={{ y: -4, rotateX: 2, rotateY: -1 }}
+    className={`glass-card glass-card-glow sf-card-hover ${className}`}
+    initial={{ opacity: 0, y: 20, rotateX: 10, scale: 0.98 }}
+    animate={{ opacity: 1, y: 0, rotateX: 0, scale: 1 }}
+    whileHover={{ y: -6, rotateX: 3, rotateY: -2, scale: 1.01 }}
     transition={{ type: "spring", stiffness: 260, damping: 22 }}
     style={{
-      background: C.bgCard,
-      borderRadius:16,
-      border:`1px solid ${glow ? C.tealBord : C.border}`,
       padding:"20px",
       marginBottom:16,
-      boxShadow: glow ? `0 0 30px ${C.teal}12` : "0 2px 12px rgba(15,23,42,.06)",
+      border: glow ? `1px solid ${C.tealBord}` : undefined,
+      boxShadow: glow ? `0 16px 48px ${C.teal}14, inset 0 1px 0 rgba(255,255,255,.9)` : undefined,
       transformStyle: "preserve-3d",
       perspective: 900,
       ...style,
     }}
   >{children}</motion.div>
+);
+
+const StatCard3D = ({ label, value, color, sub, delay=0, icon: Icon }) => (
+  <motion.div
+    className="glass-card kpi-shine"
+    initial={{ opacity: 0, y: 24, rotateX: 14 }}
+    animate={{ opacity: 1, y: 0, rotateX: 0 }}
+    whileHover={{ y: -8, rotateX: 4, rotateY: 3, scale: 1.02 }}
+    transition={{ type: "spring", stiffness: 280, damping: 20, delay }}
+    style={{
+      padding: "18px 20px",
+      borderTop: `3px solid ${color}`,
+      transformStyle: "preserve-3d",
+      cursor: "default",
+    }}
+  >
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+      <div style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</div>
+      {Icon && (
+        <div style={{
+          width: 32, height: 32, borderRadius: 10,
+          background: `${color}14`, border: `1px solid ${color}28`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: `0 4px 12px ${color}18`,
+        }}>
+          <Icon size={16} color={color} />
+        </div>
+      )}
+    </div>
+    <div style={{ fontSize: 32, fontWeight: 900, fontFamily: C.mono, color, lineHeight: 1 }}>{value}</div>
+    <div style={{ fontSize: 11, color: C.inkMid, marginTop: 6 }}>{sub}</div>
+  </motion.div>
 );
 
 const SectionTitle = ({ children, accent, right }) => (
@@ -953,16 +1106,16 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
 
   return (
     <motion.div
-      className="fade-up"
+      className="glass-card fade-up"
       initial={{ opacity: 0, y: 18, rotateX: 6 }}
       animate={{ opacity: 1, y: 0, rotateX: 0 }}
-      whileHover={{ y: -3, rotateX: 1 }}
+      whileHover={{ y: -5, rotateX: 2, rotateY: -1, boxShadow: `0 16px 40px ${accent}18` }}
       transition={{ type: "spring", stiffness: 300, damping: 24, delay: animDelay }}
       style={{
-      background: C.bgCard, borderRadius:14,
-      border:`1px solid ${C.border}`, borderLeft:`3px solid ${accent}`,
+      borderRadius:16,
+      border:`1px solid ${C.border}`,
+      borderLeft:`4px solid ${accent}`,
       padding:"16px", marginBottom:10,
-      transition:"border-color .25s, box-shadow .25s",
       transformStyle: "preserve-3d",
     }}
     >
@@ -1085,9 +1238,11 @@ function WhyBlockedModal({ scan, onClose }) {
   if (!scan) return null;
 
   const vulns = scan.vulnerabilities || [];
-  const crit  = vulns.filter(v => v.severity === "CRITICAL");
-  const high  = vulns.filter(v => v.severity === "HIGH");
-  const med   = vulns.filter(v => v.severity === "MEDIUM");
+  const counts = scan.severity_counts || getSeverityCounts(vulns);
+  const crit  = counts.CRITICAL;
+  const high  = counts.HIGH;
+  const med   = counts.MEDIUM;
+  const isCodeBlock = vulns.some(v => v.cve_id === "CODE-SCAN" || v.id === "code-scan" || v.id === "secret");
 
   return (
     <motion.div
@@ -1144,19 +1299,43 @@ function WhyBlockedModal({ scan, onClose }) {
           {/* Vuln summary */}
           <div style={{ display: "flex", gap: 10 }}>
             {[
-              { label: "Critical", count: crit.length, col: C.red,   bg: C.redSoft,   brd: C.redBord },
-              { label: "High",     count: high.length, col: C.amber, bg: C.amberSoft, brd: C.amberBord },
-              { label: "Medium",   count: med.length,  col: C.blue,  bg: C.blueSoft,  brd: C.blueBord },
+              { label: "Critical", count: crit, col: C.red,   bg: C.redSoft,   brd: C.redBord },
+              { label: "High",     count: high, col: C.amber, bg: C.amberSoft, brd: C.amberBord },
+              { label: "Medium",   count: med,  col: C.blue,  bg: C.blueSoft,  brd: C.blueBord },
             ].map(({ label, count, col, bg, brd }) => (
-              <div key={label} style={{
+              <motion.div
+                key={label}
+                whileHover={{ scale: 1.04, rotateY: 4 }}
+                style={{
                 flex: 1, background: bg, border: `1px solid ${brd}`,
-                borderRadius: 10, padding: "12px 14px", textAlign: "center",
+                borderRadius: 12, padding: "12px 14px", textAlign: "center",
+                boxShadow: `0 8px 24px ${col}18`,
+                transformStyle: "preserve-3d",
               }}>
                 <p style={{ fontSize: 22, fontWeight: 700, color: col }}>{count}</p>
                 <p style={{ fontSize: 11, color: col, fontWeight: 500, marginTop: 2 }}>{label}</p>
-              </div>
+              </motion.div>
             ))}
           </div>
+
+          {isCodeBlock && vulns.length > 0 && (
+            <div style={{
+              padding: "10px 12px", borderRadius: 10,
+              background: C.amberSoft, border: `1px solid ${C.amberBord}`,
+              fontSize: 12, color: C.inkMid,
+            }}>
+              Code scan block — severity counts reflect secrets or insecure patterns, not CVE tiers.
+            </div>
+          )}
+
+          {vulns.length === 0 && scan.vuln_breakdown?.total > 0 && (
+            <div style={{ fontSize: 12, color: C.inkMid }}>
+              {scan.vuln_breakdown.total} total findings in scan record
+              {scan.vuln_breakdown.critical != null && (
+                <> · {scan.vuln_breakdown.critical} critical · {scan.vuln_breakdown.high} high · {scan.vuln_breakdown.medium} medium</>
+              )}
+            </div>
+          )}
 
           {/* Vuln list */}
           {vulns.length > 0 && (
@@ -1551,7 +1730,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 /* ─────────────────────────────────────────────
    OVERVIEW TAB
 ───────────────────────────────────────────── */
-function OverviewTab({ scans, healthScore, avgRisk, blocked, allowed, running, completed, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail }) {
+function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed, running, completed, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail }) {
   const chartData = useMemo(() => {
   return [...scans]
     .filter(
@@ -1600,17 +1779,13 @@ function OverviewTab({ scans, healthScore, avgRisk, blocked, allowed, running, c
       {/* KPI row */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:14, marginBottom:16 }}>
         {[
-          { label:"Pipeline health", value:healthScore, color:healthScore>=75?C.teal:healthScore>=50?C.amber:C.red, sub:"block rate + risk" },
-          { label:"Average risk",    value:avgRisk,     color:riskColor(parseFloat(avgRisk)), sub:"out of 10.0" },
-          { label:"Scans completed", value:completed.length, color:C.blue,  sub:"all time" },
-          { label:"Blocked",         value:blocked.length,   color:C.red,   sub:`${((blocked.length/(completed.length||1))*100).toFixed(0)}% block rate` },
-          { label:"Currently live",  value:running.length,   color:C.cyan,  sub:"pipelines running" },
-        ].map(k => (
-          <Card key={k.label} style={{ padding:"16px 18px" }}>
-            <div style={{ fontSize:10, color:C.inkLow, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10 }}>{k.label}</div>
-            <div style={{ fontSize:30, fontWeight:900, fontFamily:C.mono, color:k.color, lineHeight:1 }}>{k.value}</div>
-            <div style={{ fontSize:11, color:C.inkMid, marginTop:5 }}>{k.sub}</div>
-          </Card>
+          { label:"Pipeline health", value:healthScore, color:healthScore>=75?C.teal:healthScore>=50?C.amber:C.red, sub:"block rate + risk", icon:Activity },
+          { label:"Average risk",    value:avgRisk,     color:riskColor(parseFloat(avgRisk)), sub:"out of 10.0", icon:AlertTriangle },
+          { label:"Scans completed", value:totalScans ?? completed.length, color:C.blue,  sub: totalScans > completed.length ? `showing latest ${completed.length}` : "all time", icon:BarChart2 },
+          { label:"Blocked",         value:blocked.length,   color:C.red,   sub:`${((blocked.length/(completed.length||1))*100).toFixed(0)}% block rate`, icon:XCircle },
+          { label:"Currently live",  value:running.length,   color:C.cyan,  sub:"pipelines running", icon:GitPullRequest },
+        ].map((k,i) => (
+          <StatCard3D key={k.label} {...k} delay={i * 0.05} />
         ))}
       </div>
 
@@ -2035,7 +2210,7 @@ function AIInsightsTab({ scans, feedback, onFeedback, onOpenWhyBlocked }) {
 /* ─────────────────────────────────────────────
    METRICS TAB
 ───────────────────────────────────────────── */
-function MetricsTab({ scans }) {
+function MetricsTab({ scans, totalScans }) {
   const completed = scans.filter(s=>s.status!=="running");
   const blockRate = completed.length
     ? ((completed.filter(s=>s.action_taken==="BLOCK").length/completed.length)*100).toFixed(1) : "0";
@@ -2106,14 +2281,11 @@ function MetricsTab({ scans }) {
         {[
           { label:"Block rate",    value:`${blockRate}%`,             color:C.red    },
           { label:"AI confidence", value:avgConf!=null?`${avgConf}%`:"—", color:C.violet },
-          { label:"Total scans",   value:completed.length,             color:C.teal   },
+          { label:"Total scans",   value:totalScans ?? completed.length,             color:C.teal, sub: totalScans > completed.length ? `latest ${completed.length} loaded` : undefined },
           { label:"Blocked",       value:completed.filter(s=>s.action_taken==="BLOCK").length, color:C.amber },
           { label:"With AI",       value:completed.filter(s=>s.ai_explanation).length, color:C.cyan  },
-        ].map(k => (
-          <Card key={k.label} style={{ padding:"16px 18px" }}>
-            <div style={{ fontSize:9, color:C.inkLow, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10 }}>{k.label}</div>
-            <div style={{ fontSize:30, fontWeight:900, fontFamily:C.mono, color:k.color, lineHeight:1 }}>{k.value}</div>
-          </Card>
+        ].map((k,i) => (
+          <StatCard3D key={k.label} label={k.label} value={k.value} color={k.color} sub={k.sub || ""} delay={i * 0.04} />
         ))}
       </div>
 
@@ -2266,6 +2438,7 @@ function CopilotFAB({ active, blocked, running, onClick }) {
 ───────────────────────────────────────────── */
 export default function App() {
   const [scans,          setScans]         = useState([]);
+  const [totalScans,     setTotalScans]    = useState(null);
   const [loading,        setLoading]        = useState(true);
   const [activeTab,      setActiveTab]      = useState("overview");
   const [selectedScan,   setSelectedScan]   = useState(null);
@@ -2281,7 +2454,9 @@ export default function App() {
       const res = await fetch(`${BACKEND}/api/scan-results`);
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setScans(Array.isArray(data) ? data.map(normaliseScan) : []);
+      const rows = Array.isArray(data) ? data : (data.scans || []);
+      setTotalScans(Array.isArray(data) ? rows.length : (data.total ?? rows.length));
+      setScans(rows.map(normaliseScan));
       setLastUpdated(new Date());
     } catch (err) {
       console.error("Fetch error:", err);
@@ -2514,7 +2689,7 @@ export default function App() {
               >
               {activeTab==="overview" && (
                 <OverviewTab
-                  scans={scans} healthScore={healthScore} avgRisk={avgRisk}
+                  scans={scans} totalScans={totalScans} healthScore={healthScore} avgRisk={avgRisk}
                   blocked={blocked} allowed={allowed} running={running} completed={completed}
                   feedback={feedback} onFeedback={submitFeedback}
                   onOpenWhyBlocked={setWhyBlockedScan} onOpenDetail={setSelectedScan}
@@ -2534,7 +2709,7 @@ export default function App() {
                   onOpenWhyBlocked={setWhyBlockedScan}
                 />
               )}
-              {activeTab==="metrics" && <MetricsTab scans={scans} />}
+              {activeTab==="metrics" && <MetricsTab scans={scans} totalScans={totalScans} />}
               </motion.div>
             </AnimatePresence>
           )}

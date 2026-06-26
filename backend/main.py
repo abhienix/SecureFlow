@@ -358,9 +358,9 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "branch": data.get("branch", "main"),
             "scan_type": scan_type,
             "severity": data.get("severity", "HIGH"),
-            "findings": {},
-            "ai_explanation": "",
-            "ai_fix": "",
+            "findings": normalized_findings if (gitleaks or semgrep) else {},
+            "ai_explanation": data.get("ai_explanation", ""),
+            "ai_fix": data.get("ai_fix", ""),
             "risk_score": None,
             "action_taken": explicit_action,
         })
@@ -526,10 +526,20 @@ async def reanalyze_scan(scan_id: int, db: Session = Depends(get_db)):
 # Dashboard read endpoint
 # ---------------------------------------------------------------------------
 
+SCAN_RESULTS_LIMIT = int(os.getenv("SCAN_RESULTS_LIMIT", "200"))
+
+
 @app.get("/api/scan-results")
-def get_scan_results(db: Session = Depends(get_db)):
-    rows = db.query(ScanResult).order_by(ScanResult.created_at.desc()).limit(200).all()
-    return [
+def get_scan_results(db: Session = Depends(get_db), limit: int = SCAN_RESULTS_LIMIT):
+    limit = max(1, min(limit, 500))
+    total = db.query(ScanResult).count()
+    rows = (
+        db.query(ScanResult)
+        .order_by(ScanResult.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    scans = [
         {
             "id": r.id,
             "commit_sha": r.commit_sha,
@@ -542,6 +552,7 @@ def get_scan_results(db: Session = Depends(get_db)):
             "ai_fix": r.ai_fix,
             "risk_score": r.risk_score,
             "action_taken": r.action_taken,
+            "findings": r.findings or {},
             "pipeline_steps": r.pipeline_steps or {},
             "status": r.status or "complete",
             "started_at": r.started_at.isoformat() if r.started_at else None,
@@ -550,6 +561,7 @@ def get_scan_results(db: Session = Depends(get_db)):
         }
         for r in rows
     ]
+    return {"total": total, "limit": limit, "scans": scans}
 
 
 # Optional admin routes
