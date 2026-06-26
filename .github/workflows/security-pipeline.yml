@@ -5,6 +5,16 @@ on:
     branches: [ main, dev ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_backend:
+        description: "Force deploy backend to Cloud Run"
+        type: boolean
+        default: false
+      deploy_frontend:
+        description: "Force deploy frontend to Cloud Run"
+        type: boolean
+        default: false
 
 # ── FIX A: Concurrency control ────────────────────────────────────────────
 # THE BUG: with no concurrency group, pushing several commits close together
@@ -346,31 +356,59 @@ jobs:
           exit 1
 
       # ── Step 7: Check if image needs rebuilding ─────────────────────────────
+      # Uses the FULL PUSH diff (before..after), not just HEAD~1. Otherwise a
+      # CI-only commit after frontend/backend changes skips deploy entirely.
       - name: Check if image needs rebuilding
         id: changes
         if: steps.gitleaks.outcome != 'failure' && steps.semgrep.outcome != 'failure'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+          FORCE_BACKEND: ${{ github.event.inputs.deploy_backend }}
+          FORCE_FRONTEND: ${{ github.event.inputs.deploy_frontend }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_SHA" ]; then
+            if git rev-parse HEAD~1 >/dev/null 2>&1; then
+              CHANGED=$(git diff --name-only HEAD~1 HEAD)
+            else
+              CHANGED=$(git show --name-only --pretty="" HEAD)
+            fi
+            echo "First push or unknown before-SHA — using latest commit diff"
           else
-            CHANGED=$(git diff --name-only $(git hash-object -t tree /dev/null) HEAD)
+            CHANGED=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA")
+            echo "Push diff: $BEFORE_SHA..$AFTER_SHA"
           fi
-          echo "Changed files: $CHANGED"
 
-          if echo "$CHANGED" | grep -qE '(^|/)backend/|(^|/)docker/|policy\.yaml|requirements.*\.txt|Dockerfile'; then
+          echo "Changed files in scope:"
+          echo "$CHANGED"
+
+          DEPLOY_ALL=false
+          if printf '%s' "$COMMIT_MESSAGE" | grep -qF '[deploy]'; then
+            DEPLOY_ALL=true
+            echo "Commit message contains [deploy] — forcing backend + frontend deploy"
+          fi
+
+          if [ "$FORCE_BACKEND" = "true" ] || [ "$DEPLOY_ALL" = "true" ]; then
+            echo "image_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Force / [deploy]: backend deploy enabled"
+          elif echo "$CHANGED" | grep -qE '(^|/)backend/|(^|/)docker/|policy\.yaml|requirements.*\.txt|Dockerfile'; then
             echo "image_changed=true" >> "$GITHUB_OUTPUT"
             echo "Backend/docker files changed — full image scan required"
           else
             echo "image_changed=false" >> "$GITHUB_OUTPUT"
-            echo "No backend/docker files changed — skipping image scan"
+            echo "No backend/docker files in push — skipping backend image scan"
           fi
 
-          if echo "$CHANGED" | grep -qE '(^|/)frontend/'; then
+          if [ "$FORCE_FRONTEND" = "true" ] || [ "$DEPLOY_ALL" = "true" ]; then
+            echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Force / [deploy]: frontend deploy enabled"
+          elif echo "$CHANGED" | grep -qE '(^|/)frontend/'; then
             echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
             echo "Frontend files changed — frontend rebuild required"
           else
             echo "frontend_changed=false" >> "$GITHUB_OUTPUT"
-            echo "No frontend files changed — skipping frontend build"
+            echo "No frontend files in push — skipping frontend build"
           fi
 
       # ── Step 8: Report clean (no image changes) ─────────────────────────────
@@ -425,17 +463,23 @@ jobs:
 
       # ── Step 9: GCP auth ────────────────────────────────────────────────────
       - name: Authenticate to Google Cloud
-        if: steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true'
+        if: |
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          (steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true')
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up Cloud SDK
-        if: steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true'
+        if: |
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          (steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true')
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        if: steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true'
+        if: |
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          (steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true')
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       # ── Step 10: Build and push backend image ───────────────────────────────
@@ -660,6 +704,30 @@ jobs:
             --region us-central1 \
             --allow-unauthenticated \
             --port 8080
+
+      - name: Notify Frontend Deploy Success
+        if: >
+          steps.changes.outputs.frontend_changed == 'true' &&
+          (steps.changes.outputs.image_changed == 'false' || steps.gate.outputs.action == 'ALLOW')
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+        run: |
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d '{ "pipeline_steps": { "deploy": { "result": "PASS", "detail": "frontend deployed to Cloud Run" } } }' || true
+
+      - name: Deploy Summary
+        if: always() && steps.changes.outcome == 'success'
+        run: |
+          echo "=== Deploy summary ==="
+          echo "backend_changed (image):  ${{ steps.changes.outputs.image_changed }}"
+          echo "frontend_changed:         ${{ steps.changes.outputs.frontend_changed }}"
+          if [ "${{ steps.changes.outputs.image_changed }}" != "true" ] && [ "${{ steps.changes.outputs.frontend_changed }}" != "true" ]; then
+            echo ""
+            echo "::notice title=No deploy ran::This push had no backend/ or frontend/ file changes (CI-only commits skip deploy)."
+            echo "Fix: push with [deploy] in the commit message, or Actions → Run workflow → enable deploy_backend + deploy_frontend."
+          fi
 
       # ── Step 16 (NEW): Job-level failsafe — catch anything still unreported ──
       # *** FIX C ***
