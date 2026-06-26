@@ -270,7 +270,7 @@ jobs:
           fi
 
           if [ "$GITLEAKS_RESULT" = "failure" ] && [ -f gitleaks-results.json ]; then
-            GITLEAKS_JSON=$(jq -c '.' gitleaks-results.json 2>/dev/null || echo '[]')
+            GITLEAKS_JSON=$(jq -c 'if type == "array" then . elif . == null then [] else [.] end | map(select(type == "object"))' gitleaks-results.json 2>/dev/null || echo '[]')
           else
             GITLEAKS_JSON='[]'
           fi
@@ -311,9 +311,15 @@ jobs:
               }
             }')
 
-          curl -sS -X POST "$BACKEND_URL/api/scan-results" \
+          RESPONSE=$(echo "$PAYLOAD" | curl -sS -X POST "$BACKEND_URL/api/scan-results" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD" || true
+            -d @-)
+
+          echo "Backend response: $RESPONSE"
+          BACKEND_ACTION=$(echo "$RESPONSE" | jq -r '.action // "BLOCK"')
+          if [ "$BACKEND_ACTION" != "BLOCK" ]; then
+            echo "Warning: backend returned action=$BACKEND_ACTION but code scan failed — pipeline still blocked"
+          fi
 
           exit 1
 

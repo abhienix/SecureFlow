@@ -298,11 +298,27 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     semgrep = data.get("semgrep", [])
     trivy = data.get("findings", {})
 
+    # Normalise scanner payloads — gitleaks may arrive as object or single finding
+    if isinstance(gitleaks, dict):
+        gitleaks = gitleaks.get("findings") or gitleaks.get("results") or [gitleaks]
+    if not isinstance(gitleaks, list):
+        gitleaks = [gitleaks] if gitleaks else []
+    gitleaks = [g for g in gitleaks if isinstance(g, dict)]
+
+    if isinstance(semgrep, dict):
+        semgrep = semgrep.get("results") or semgrep.get("findings") or [semgrep]
+    if not isinstance(semgrep, list):
+        semgrep = [semgrep] if semgrep else []
+    semgrep = [s for s in semgrep if isinstance(s, dict)]
+
     normalized_findings = {
         "gitleaks": gitleaks,
         "semgrep": semgrep,
-        "Results": trivy.get("Results", [])
+        "Results": trivy.get("Results", []) if isinstance(trivy, dict) else [],
     }
+
+    explicit_action = (data.get("action") or "").upper()
+    has_trivy = bool(normalized_findings["Results"])
 
     def _upsert(fields: dict) -> ScanResult:
         if run_id:
@@ -346,11 +362,41 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         return {"status": "processed", "id": scan.id, "action": scan.action_taken}
 
     # -------------------------------------------------------------------
-    # Explicit scanner actions (gitleaks/semgrep fast block path)
+    # CI code-scan block/allow — honor explicit action when no Trivy CVE data
+    # (fixes Gitleaks BLOCK being overwritten as ALLOW by the Trivy policy path)
     # -------------------------------------------------------------------
-    explicit_action = data.get("action")
+    if explicit_action in ("BLOCK", "ALLOW") and not has_trivy:
+        block_reason = data.get("reason") or (
+            f"{len(gitleaks)} secret(s) detected by Gitleaks" if gitleaks else
+            f"{len(semgrep)} pattern(s) detected by Semgrep" if semgrep else
+            "code scan policy decision"
+        )
+        severity = data.get("severity") or ("HIGH" if explicit_action == "BLOCK" else "CLEAN")
+        scan = _upsert({
+            "commit_sha": data.get("commit_sha", "unknown"),
+            "commit_message": data.get("commit_message", ""),
+            "repo_name": repo_name,
+            "branch": data.get("branch", "main"),
+            "scan_type": scan_type,
+            "severity": severity,
+            "findings": normalized_findings,
+            "ai_explanation": block_reason if explicit_action == "BLOCK" else "",
+            "ai_fix": "",
+            "risk_score": None,
+            "action_taken": explicit_action,
+        })
+        await manager.broadcast(scan_to_broadcast_payload(scan))
+        return {
+            "status": "processed",
+            "id": scan.id,
+            "action": explicit_action,
+            "reason": block_reason,
+        }
 
-    if explicit_action and not normalized_findings["Results"] and not gitleaks and not semgrep:
+    # -------------------------------------------------------------------
+    # Explicit scanner actions (legacy fast path — kept for compatibility)
+    # -------------------------------------------------------------------
+    if explicit_action and not has_trivy and not gitleaks and not semgrep:
         scan = _upsert({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
@@ -401,15 +447,17 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         "ai_explanation": first_ai.get("explanation", ""),
         "ai_fix": first_ai.get("fix", ""),
         "risk_score": first_ai.get("risk_score"),
-        "action_taken": policy_result["action"],
+        "action_taken": "BLOCK" if explicit_action == "BLOCK" else policy_result["action"],
     })
+
+    final_action = "BLOCK" if explicit_action == "BLOCK" else policy_result["action"]
 
     await manager.broadcast(scan_to_broadcast_payload(scan))
 
     return {
         "status": "processed",
         "id": scan.id,
-        "action": policy_result["action"],
+        "action": final_action,
         "reason": policy_result["reason"],
     }
 
