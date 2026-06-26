@@ -8,12 +8,12 @@ import React, {
 } from "react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
   Shield, Activity, CheckCircle, XCircle, AlertTriangle, Zap,
   RefreshCw, ThumbsUp, ThumbsDown,
-  ChevronDown, ChevronUp, Clock, TrendingUp,
+  ChevronDown, ChevronUp, TrendingUp,
   GitPullRequest, Sparkles,
   GitBranch, Flame, ListChecks, Loader2,
 } from "lucide-react";
@@ -111,9 +111,6 @@ function normaliseScan(raw) {
 
 // --- Formatters -------------------------------------------------------------
 const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "-");
-const fmtFull = (iso) => (iso
-  ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
-  : "-");
 const relTime = (iso) => {
   if (!iso) return "-";
   const m = Math.floor((Date.now() - new Date(iso)) / 60000);
@@ -537,12 +534,60 @@ function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked }) {
 // --- AI Copilot side panel ----------------------------------------------------
 
 function AICopilot({ scans }) {
+  const [messages, setMessages] = useState([
+    { role: "assistant", text: "Ask me about your scan history, blocked commits, or CVEs. I can't trigger scans or change ALLOW/BLOCK decisions — those stay with the policy engine." },
+  ]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(null);
+
   const blocked = scans.filter((s) => s.action_taken === "BLOCK");
   const running = scans.filter((s) => s.status === "running");
   const recentWithAI = scans.filter((s) => s.ai_explanation).slice(0, 5);
 
+  const sendQuestion = async (question) => {
+    if (!question.trim() || sending) return;
+    setMessages((m) => [...m, { role: "user", text: question }]);
+    setInput("");
+    setSending(true);
+    try {
+      const res = await fetch(`${BACKEND}/api/copilot/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      if (!res.ok) throw new Error("Copilot request failed");
+      const data = await res.json();
+      setMessages((m) => [...m, { role: "assistant", text: data.answer }]);
+    } catch (err) {
+      setMessages((m) => [...m, {
+        role: "assistant",
+        text: "I couldn't reach the AI service just now. The Groq/Gemini/Ollama fallback chain may be temporarily unavailable — try again in a moment.",
+      }]);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const reanalyze = async (scanId) => {
+    setReanalyzing(scanId);
+    try {
+      const res = await fetch(`${BACKEND}/api/scan-results/${scanId}/reanalyze`, { method: "POST" });
+      if (!res.ok) throw new Error("Reanalyze failed");
+      const data = await res.json();
+      setMessages((m) => [...m, {
+        role: "assistant",
+        text: `Re-analyzed scan #${scanId}: ${data.ai_explanation || "no new explanation returned."}`,
+      }]);
+    } catch (err) {
+      setMessages((m) => [...m, { role: "assistant", text: `Re-analysis of scan #${scanId} failed — the AI service may be unavailable.` }]);
+    } finally {
+      setReanalyzing(null);
+    }
+  };
+
   return (
-    <div>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
         <Sparkles size={18} color={C.teal} />
         <h3 style={{ margin: 0, fontSize: 16 }}>AI Copilot</h3>
@@ -559,7 +604,7 @@ function AICopilot({ scans }) {
           {blocked.length > 0 ? (
             <div>
               <Flame size={13} color={C.red} style={{ verticalAlign: "middle", marginRight: 4 }} />
-              <strong style={{ color: C.red }}>{blocked.length}</strong> commit{blocked.length > 1 ? "s" : ""} currently blocked. Review the "Why blocked?" reason on each before merging.
+              <strong style={{ color: C.red }}>{blocked.length}</strong> commit{blocked.length > 1 ? "s" : ""} currently blocked.
             </div>
           ) : (
             <div style={{ color: C.inkMid }}>No active blocks. Pipeline is clear.</div>
@@ -567,33 +612,92 @@ function AICopilot({ scans }) {
         </div>
       </Card>
 
-      <Card>
-        <SectionTitle accent={C.violet}>Recent AI findings</SectionTitle>
-        {recentWithAI.length === 0 && <EmptyState text="No AI analysis yet — findings appear here once a scan with vulnerabilities completes." />}
-        {recentWithAI.map((s) => (
-          <div key={s.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontFamily: C.mono, color: C.blue }}>{s.commit_sha?.slice(0, 8)}</span>
-              <span style={{ color: C.inkLow }}>{relTime(s.created_at)}</span>
+      {recentWithAI.length > 0 && (
+        <Card>
+          <SectionTitle accent={C.violet}>Recent AI findings</SectionTitle>
+          {recentWithAI.map((s) => (
+            <div key={s.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontFamily: C.mono, color: C.blue }}>{s.commit_sha?.slice(0, 8)}</span>
+                <span style={{ color: C.inkLow }}>{relTime(s.created_at)}</span>
+              </div>
+              <div style={{ color: C.inkMid, lineHeight: 1.5, marginBottom: 6 }}>
+                {s.ai_explanation.length > 140 ? `${s.ai_explanation.slice(0, 140)}…` : s.ai_explanation}
+              </div>
+              <button
+                onClick={() => reanalyze(s.id)}
+                disabled={reanalyzing === s.id}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8,
+                  background: C.bgSurface, border: `1px solid ${C.border}`, color: C.inkMid,
+                  fontSize: 11, cursor: reanalyzing === s.id ? "default" : "pointer",
+                  opacity: reanalyzing === s.id ? 0.6 : 1,
+                }}
+              >
+                {reanalyzing === s.id ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />}
+                {reanalyzing === s.id ? "Re-analyzing…" : "Re-analyze"}
+              </button>
             </div>
-            <div style={{ color: C.inkMid, lineHeight: 1.5 }}>
-              {s.ai_explanation.length > 140 ? `${s.ai_explanation.slice(0, 140)}…` : s.ai_explanation}
-            </div>
-          </div>
-        ))}
-      </Card>
+          ))}
+        </Card>
+      )}
 
       <Card>
         <SectionTitle accent={C.amber}>Ask about your pipeline</SectionTitle>
-        <div style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.6 }}>
-          Live Q&A isn't wired up yet — this panel currently summarizes what the policy engine
-          and scanners have already found. Hook this up to your AI fallback chain
-          (Groq → Gemini → Ollama) to answer free-form questions about specific commits.
+        <div style={{
+          display: "flex", flexDirection: "column", gap: 10, maxHeight: 280, overflowY: "auto",
+          marginBottom: 12, paddingRight: 4,
+        }}>
+          {messages.map((m, i) => (
+            <div
+              key={i}
+              style={{
+                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+                maxWidth: "92%",
+                background: m.role === "user" ? C.tealSoft : C.bgSurface,
+                border: `1px solid ${m.role === "user" ? C.tealBord : C.border}`,
+                borderRadius: 10, padding: "8px 12px", fontSize: 12.5, lineHeight: 1.5,
+                color: C.ink,
+              }}
+            >
+              {m.text}
+            </div>
+          ))}
+          {sending && (
+            <div style={{ alignSelf: "flex-start", color: C.inkLow, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+              <Loader2 size={12} className="spin" /> thinking…
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") sendQuestion(input); }}
+            placeholder="e.g. why was the last commit blocked?"
+            style={{
+              flex: 1, padding: "8px 12px", borderRadius: 8, background: C.bgSurface,
+              border: `1px solid ${C.border}`, color: C.ink, fontSize: 12.5, outline: "none",
+            }}
+          />
+          <button
+            onClick={() => sendQuestion(input)}
+            disabled={sending || !input.trim()}
+            style={{
+              padding: "8px 14px", borderRadius: 8, background: C.tealSoft,
+              border: `1px solid ${C.tealBord}`, color: C.teal, fontSize: 12.5, fontWeight: 600,
+              cursor: sending || !input.trim() ? "default" : "pointer",
+              opacity: sending || !input.trim() ? 0.5 : 1,
+            }}
+          >
+            Ask
+          </button>
         </div>
       </Card>
     </div>
   );
 }
+
 
 // --- Tabs ---------------------------------------------------------------------
 
