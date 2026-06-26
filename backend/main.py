@@ -24,11 +24,6 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/secureflow")
 
-# How long a run is allowed to sit at status="running" before the watchdog
-# marks it as timed-out. GitHub Actions jobs that crash/get cancelled mid-way
-# never call back to mark the run complete, so without this, rows stay
-# "running" forever and the dashboard looks frozen even though WS/polling
-# is working fine.
 STALE_RUN_TIMEOUT_MINUTES = int(os.getenv("STALE_RUN_TIMEOUT_MINUTES", "20"))
 WATCHDOG_INTERVAL_SECONDS = int(os.getenv("WATCHDOG_INTERVAL_SECONDS", "30"))
 
@@ -96,8 +91,6 @@ def get_db():
 
 
 def scan_to_broadcast_payload(scan: ScanResult, msg_type: str = "scan_complete") -> dict:
-    """Single shared serializer so every broadcast (start/progress/complete/timeout)
-    sends the exact same shape the frontend already knows how to render."""
     return {
         "type": msg_type,
         "id": scan.id,
@@ -121,16 +114,6 @@ def scan_to_broadcast_payload(scan: ScanResult, msg_type: str = "scan_complete")
 # ---------------------------------------------------------------------------
 # Stale-run watchdog (background task)
 # ---------------------------------------------------------------------------
-# This is the actual fix for "dashboard never updates": runs that started but
-# never got a completion POST (crashed job, cancelled workflow, network drop
-# before the callback) were sitting at status="running" indefinitely. There
-# was nothing in the app that ever revisited them, so no WebSocket message
-# was ever sent for those rows again — the frontend was working correctly,
-# there was just never a new event to react to.
-#
-# This loop periodically scans for runs stuck in "running" past the timeout
-# window, flips them to "timeout", and broadcasts the change so the
-# dashboard's "LIVE — N running" section clears them out automatically.
 
 async def stale_run_watchdog():
     while True:
@@ -232,6 +215,9 @@ async def start_scan_run(data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(scan)
 
+    # FIX: was asyncio.create_task() inside a sync nested function called
+    # from a threadpool — no event loop available there. Now the endpoint is
+    # async so await works directly.
     await manager.broadcast({
         "type": "scan_started",
         "run_id": scan.id,
@@ -268,9 +254,7 @@ async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(ge
 
 
 # ---------------------------------------------------------------------------
-# Manual cleanup endpoint — clears currently stuck runs immediately instead
-# of waiting for the next watchdog tick. Useful right after deploying this
-# fix, since you already have ~9 runs stuck from before the watchdog existed.
+# Manual cleanup endpoint
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results/cleanup-stale")
@@ -307,7 +291,13 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     run_id = data.get("run_id")
     pipeline_steps = data.get("pipeline_steps", {})
 
-    def save_scan(fields: dict):
+    # FIX: save_scan() was a nested sync function that called
+    # asyncio.create_task() — which fails in a threadpool with
+    # "RuntimeError: no running event loop". Inlined all DB logic directly
+    # into this async function so await manager.broadcast() works correctly.
+
+    def _upsert(fields: dict) -> ScanResult:
+        """Pure DB upsert — no asyncio, safe to call from async context."""
         if run_id:
             scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
             if scan:
@@ -328,7 +318,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
 
     # Code scans
     if scan_type == "code-scan":
-        scan = save_scan({
+        scan = _upsert({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
             "repo_name": repo_name,
@@ -344,12 +334,12 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         await manager.broadcast(scan_to_broadcast_payload(scan))
         return {"status": "processed", "id": scan.id, "action": scan.action_taken}
 
-    # Trivy / Image scans
+    # Explicit action with no findings (e.g. BLOCK from gitleaks/semgrep)
     findings = data.get("findings", {})
     explicit_action = data.get("action")
 
     if explicit_action and not findings:
-        scan = save_scan({
+        scan = _upsert({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
             "repo_name": repo_name,
@@ -367,12 +357,18 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
 
     # Normal Trivy flow
     policy_result = evaluate_policy(findings, repo_name)
-    vulnerabilities = []  # extract_vulnerabilities(findings) — keep your function
 
-    ai_results = analyze_scan(vulnerabilities) if vulnerabilities else []
+    ai_results = []
+    vulnerabilities = []
+    for r in (findings or {}).get("Results", []) or []:
+        vulnerabilities.extend(r.get("Vulnerabilities", []) or [])
+
+    if vulnerabilities:
+        ai_results = await asyncio.to_thread(analyze_scan, vulnerabilities)
+
     first_ai = ai_results[0] if ai_results else {}
 
-    scan = save_scan({
+    scan = _upsert({
         "commit_sha": data.get("commit_sha", "unknown"),
         "commit_message": data.get("commit_message", ""),
         "repo_name": repo_name,
@@ -413,19 +409,7 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 # ---------------------------------------------------------------------------
 # AI Copilot — chat Q&A endpoint (read-only)
 # ---------------------------------------------------------------------------
-# This is intentionally NOT given write access to the policy engine, the
-# scanners, or deploy pipeline. A chat box is the wrong place to let an LLM
-# flip ALLOW/BLOCK decisions or trigger deploys — those stay gated behind
-# the deterministic policy_engine and the CI pipeline, where they're
-# auditable and can't be talked into a different answer by phrasing a
-# question cleverly. The Copilot can only ever read scan history and
-# summarize/explain it back, plus (below) re-run analysis on a scan that's
-# already complete — never change what action was taken on it.
-#
-# Context window strategy: rather than dumping the whole table at the model,
-# we pull a bounded, relevant slice (recent scans + anything matching the
-# optional scan_id) so prompts stay small and cheap regardless of how much
-# scan history accumulates over time.
+
 @app.post("/api/copilot/ask")
 async def copilot_ask(data: dict, db: Session = Depends(get_db)):
     question = (data.get("question") or "").strip()
@@ -464,13 +448,6 @@ async def copilot_ask(data: dict, db: Session = Depends(get_db)):
     }
 
     try:
-        # answer_copilot_question() is a synchronous, blocking function
-        # (it uses requests under the hood, same as the rest of ai_analysis.py).
-        # Awaiting it directly would block the entire event loop for up to
-        # 60s if it falls all the way through to the Ollama fallback,
-        # freezing WebSocket broadcasts for every other connected dashboard.
-        # asyncio.to_thread() runs it on a worker thread instead, keeping the
-        # event loop free.
         answer = await asyncio.to_thread(answer_copilot_question, question, context)
     except Exception as e:
         print(f"[copilot] error: {e}")
@@ -480,17 +457,9 @@ async def copilot_ask(data: dict, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# AI Copilot — re-analyze a single scan (the one allowed "live action")
+# AI Copilot — re-analyze a single scan
 # ---------------------------------------------------------------------------
-# Re-runs AI analysis against findings that are ALREADY stored for this scan
-# and updates ai_explanation/ai_fix in place, then broadcasts the change so
-# every connected dashboard updates live. This deliberately CANNOT:
-#   - change action_taken (ALLOW/BLOCK stays whatever the policy engine said)
-#   - re-trigger a scan, build, or deploy
-#   - touch any scan other than the one specified
-# It exists for cases where the stored explanation is thin or stale (e.g. an
-# earlier AI call failed/timed out) and you want a fresh take without
-# re-running the whole pipeline.
+
 @app.post("/api/scan-results/{scan_id}/reanalyze")
 async def reanalyze_scan(scan_id: int, db: Session = Depends(get_db)):
     scan = db.query(ScanResult).filter(ScanResult.id == scan_id).first()
@@ -500,15 +469,7 @@ async def reanalyze_scan(scan_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Cannot reanalyze a scan that is still running")
 
     try:
-        # Both analyze_code_scan_failure() and analyze_scan() are
-        # synchronous/blocking (they use requests under the hood). Running
-        # them directly here would block the event loop for the duration of
-        # the AI call — wrapped in asyncio.to_thread() so other requests and
-        # WebSocket broadcasts keep flowing while this one waits.
         if scan.scan_type == "code-scan" or (scan.action_taken == "BLOCK" and not scan.findings):
-            # analyze_code_scan_failure() expects a dict with scanner/reason/
-            # detail keys, not a bare string — build one from what we have
-            # stored on the scan rather than passing ai_explanation directly.
             failure_info = {
                 "scanner": scan.scan_type or "unknown",
                 "reason": scan.severity or "unknown",
