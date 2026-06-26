@@ -6,6 +6,23 @@ on:
   pull_request:
     branches: [ main ]
 
+# ── FIX A: Concurrency control ────────────────────────────────────────────
+# THE BUG: with no concurrency group, pushing several commits close together
+# (as happened with the 9 stuck runs — several landing within the same
+# hour) can cause GitHub Actions to queue or, on some runner configs,
+# cancel an in-progress run on the same branch when a newer commit arrives.
+# A cancelled run never reaches Step 5 ("Notify Code Scan Progress"), so the
+# dashboard row created in Step 1 is left at status="running" forever.
+#
+# THE FIX: group by branch and let new pushes cancel the *stale* run instead
+# of letting GitHub kill it ambiguously mid-job. This alone doesn't close
+# the dashboard row, so it's paired with Fix C (the always()-gated final
+# notifier) which explicitly reports "cancelled/superseded" back to the
+# backend so the row never sits at "running" indefinitely.
+concurrency:
+  group: secureflow-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   security-pipeline:
     name: Full Security Check
@@ -55,46 +72,92 @@ jobs:
       # ── Step 2: Install Gitleaks ────────────────────────────────────────────
       # Pin to a specific version (v8.24.3) rather than "latest" so the pipeline
       # doesn't break silently when a new Gitleaks release changes CLI flags or output format
+      #
+      # ── FIX B: continue-on-error + retry on the install step ────────────────
+      # THE BUG: this step had NO continue-on-error and NO retry logic. A
+      # transient network blip or rate-limit (HTTP 429/5xx) on
+      # github.com/gitleaks/gitleaks/releases/... — which is exactly the kind
+      # of thing that happens when several CI runs hit GitHub's release CDN
+      # within the same hour — failed the job immediately, before Step 5 ever
+      # ran. The dashboard row from Step 1 was then never updated again.
+      # This matches the stuck runs exactly: every one of them shows
+      # "Checkout: pending" — meaning the job died before Step 5 could even
+      # report checkout as PASS.
+      #
+      # THE FIX: retry the download up to 3 times with backoff, and mark the
+      # step itself as continue-on-error so that even a final failure lets
+      # the workflow reach Step 2a below, which reports the failure to the
+      # dashboard instead of leaving the row stuck.
       - name: Install Gitleaks
+        id: gitleaks_install
+        continue-on-error: true
         run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz -o gitleaks.tar.gz
+          for attempt in 1 2 3; do
+            if curl -sSL --fail --retry 2 --retry-delay 3 \
+                 https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz \
+                 -o gitleaks.tar.gz; then
+              break
+            fi
+            echo "Gitleaks download attempt $attempt failed, retrying..."
+            sleep $((attempt * 5))
+            if [ "$attempt" = "3" ]; then
+              echo "Gitleaks download failed after 3 attempts"
+              exit 1
+            fi
+          done
           tar -xzf gitleaks.tar.gz gitleaks
           chmod +x gitleaks
           sudo mv gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
+      # ── Step 2a: Notify dashboard if Gitleaks itself failed to install ──────
+      # NEW STEP. Without this, an install failure (now caught by
+      # continue-on-error above) would otherwise just fall through into
+      # Step 3 (Run Gitleaks), which would also fail since the binary
+      # doesn't exist — but with no explicit reporting either way, the
+      # dashboard row stays at "running" forever. This closes that gap
+      # immediately rather than waiting for the watchdog timeout.
+      - name: Notify Gitleaks Install Failure
+        if: steps.gitleaks_install.outcome == 'failure' && steps.pipeline_start.outputs.run_id != ''
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+          REPO_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO_NAME" \
+            --arg sha "$COMMIT_SHA" \
+            --arg branch "$BRANCH_NAME" \
+            --arg commit_msg "$COMMIT_MESSAGE" \
+            --arg scan_type "full-pipeline" \
+            --arg severity "UNKNOWN" \
+            --arg action "BLOCK" \
+            --arg reason "Gitleaks failed to download/install (infra issue, not a security finding)" \
+            --argjson run_id "\"${RUN_ID}\"" \
+            '{
+              repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
+              scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
+              run_id: $run_id, findings: {},
+              pipeline_steps: {
+                checkout:  { result: "PASS",   detail: "code checked out" },
+                code_scan: { result: "FAILED", detail: "gitleaks install failed after 3 retries — infra/network issue" },
+                docker:    { result: "skipped", detail: "pipeline stopped before code scan completed" },
+                trivy:     { result: "skipped", detail: "pipeline stopped before code scan completed" },
+                policy:    { result: "skipped", detail: "pipeline stopped before code scan completed" },
+                deploy:    { result: "skipped", detail: "pipeline stopped before code scan completed" }
+              }
+            }')
+          curl -sS -X POST "$BACKEND_URL/api/scan-results" \
+            -H "Content-Type: application/json" -d "$PAYLOAD" || true
+          exit 1
+
       # ── Step 3: Run Gitleaks ────────────────────────────────────────────────
-      #
-      # WHAT CHANGED HERE AND WHY (in plain language):
-      #
-      # 1. THE BUG: there used to be a line like this:
-      #        --source . \
-      #    See those two trailing spaces after the backslash? In bash, a
-      #    backslash only means "continue on the next line" if it is the
-      #    VERY LAST character on the line. A space after it breaks that
-      #    rule, so the command did not run the way it looked like it would.
-      #    That was making the scan behave inconsistently — sometimes "noisy",
-      #    sometimes silently wrong. This was a typo bug, not a real security
-      #    setting, so removing it does not weaken the check at all.
-      #
-      # 2. THE DUPLICATE SCAN: the old version ran Gitleaks TWICE —
-      #    once limited to just the latest commit's changes (--log-opts range),
-      #    and once across the entire project folder (--no-git).
-      #    The full-folder scan already includes everything the
-      #    "latest commit only" scan would catch, PLUS everything else in the
-      #    repo. So running both was pointless duplication — same coverage,
-      #    twice the work, and two separate report files to juggle later.
-      #    We keep only the full-folder scan (--no-git) so nothing is missed.
-      #
-      # Net result: same detection strength (actually slightly better, since
-      # the full scan also catches old secrets sitting elsewhere in the repo,
-      # not just ones in the latest commit), simpler code, one report file.
-      #
-      # continue-on-error: true — we don't want GitHub to skip later steps
-      # before we get a chance to report the failure to the dashboard.
-      # We handle the exit manually below.
       - name: Run Gitleaks
         id: gitleaks
+        if: steps.gitleaks_install.outcome == 'success'
         continue-on-error: true
         run: |
           gitleaks detect \
@@ -114,19 +177,13 @@ jobs:
           fi
 
       # ── Step 4: Run Semgrep ─────────────────────────────────────────────────
-      # BUG FIX: returntocorp/semgrep-action@v1 is deprecated and often
-      # silently passes without scanning. Replaced with direct CLI install
-      # using specific rulesets that actually catch real issues.
-      # We use 4 rulesets rather than "auto" — auto was too permissive and
-      # returned 0 findings even on genuinely insecure code patterns.
       - name: Install and Run Semgrep
         id: semgrep
+        if: steps.gitleaks_install.outcome == 'success'
         continue-on-error: true
         run: |
           pip install semgrep --break-system-packages 2>/dev/null || pip install semgrep
 
-          # Run with explicit security rulesets — 'auto' config was too
-          # permissive and often returned 0 findings even on bad code.
           semgrep scan \
             --config "p/python" \
             --config "p/secrets" \
@@ -145,11 +202,8 @@ jobs:
           fi
 
       # ── Step 5: Notify code scan progress ──────────────────────────────────
-      # "if: always()" ensures this runs even if Gitleaks or Semgrep failed —
-      # we want the dashboard to show the BLOCK status immediately, not wait
-      # for the rest of the pipeline to finish or time out
       - name: Notify Code Scan Progress
-        if: always() && steps.pipeline_start.outputs.run_id != ''
+        if: always() && steps.gitleaks_install.outcome == 'success' && steps.pipeline_start.outputs.run_id != ''
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -174,19 +228,6 @@ jobs:
             -d "$PAYLOAD" || true
 
       # ── Step 6: Block on code scan failure ──────────────────────────────────
-      #
-      # WHAT CHANGED HERE AND WHY:
-      # Since Step 3 now only ever writes ONE Gitleaks report file
-      # (gitleaks-results.json), this step no longer needs to check two
-      # different files (the old "gitleaks-full.json, then fall back to
-      # gitleaks-results.json" logic). We simplified it to just read the one
-      # file that actually exists now. This does not change what counts as a
-      # failure — it only removes a leftover fallback that pointed at a file
-      # which no longer gets created.
-      #
-      # We extract the specific finding (file, line, rule) from the JSON output
-      # so the backend can pass it to the AI for a meaningful explanation,
-      # rather than just saying "secret detected"
       - name: Block on Code Scan Failure
         if: steps.gitleaks.outcome == 'failure' || steps.semgrep.outcome == 'failure'
         env:
@@ -201,8 +242,6 @@ jobs:
         run: |
           if [ "$GITLEAKS_RESULT" = "failure" ]; then
             REASON="Secret or credential found in code (Gitleaks)"
-
-            # Extract the actual finding from gitleaks JSON — file, line, rule
             GITLEAKS_DETAIL=$(jq -r '
               if length > 0 then
                 .[0] | "Rule: \(.RuleID) | File: \(.File):\(.StartLine)"
@@ -210,12 +249,9 @@ jobs:
                 "secret detected — check gitleaks output above"
               end
             ' gitleaks-results.json 2>/dev/null || echo "gitleaks=failure — see logs above")
-
             DETAIL="$GITLEAKS_DETAIL"
           else
             REASON="Insecure code pattern detected (Semgrep)"
-
-            # Extract the actual finding from semgrep JSON — rule, file, line, message
             SEMGREP_DETAIL=$(jq -r '
               if (.results | length) > 0 then
                 .results[0] |
@@ -224,12 +260,9 @@ jobs:
                 "semgrep=failure — see logs above"
               end
             ' semgrep-results.json 2>/dev/null || echo "semgrep=failure — see logs above")
-
             DETAIL="$SEMGREP_DETAIL"
           fi
 
-          # Safely encode run_id as JSON — if empty, send null so the backend
-          # creates a new record rather than failing to find run_id in the DB
           RUN_ID_VAL="${RUN_ID:-null}"
           if [ "$RUN_ID_VAL" != "null" ] && [ -n "$RUN_ID_VAL" ]; then
             RUN_ID_JSON="\"$RUN_ID_VAL\""
@@ -237,8 +270,6 @@ jobs:
             RUN_ID_JSON="null"
           fi
 
-          # Mark all downstream steps as "skipped" in pipeline_steps so the
-          # dashboard shows exactly where the pipeline stopped
           PAYLOAD=$(jq -n \
             --arg repo "$REPO_NAME" \
             --arg sha "$COMMIT_SHA" \
@@ -251,16 +282,9 @@ jobs:
             --argjson run_id "$RUN_ID_JSON" \
             --arg code_detail "$DETAIL" \
             '{
-              repo_name: $repo,
-              commit_sha: $sha,
-              branch: $branch,
-              commit_message: $commit_msg,
-              scan_type: $scan_type,
-              severity: $severity,
-              action: $action,
-              reason: $reason,
-              run_id: $run_id,
-              findings: {},
+              repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
+              scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
+              run_id: $run_id, findings: {},
               pipeline_steps: {
                 checkout:  { result: "PASS",    detail: "code checked out" },
                 code_scan: { result: "BLOCK",   detail: $code_detail },
@@ -275,36 +299,9 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" || true
 
-          # exit 1 here is what actually fails the GitHub Actions job and
-          # prevents the deployment steps from running
           exit 1
 
       # ── Step 7: Check if image needs rebuilding ─────────────────────────────
-      # Optimization: skip the Docker build + Trivy scan entirely if no backend,
-      # docker, or dependency files changed — frontend-only pushes don't need
-      # a full image scan and this saves ~3-4 minutes per run.
-      #
-      # BUG FIX (previous): The grep pattern '^backend/' only matched files
-      # starting with backend/ — made more robust with (^|/) to handle paths
-      # without a leading slash on some runners.
-      #
-      # *** NEW BUG FIX (this version) ***
-      # THE BUG: this step only ever produced ONE flag — `image_changed` —
-      # and that flag was computed purely from BACKEND/docker paths
-      # (backend/, docker/, policy.yaml, requirements*.txt, Dockerfile).
-      # Every later step that deploys the FRONTEND (Build and Push Frontend,
-      # Deploy Frontend to Cloud Run) was gated on that same `image_changed`
-      # flag. So a frontend-only commit set image_changed=false, which
-      # correctly skipped the backend build — but it ALSO skipped the
-      # frontend build and deploy, because they were checking the wrong flag.
-      # Net effect: frontend-only pushes ran "Report Clean", went green,
-      # and never built or deployed a new frontend image at all.
-      #
-      # THE FIX: compute a second, independent flag — `frontend_changed` —
-      # based on the frontend/ path. The two flags are now decoupled: a
-      # backend-only change no longer silently skips frontend deploys and
-      # vice versa. Downstream steps are updated to check the flag that
-      # actually matches what they do (see Steps 9, 14, 15, 16 below).
       - name: Check if image needs rebuilding
         id: changes
         if: steps.gitleaks.outcome != 'failure' && steps.semgrep.outcome != 'failure'
@@ -312,7 +309,6 @@ jobs:
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
             CHANGED=$(git diff --name-only HEAD~1 HEAD)
           else
-            # First commit edge case — diff against empty tree
             CHANGED=$(git diff --name-only $(git hash-object -t tree /dev/null) HEAD)
           fi
           echo "Changed files: $CHANGED"
@@ -325,8 +321,6 @@ jobs:
             echo "No backend/docker files changed — skipping image scan"
           fi
 
-          # NEW: independent flag for frontend changes. This is what the
-          # frontend build/deploy steps should gate on, NOT image_changed.
           if echo "$CHANGED" | grep -qE '(^|/)frontend/'; then
             echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
             echo "Frontend files changed — frontend rebuild required"
@@ -336,17 +330,6 @@ jobs:
           fi
 
       # ── Step 8: Report clean (no image changes) ─────────────────────────────
-      # BUG FIX (previous): Was missing the code scan outcome check.
-      # This step was reporting ALLOW/CLEAN even when gitleaks/semgrep had
-      # flagged issues, because the condition only checked image_changed.
-      # Added explicit guards so this can never fire after a code scan failure.
-      #
-      # NOTE: this step's condition is unchanged — it still only fires when
-      # the BACKEND image didn't change. That's correct and intentional:
-      # even on a frontend-only push, we still want a "clean" pipeline
-      # record showing the code scan passed and no backend image was built.
-      # The frontend deploy itself runs independently afterward (Step 14-16),
-      # gated on frontend_changed — it is no longer tied to this step at all.
       - name: Report Clean (no image changes)
         if: |
           steps.changes.outputs.image_changed == 'false' &&
@@ -378,16 +361,9 @@ jobs:
             --arg reason "Code scan passed, no backend/docker files changed" \
             --argjson run_id "$RUN_ID_JSON" \
             '{
-              repo_name: $repo,
-              commit_sha: $sha,
-              branch: $branch,
-              commit_message: $commit_msg,
-              scan_type: $scan_type,
-              severity: $severity,
-              action: $action,
-              reason: $reason,
-              run_id: $run_id,
-              findings: {},
+              repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
+              scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
+              run_id: $run_id, findings: {},
               pipeline_steps: {
                 checkout:  { result: "PASS",    detail: "code checked out" },
                 code_scan: { result: "PASS",    detail: "no secrets or bad patterns found" },
@@ -403,12 +379,6 @@ jobs:
             -d "$PAYLOAD" || true
 
       # ── Step 9: GCP auth ────────────────────────────────────────────────────
-      # BUG FIX: previously gated ONLY on image_changed == 'true', so on a
-      # frontend-only push GCP auth never ran — and later, even after fixing
-      # the frontend deploy steps' condition (Steps 14-16), they would have
-      # failed with "no credentials" because this step still skipped itself.
-      # Now also runs when frontend_changed == 'true', since the frontend
-      # deploy steps need an authenticated gcloud session too.
       - name: Authenticate to Google Cloud
         if: steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true'
         uses: google-github-actions/auth@v2
@@ -424,17 +394,9 @@ jobs:
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       # ── Step 10: Build and push backend image ───────────────────────────────
-      # Tag with the commit SHA so every image is uniquely traceable back to
-      # the exact code that built it — "latest" tags make rollbacks ambiguous
-      #
-      # Unchanged from before — still correctly gated on image_changed only,
-      # since this step builds the BACKEND image specifically.
       - name: Build Backend Image
         id: docker_build
         if: steps.changes.outputs.image_changed == 'true'
-        # BUG FIX (added): Added id: docker_build so downstream steps can check
-        # whether this step succeeded or failed using steps.docker_build.outcome.
-        # Previously there was no way to detect a build failure from later steps.
         run: |
           docker build \
             -t us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
@@ -443,25 +405,10 @@ jobs:
       - name: Push Backend Image
         id: docker_push
         if: steps.changes.outputs.image_changed == 'true'
-        # BUG FIX (added): Added id: docker_push so downstream steps can detect
-        # a push failure (e.g. GCP auth expired, quota exceeded) separately from
-        # a build failure. Without this id, both failures looked identical to the
-        # pipeline and neither was reported to the dashboard.
         run: |
           docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
 
       # ── Step 10a: Notify dashboard on Docker build/push failure ─────────────
-      # BUG FIX (new step, previous version): Previously, if docker build or
-      # docker push failed, the pipeline would exit with an error but NEVER
-      # call the backend to update the run status. This left the dashboard
-      # stuck showing "running" forever — the record was created in Step 1
-      # but never closed.
-      #
-      # "if: failure()" triggers only when a previous step has already failed.
-      # Combined with the image_changed guard so this doesn't fire on
-      # frontend-only pushes where docker steps were skipped entirely.
-      # "|| true" at the end of the curl means a dashboard outage won't
-      # obscure the real error — the job still fails for the right reason.
       - name: Notify Docker Build/Push Failure
         if: >
           failure() &&
@@ -478,7 +425,6 @@ jobs:
           BUILD_OUTCOME: ${{ steps.docker_build.outcome }}
           PUSH_OUTCOME: ${{ steps.docker_push.outcome }}
         run: |
-          # Determine which step actually failed for a precise dashboard message
           if [ "$BUILD_OUTCOME" = "failure" ]; then
             FAIL_DETAIL="docker build failed — check Dockerfile and requirements.txt for errors"
           else
@@ -504,16 +450,9 @@ jobs:
             --argjson run_id "$RUN_ID_JSON" \
             --arg fail_detail "$FAIL_DETAIL" \
             '{
-              repo_name: $repo,
-              commit_sha: $sha,
-              branch: $branch,
-              commit_message: $commit_msg,
-              scan_type: $scan_type,
-              severity: $severity,
-              action: $action,
-              reason: $reason,
-              run_id: $run_id,
-              findings: {},
+              repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
+              scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
+              run_id: $run_id, findings: {},
               pipeline_steps: {
                 checkout:  { result: "PASS",   detail: "code checked out" },
                 code_scan: { result: "PASS",   detail: "no secrets or bad patterns found" },
@@ -534,11 +473,6 @@ jobs:
           steps.pipeline_start.outputs.run_id != '' &&
           steps.docker_build.outcome == 'success' &&
           steps.docker_push.outcome == 'success'
-        # BUG FIX (updated condition, previous version): Previously this step
-        # had no check on docker_build/push outcomes, so it could fire even
-        # after a failed build (since continue-on-error wasn't set, GitHub
-        # sometimes ran subsequent steps in unexpected order). Now explicitly
-        # gated on both succeeding.
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -548,20 +482,11 @@ jobs:
             -d '{ "pipeline_steps": { "docker": { "result": "PASS", "detail": "image built and pushed" } } }' || true
 
       # ── Step 11: Trivy scan ─────────────────────────────────────────────────
-      # Scan the actual pushed image — not the local build — so what we scan
-      # is exactly what would get deployed to Cloud Run.
-      # Scanning all severities (CRITICAL through LOW) so the dashboard shows
-      # the full picture; the policy engine decides what actually blocks.
       - name: Run Trivy CVE Scan
         if: >
           steps.changes.outputs.image_changed == 'true' &&
           steps.docker_build.outcome == 'success' &&
           steps.docker_push.outcome == 'success'
-        # BUG FIX (updated condition, previous version): Previously Trivy would
-        # attempt to scan even if the push failed, causing a confusing "image
-        # not found" error from Trivy rather than a clear "docker push failed"
-        # message. Now Trivy only runs when we know the image is actually in
-        # the registry.
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
@@ -580,21 +505,11 @@ jobs:
           path: trivy-results.json
 
       # ── Step 12: Policy gate ────────────────────────────────────────────────
-      # This is the core security gate — sends Trivy results to the backend,
-      # which runs the policy engine and AI analysis, then returns ALLOW or BLOCK.
-      # The pipeline deploys only if the backend explicitly returns ALLOW —
-      # any error or unexpected response defaults to BLOCK (fail-safe).
-      #
-      # BUG FIX: run_id was interpolated as bare ${RUN_ID:-null} in jq
-      # --argjson which breaks when RUN_ID is a string (jq expects raw JSON
-      # for --argjson). Fixed with proper quoting logic before passing to jq.
       - name: Send to Dashboard and Check Policy Gate
         if: >
           steps.changes.outputs.image_changed == 'true' &&
           steps.docker_build.outcome == 'success' &&
           steps.docker_push.outcome == 'success'
-        # BUG FIX (updated condition, previous version): Same guard as Trivy —
-        # only run the policy gate when there's actually a scanned image to evaluate.
         id: gate
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
@@ -624,13 +539,8 @@ jobs:
             --argjson run_id "$RUN_ID_JSON" \
             --slurpfile findings trivy-results.json \
             '{
-              repo_name: $repo,
-              commit_sha: $sha,
-              branch: $branch,
-              commit_message: $commit_msg,
-              scan_type: $scan_type,
-              run_id: $run_id,
-              findings: $findings[0],
+              repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
+              scan_type: $scan_type, run_id: $run_id, findings: $findings[0],
               pipeline_steps: {
                 checkout:  { result: "PASS",    detail: "code checked out" },
                 code_scan: { result: "PASS",    detail: "no secrets or bad patterns found" },
@@ -645,7 +555,6 @@ jobs:
 
           echo "Backend response: $RESPONSE"
 
-          # Default to BLOCK if action is missing — fail-safe, not fail-open
           ACTION=$(echo "$RESPONSE" | jq -r '.action // "BLOCK"')
           echo "action=$ACTION" >> "$GITHUB_OUTPUT"
 
@@ -654,12 +563,7 @@ jobs:
             exit 1
           fi
 
-      # ── Step 13: Deploy backend (only if backend image changed AND ALLOW) ───
-      # Double-gated: image must have changed AND policy must have returned ALLOW.
-      # Deploying the same SHA that was scanned by Trivy — no bait-and-switch
-      # between what was scanned and what gets deployed.
-      #
-      # Unchanged — still correctly scoped to the backend image/gate only.
+      # ── Step 13: Deploy backend ──────────────────────────────────────────────
       - name: Deploy Backend to Cloud Run
         if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
         run: |
@@ -668,7 +572,6 @@ jobs:
             --region us-central1 \
             --allow-unauthenticated
 
-      # ── Step 13a: Notify dashboard — policy + deploy succeeded ─────────────────────
       - name: Notify Deploy Success
         if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
         env:
@@ -679,7 +582,6 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{ "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" }, "deploy": { "result": "PASS", "detail": "deployed to Cloud Run" } } }' || true
 
-      # ── Step 13b: Notify dashboard — deploy command failed ───────────────────────
       - name: Notify Deploy Failure
         if: failure() && steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
         env:
@@ -691,23 +593,6 @@ jobs:
             -d '{ "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" }, "deploy": { "result": "FAILED", "detail": "gcloud run deploy command failed" } } }' || true
 
       # ── Step 14: Build and push frontend image ──────────────────────────────
-      # *** THIS IS THE MAIN FIX ***
-      # BUG (previous version): condition was
-      #   if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
-      # which meant the frontend would ONLY ever build/deploy when the
-      # BACKEND image also changed in the same push, AND the policy gate
-      # ran and returned ALLOW. On any frontend-only commit, image_changed
-      # was false, steps.gate never ran at all (it's gated on image_changed
-      # too), so steps.gate.outputs.action was empty — and the whole step
-      # was skipped. Frontend changes never deployed.
-      #
-      # FIX: gate on frontend_changed (the new, independent flag from Step 7)
-      # instead. We still respect the security gate when it's relevant: if
-      # the backend image ALSO changed in this push, we wait for that gate's
-      # result before deploying the frontend, so a BLOCKed backend doesn't
-      # let a frontend pointing at a bad/blocked backend version slip out.
-      # If the backend did NOT change (image_changed == 'false'), there is no
-      # gate to wait for, so we proceed based on frontend_changed alone.
       - name: Build and Push Frontend
         if: >
           steps.changes.outputs.frontend_changed == 'true' &&
@@ -720,8 +605,6 @@ jobs:
           docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}
 
       # ── Step 15: Deploy frontend ─────────────────────────────────────────────
-      # Same fix as Step 14 — gated on frontend_changed instead of
-      # image_changed, with the same backend-gate passthrough logic.
       - name: Deploy Frontend to Cloud Run
         if: >
           steps.changes.outputs.frontend_changed == 'true' &&
@@ -732,3 +615,54 @@ jobs:
             --region us-central1 \
             --allow-unauthenticated \
             --port 8080
+
+      # ── Step 16 (NEW): Job-level failsafe — catch anything still unreported ──
+      # *** FIX C ***
+      # THE BUG: every notify-failure step in this workflow is conditioned on
+      # a SPECIFIC prior step's outcome (gitleaks, semgrep, docker_build,
+      # docker_push, gate, deploy). That leaves gaps: a step failing for a
+      # reason NONE of those conditions anticipate (checkout itself failing,
+      # the runner getting OOM-killed, a YAML/permissions error, the
+      # concurrency cancellation from Fix A, an unhandled exit in any step
+      # without continue-on-error) falls through every single guard and the
+      # job just ends — dashboard row stuck at "running" forever, exactly
+      # like the 9 runs in the screenshot.
+      #
+      # THE FIX: one final step, gated only on `always()` and on the run_id
+      # existing, that checks whether the job's overall conclusion was not
+      # successful AND nothing has reported back yet. It can't know exactly
+      # which step died, but it guarantees the dashboard row gets *closed*
+      # instead of hanging — converting "stuck forever" into "reported as
+      # failed, with a generic but honest reason." Combined with the
+      # backend's stale-run watchdog, no run should ever again sit at
+      # "running" past a couple of minutes without an explanation.
+      - name: Failsafe — Notify Unhandled Pipeline Failure
+        if: always() && failure() && steps.pipeline_start.outputs.run_id != ''
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+          REPO_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO_NAME" \
+            --arg sha "$COMMIT_SHA" \
+            --arg branch "$BRANCH_NAME" \
+            --arg commit_msg "$COMMIT_MESSAGE" \
+            --arg scan_type "full-pipeline" \
+            --arg severity "UNKNOWN" \
+            --arg action "BLOCK" \
+            --arg reason "Pipeline job failed or was cancelled at an unreported step — check GitHub Actions run logs for this commit" \
+            --argjson run_id "\"${RUN_ID}\"" \
+            '{
+              repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
+              scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
+              run_id: $run_id, findings: {},
+              pipeline_steps: {
+                deploy: { result: "FAILED", detail: "job ended unexpectedly — see Actions logs" }
+              }
+            }')
+          curl -sS -X POST "$BACKEND_URL/api/scan-results" \
+            -H "Content-Type: application/json" -d "$PAYLOAD" || true

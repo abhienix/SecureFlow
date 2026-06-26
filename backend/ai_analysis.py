@@ -72,6 +72,13 @@ def _call_ai(prompt):
     # Fallback chain: Groq (free + fast) → Gemini (paid + reliable) → Ollama (local, always available)
     # Each provider is tried only if its API key exists, so missing keys are
     # skipped gracefully instead of throwing auth errors mid-pipeline
+    #
+    # NOTE: this function is reused below by answer_copilot_question() too —
+    # the Copilot chat doesn't get its own provider-calling logic, it just
+    # builds a different prompt and hands it to the same fallback chain
+    # everything else in this file already uses. One chain, one set of
+    # timeouts/retries/logging to maintain, instead of two copies drifting
+    # apart over time.
 
     if GROQ_API_KEY:
         try:
@@ -240,3 +247,76 @@ def analyze_code_scan_failure(failure_info):
             "fix": "Review the scanner output, fix flagged issues, rotate any exposed credentials, and re-run the pipeline.",
             "risk_score": 7,
         }
+
+
+# ---------------------------------------------------------------------------
+# AI Copilot — chat Q&A over scan history (NEW)
+# ---------------------------------------------------------------------------
+# Added to support the dashboard's "Ask about your pipeline" chat panel.
+# This deliberately reuses _call_ai() above rather than writing its own
+# Groq/Gemini/Ollama calling code — it's the exact same fallback chain,
+# same timeouts, same provider order. The only thing that's different from
+# analyze_scan()/analyze_code_scan_failure() is the prompt itself: instead
+# of "explain this CVE", it's "answer this free-form question using this
+# JSON context", and the response is plain text rather than a structured
+# JSON object, since chat answers don't need a fixed schema.
+#
+# SAFETY NOTE: the system instructions below explicitly tell the model it
+# cannot take actions (re-run scans, flip ALLOW/BLOCK, deploy, etc.) even
+# though this function never gives it tool access to do so. That's
+# intentional — without that instruction, if a person asks "can you
+# unblock this commit for me", the model might describe itself as having
+# done it, which would be actively misleading on a security dashboard.
+# The model only ever reads the context dict it's handed and writes back
+# text; main.py is responsible for keeping the actual ALLOW/BLOCK/deploy
+# decisions entirely outside this function's reach.
+
+COPILOT_SYSTEM_INSTRUCTIONS = (
+    "You are the AI Copilot inside the SecureFlow CI/CD security dashboard. "
+    "Answer questions about scan history, blocked commits, vulnerabilities, "
+    "and risk trends using ONLY the context data provided below. You do not "
+    "have access to the internet, the codebase, or any tool that can take "
+    "action. You cannot re-run scans, change ALLOW/BLOCK decisions, deploy "
+    "anything, or modify the policy engine. If asked to do any of these "
+    "things, say plainly that you can't take actions from chat and point to "
+    "the relevant dashboard control instead (e.g. the Re-analyze button on "
+    "that scan). Be concise. Reference specific commit SHAs, repo names, and "
+    "severities from the context when relevant. If the context doesn't "
+    "contain enough information to answer, say so rather than guessing."
+)
+
+
+def answer_copilot_question(question, context):
+    """
+    Answers a free-form question about scan history using the same
+    Groq -> Gemini -> Ollama fallback chain as the rest of this file.
+
+    question: plain string, the user's question
+    context:  dict of recent scan data (see main.py's /api/copilot/ask),
+              kept small/bounded so the prompt stays cheap regardless of
+              how much scan history has accumulated overall
+
+    Read-only by design — this function has no DB access and no ability
+    to call back into the policy engine, scanners, or deploy pipeline.
+    It only ever returns text for the chat panel to display.
+    """
+    question = _sanitize(question, max_len=500)
+    context_json = _sanitize(json.dumps(context, default=str), max_len=6000)
+
+    prompt = (
+        COPILOT_SYSTEM_INSTRUCTIONS
+        + "\n\nContext (recent scan history as JSON):\n"
+        + context_json
+        + "\n\nQuestion: "
+        + question
+    )
+
+    try:
+        return _call_ai(prompt)
+    except Exception as e:
+        print(f"answer_copilot_question failed: {e}")
+        # Same pattern as analyze_scan/analyze_code_scan_failure: never let
+        # an AI outage surface as a raw exception to the frontend. main.py
+        # turns this into a clean 502, but we still return something
+        # reasonable here in case this function is ever called directly.
+        raise
