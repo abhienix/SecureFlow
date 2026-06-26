@@ -294,7 +294,7 @@ function normaliseScan(raw) {
 
   /* Parse remedy out of ai_explanation if backend embeds it with "REMEDY:" prefix */
   let ai_explanation = raw.ai_explanation || null;
-  let ai_remedy      = raw.ai_remedy || null;
+  let ai_remedy      = raw.ai_fix || raw.ai_remedy || null;
 
   if (ai_explanation && !ai_remedy) {
     const remMatch = ai_explanation.match(/REMEDY[:\-–]?\s*([\s\S]+)/i);
@@ -613,8 +613,8 @@ function AIAnalysisBlock({ scan, compact=false }) {
         return;
       }
       const d = await res.json();
-      if (d?.ai_remedy) {
-        setRemedy(d.ai_remedy);
+      if (d?.ai_fix || d?.ai_remedy) {
+        setRemedy(d.ai_fix || d.ai_remedy);
         return;
       }
       if (d?.ai_explanation) {
@@ -905,9 +905,9 @@ const WhyBlockedModal = ({ scan, onClose }) => {
         return r.json();
       })
       .then(d => {
-        if (d?.ai_explanation || d?.ai_remedy) {
+        if (d?.ai_explanation || d?.ai_fix || d?.ai_remedy) {
           let exp = d.ai_explanation || null;
-          let rem = d.ai_remedy || null;
+          let rem = d.ai_fix || d.ai_remedy || null;
           if (exp && !rem) {
             const m = exp.match(/REMEDY[:\-–]?\s*([\s\S]+)/i);
             if (m) { rem = m[1].trim(); exp = exp.slice(0, m.index).trim(); }
