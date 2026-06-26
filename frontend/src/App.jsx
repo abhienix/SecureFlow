@@ -300,237 +300,322 @@ if (typeof document !== "undefined") {
   document.head.appendChild(style);
 }
 
-/* ─── Shared helpers ─────────────────────────────────────────────────────── */
-const fmt = {
-  date: (d) => d ? new Date(d).toLocaleString("en-US", {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-  }) : "—",
-  ago: (d) => {
-    if (!d) return "—";
-    const s = Math.floor((Date.now() - new Date(d)) / 1000);
-    if (s < 60)  return `${s}s ago`;
-    if (s < 3600) return `${Math.floor(s/60)}m ago`;
-    return `${Math.floor(s/3600)}h ago`;
-  },
-  pct: (n) => `${(n ?? 0).toFixed(1)}%`,
-};
 
-/** Map a raw backend result string → canonical status */
-function resultToStatus(stage) {
-  const r = (stage?.result || stage?.status || "").toLowerCase();
-  if (["passed", "pass", "success", "allow", "clean"].includes(r)) return "passed";
-  if (["failed", "fail", "error", "block", "blocked"].includes(r)) return "failed";
-  if (["running", "in_progress", "active"].includes(r)) return "running";
-  // v3.1 fix: treat a stage that has a result/status field (even blank) but
-  // has a timestamp as "passed" — it ran and wasn't flagged as failed.
-  if (stage?.started_at && !["pending", "skipped"].includes(r)) return "passed";
+/**
+ * FIX #1 — pipeline stage status inference.
+ *
+ * Original bug: when a stage object had no `result` and no `status` field
+ * (common for older / minimal scan payloads, or stages the backend didn't
+ * bother annotating because the run was clean), this returned "pending",
+ * which renders as a hollow, ungrounded default icon — even on a scan the
+ * dashboard top-level labels ALLOW/CLEAN. That's the "Checkout not
+ * working" / "3D pipeline" visual bug from the screenshots (abc123,
+ * 4faef64c, "unknown").
+ *
+ * Fix: thread the parent scan's overall outcome through, so that a stage
+ * with literally no info defaults to "passed" when the scan overall was
+ * allowed/clean, "skipped" when the scan was blocked and this stage never
+ * ran, and only true unknowns (no scan-level signal either) fall back to
+ * "pending".
+ */
+function resultToStatus(r, fallbackStatus) {
+  if (r) {
+    const v = String(r).toUpperCase();
+    if (["PASS", "PASSED", "SCANNED", "ALLOW", "CLEAN", "OK", "SUCCESS"].includes(v)) return "passed";
+    if (["FAIL", "FAILED", "BLOCK", "ERROR"].includes(v)) return "failed";
+    if (v === "RUNNING" || v === "IN_PROGRESS") return "running";
+    if (v === "SKIPPED" || v === "SKIP") return "skipped";
+    // Unrecognized but present string (e.g. "UNKNOWN") — don't silently
+    // assume passed; surface it as-is via "skipped" styling so it's visibly
+    // distinct from a real pass, instead of guessing.
+    return "skipped";
+  }
+  // No explicit per-stage signal — fall back to what we know about the
+  // overall scan instead of defaulting to a meaningless "pending" hollow icon.
+  if (fallbackStatus === "passed") return "passed";
+  if (fallbackStatus === "failed") return "skipped"; // didn't necessarily run
   return "pending";
 }
 
-const statusColor = {
-  passed:  C.green,
-  failed:  C.red,
-  running: C.teal,
-  pending: C.inkMuted,
-};
-const statusBg = {
-  passed:  C.greenSoft,
-  failed:  C.redSoft,
-  running: C.tealSoft,
-  pending: C.bgSurface,
-};
-const statusBord = {
-  passed:  C.greenBord,
-  failed:  C.redBord,
-  running: C.tealBord,
-  pending: C.border,
-};
+function normaliseScan(raw) {
+  // Used by resultToStatus() as a fallback signal when a stage has no
+  // explicit result of its own.
+  const overallOutcome = raw.action_taken === "BLOCK" ? "failed"
+    : raw.action_taken === "ALLOW" ? "passed"
+    : null;
 
-/* ─── Primitive UI components ────────────────────────────────────────────── */
+  const steps = raw.pipeline_steps || {};
+  const pipeline = PIPELINE_STAGES.map(({ key, label, Icon }) => {
+    const info = steps[key] || {};
+    return {
+      id: key, name: label, Icon,
+      status:  resultToStatus(info.result || info.status, overallOutcome),
+      result:  info.result  || info.status || "",
+      detail:  info.detail  || "",
+    };
+  });
 
-function Card({ children, style, className = "", onClick }) {
-  return (
-    <div
-      className={`sf-card ${className}`}
-      style={{ padding: "20px", ...style }}
-      onClick={onClick}
-    >
-      {children}
-    </div>
-  );
-}
+  let vuln_breakdown = raw.vuln_breakdown || null;
+  if (!vuln_breakdown && raw.findings?.Results) {
+    const all = [];
+    (raw.findings.Results || []).forEach(r => (r.Vulnerabilities || []).forEach(v => all.push(v)));
+    const fixable = all.filter(v => v.FixedVersion);
+    vuln_breakdown = {
+      total:         all.length,
+      fixable_count: fixable.length,
+      fixable_details: fixable.slice(0,6).map(v => ({
+        id:       v.VulnerabilityID,
+        package:  v.PkgName,
+        severity: v.Severity,
+        fix:      v.FixedVersion || "—",
+        cvss:     v.CVSS ? Math.max(...Object.values(v.CVSS).map(c => c.V3Score||c.V2Score||0)) : 0,
+      })),
+      base_image_note: all.filter(v => !v.FixedVersion).length > 8
+        ? "Most CVEs originate from the base image." : undefined,
+    };
+  }
 
-function Badge({ children, color, bg, border, style }) {
-  return (
-    <span
-      className="sf-badge"
-      style={{ color, background: bg, border: `1px solid ${border}`, ...style }}
-    >
-      {children}
-    </span>
-  );
-}
+  const aiConf = raw.ai_confidence != null
+    ? raw.ai_confidence
+    : raw.risk_score != null
+      ? Math.min(99, Math.max(60, Math.floor(raw.risk_score * 10)))
+      : null;
 
-function StatusBadge({ status }) {
-  const icons = {
-    passed:  <CheckCircle size={11} />,
-    failed:  <XCircle size={11} />,
-    running: <Loader2 size={11} className="spin" />,
-    pending: <Clock size={11} />,
+  /* Parse remedy out of ai_explanation if backend embeds it with "REMEDY:" prefix */
+  let ai_explanation = raw.ai_explanation || null;
+  let ai_remedy      = raw.ai_fix || raw.ai_remedy || null;
+
+  if (ai_explanation && !ai_remedy) {
+    const remMatch = ai_explanation.match(/REMEDY[:\-–]?\s*([\s\S]+)/i);
+    if (remMatch) {
+      ai_remedy      = remMatch[1].trim();
+      ai_explanation = ai_explanation.slice(0, remMatch.index).trim();
+    }
+  }
+
+  return {
+    ...raw,
+    pipeline,
+    vuln_breakdown,
+    ai_confidence:  aiConf,
+    ai_explanation,
+    ai_remedy,
+    status: raw.status || "complete",
   };
-  const labels = { passed: "Passed", failed: "Failed", running: "Running", pending: "Pending" };
-  return (
-    <Badge
-      color={statusColor[status] || C.inkLow}
-      bg={statusBg[status] || C.bgSurface}
-      border={statusBord[status] || C.border}
-    >
-      {icons[status]}
-      {labels[status] || status}
-    </Badge>
-  );
 }
 
-function Divider({ style }) {
-  return <div style={{ height: 1, background: C.border, ...style }} />;
+const fmt     = iso => iso ? new Date(iso).toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : "—";
+const fmtFull = iso => iso ? new Date(iso).toLocaleString("en-IN",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "—";
+
+function relTime(iso) {
+  if (!iso) return "—";
+  const m = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (m < 5)   return "just now";
+  if (m < 60)  return `${m}s ago`;
+  const min = Math.floor(m/60);
+  if (min < 60) return `${min}m ago`;
+  const h = Math.floor(min/60);
+  return h < 24 ? `${h}h ago` : `${Math.floor(h/24)}d ago`;
 }
 
-function SectionHeader({ title, subtitle, right }) {
+const sevColor = s => ({
+  CRITICAL:C.red, HIGH:C.amber, MEDIUM:C.blue, LOW:C.inkMid, CLEAN:C.teal
+}[String(s||"").toUpperCase()] || C.inkMid);
+
+const riskColor = n => n >= 7 ? C.red : n >= 4 ? C.amber : C.teal;
+
+const TT = {
+  background: C.bgCard,
+  border:     `1px solid ${C.border}`,
+  borderRadius: 10,
+  fontSize:   12,
+  color:      C.ink,
+  boxShadow:  "0 8px 32px rgba(0,0,0,.4)",
+};
+
+/* ─────────────────────────────────────────────
+   PRIMITIVE COMPONENTS
+───────────────────────────────────────────── */
+const Badge = ({ color, children, small }) => (
+  <span style={{
+    display:"inline-flex", alignItems:"center", gap:4,
+    padding: small ? "2px 7px" : "3px 9px",
+    borderRadius:999, fontSize: small ? 10 : 11, fontWeight:700,
+    background: color+"18", color,
+    border:`1px solid ${color}35`,
+    fontFamily:C.mono, whiteSpace:"nowrap",
+    letterSpacing:"0.02em",
+  }}>{children}</span>
+);
+
+const Card = ({ children, glow, style={}, className="" }) => (
+  <div className={`sf-card-hover ${className}`} style={{
+    background: C.bgCard,
+    borderRadius:16,
+    border:`1px solid ${glow ? C.tealBord : C.border}`,
+    padding:"20px",
+    marginBottom:16,
+    boxShadow: glow ? `0 0 30px ${C.teal}12` : "0 2px 12px rgba(0,0,0,.3)",
+    ...style,
+  }}>{children}</div>
+);
+
+const SectionTitle = ({ children, accent, right }) => (
+  <div style={{
+    fontSize:10, fontWeight:800, color: accent || C.inkMid,
+    letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:14,
+    display:"flex", alignItems:"center", justifyContent:"space-between",
+  }}>
+    <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+      {accent && <div style={{ width:3, height:14, background:accent, borderRadius:2, flexShrink:0 }} />}
+      {children}
+    </div>
+    {right}
+  </div>
+);
+
+/* ─────────────────────────────────────────────
+   PROMETHEUS GAUGE  (SVG arc gauge)
+───────────────────────────────────────────── */
+function PrometheusGauge({ value, max=100, label, unit="", color, size=100 }) {
+  const r = (size - 16) / 2;
+  const arc = Math.PI * r; // half-circle arc length
+  const offset = arc - (Math.min(value, max) / max) * arc;
+
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18 }}>
-      <div>
-        <h2 style={{ fontSize: 15, fontWeight: 600, color: C.ink, marginBottom: 2 }}>{title}</h2>
-        {subtitle && <p style={{ fontSize: 12, color: C.inkLow }}>{subtitle}</p>}
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+      <div style={{ position:"relative", width:size, height:size/2 + 10 }}>
+        <svg width={size} height={size/2 + 14} style={{ overflow:"visible" }}>
+          {/* Track */}
+          <path
+            d={`M 8 ${size/2} A ${r} ${r} 0 0 1 ${size-8} ${size/2}`}
+            fill="none" stroke={C.bgSurface} strokeWidth={10} strokeLinecap="round"
+          />
+          {/* Fill */}
+          <path
+            d={`M 8 ${size/2} A ${r} ${r} 0 0 1 ${size-8} ${size/2}`}
+            fill="none" stroke={color} strokeWidth={10} strokeLinecap="round"
+            strokeDasharray={arc}
+            strokeDashoffset={offset}
+            style={{
+              transition:"stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1)",
+              filter:`drop-shadow(0 0 4px ${color}70)`,
+            }}
+          />
+          {/* Value text */}
+          <text x={size/2} y={size/2 + 2} textAnchor="middle"
+            fill={color} fontFamily={C.mono} fontSize={18} fontWeight={900}>
+            {typeof value === "number" ? value.toFixed(unit==="%"?1:0) : value}{unit}
+          </text>
+        </svg>
       </div>
-      {right}
-    </div>
-  );
-}
-
-function IconBtn({ Icon, onClick, title, active, size = 16 }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        width: 32, height: 32, borderRadius: 8,
-        background: active ? C.tealSoft : "transparent",
-        border: `1px solid ${active ? C.tealBord : "transparent"}`,
-        color: active ? C.teal : C.inkLow,
-        transition: "all .15s",
-      }}
-    >
-      <Icon size={size} />
-    </button>
-  );
-}
-
-function Spinner({ size = 20, color = C.teal }) {
-  return <Loader2 size={size} className="spin" style={{ color }} />;
-}
-
-function EmptyState({ Icon: Ic = Shield, title, desc }) {
-  return (
-    <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", gap: 10, padding: "40px 20px", color: C.inkMuted,
-    }}>
-      <Ic size={32} strokeWidth={1.5} />
-      <p style={{ fontSize: 13, fontWeight: 600, color: C.inkLow }}>{title}</p>
-      {desc && <p style={{ fontSize: 12, textAlign: "center", maxWidth: 240 }}>{desc}</p>}
-    </div>
-  );
-}
-
-/* ─── Custom Tooltip ─────────────────────────────────────────────────────── */
-function ChartTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div style={{
-      background: C.bgCard, border: `1px solid ${C.border}`,
-      borderRadius: 10, padding: "8px 12px", boxShadow: "0 4px 16px rgba(0,0,0,.08)",
-      fontSize: 12, color: C.ink,
-    }}>
-      {label && <p style={{ color: C.inkLow, marginBottom: 4 }}>{label}</p>}
-      {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color || C.teal, fontWeight: 600 }}>
-          {p.name}: {typeof p.value === "number" ? p.value.toLocaleString() : p.value}
-        </p>
-      ))}
-    </div>
-  );
-}
-
-/* ─── Stat Card ──────────────────────────────────────────────────────────── */
-function StatCard({ label, value, delta, deltaDir = "up", icon: Ic, accent = C.teal, loading }) {
-  return (
-    <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: C.inkLow, letterSpacing: ".02em", textTransform: "uppercase" }}>
-          {label}
-        </span>
-        {Ic && (
-          <div style={{
-            width: 34, height: 34, borderRadius: 9,
-            background: accent + "14", display: "flex",
-            alignItems: "center", justifyContent: "center",
-          }}>
-            <Ic size={16} style={{ color: accent }} />
-          </div>
-        )}
+      <div style={{ fontSize:10, color:C.inkMid, fontWeight:700, letterSpacing:"0.08em",
+        textTransform:"uppercase", textAlign:"center" }}>
+        {label}
       </div>
-      {loading
-        ? <div className="sf-skeleton" style={{ height: 32, width: "60%" }} />
-        : <p style={{ fontSize: 26, fontWeight: 700, color: C.ink, lineHeight: 1 }}>{value ?? "—"}</p>
-      }
-      {delta !== undefined && (
-        <span className={`sf-badge delta-${deltaDir}`} style={{ alignSelf: "flex-start" }}>
-          {deltaDir === "up" ? <TrendingUp size={10} /> : <ChevronDown size={10} />}
-          {delta}
-        </span>
-      )}
-    </Card>
+    </div>
   );
 }
 
-/* ─── Pipeline Visualiser ────────────────────────────────────────────────── */
-function PipelineStages({ stages = {} }) {
+/* ─────────────────────────────────────────────
+   HEALTH RING
+───────────────────────────────────────────── */
+const HealthRing = ({ score, size=110 }) => {
+  const r = (size-14)/2;
+  const circ = 2*Math.PI*r;
+  const offset = circ - (score/100)*circ;
+  const color = score>=75 ? C.teal : score>=50 ? C.amber : C.red;
+
   return (
-    <div style={{
-      display: "flex", alignItems: "center",
-      gap: 0, overflowX: "auto", paddingBottom: 4,
-    }}>
-      {PIPELINE_STAGES.map(({ key, label, Icon: Ic }, idx) => {
-        const st = resultToStatus(stages[key] || {});
-        const col = statusColor[st];
-        const bg  = statusBg[st];
-        const brd = statusBord[st];
+    <div style={{ position:"relative", width:size, height:size }}>
+      <svg width={size} height={size} style={{ position:"absolute", inset:0 }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color+"20"} strokeWidth={10} />
+      </svg>
+      <svg width={size} height={size} style={{ transform:"rotate(-90deg)", position:"absolute", inset:0 }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.bgSurface} strokeWidth={10} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={10}
+          strokeDasharray={circ} strokeLinecap="round"
+          style={{
+            strokeDashoffset: offset,
+            transition:"stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1)",
+            filter:`drop-shadow(0 0 6px ${color}80)`,
+          }}
+        />
+      </svg>
+      <div style={{
+        position:"absolute", inset:0, display:"flex",
+        alignItems:"center", justifyContent:"center", flexDirection:"column",
+      }}>
+        <div style={{ fontSize:24, fontWeight:900, fontFamily:C.mono }}>{score}</div>
+        <div style={{ fontSize:8, color, fontWeight:800, letterSpacing:"0.1em" }}>HEALTH</div>
+      </div>
+    </div>
+  );
+};
+
+const RiskBar = ({ score }) => {
+  const color = riskColor(score);
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+      <div style={{ flex:1, height:6, background:C.bgSurface, borderRadius:4, overflow:"hidden" }}>
+        <div style={{
+          width:`${Math.min(100,score*10)}%`, height:"100%",
+          background:`linear-gradient(90deg, ${color}80, ${color})`,
+          borderRadius:4,
+          transition:"width 1s cubic-bezier(.4,0,.2,1)",
+          boxShadow:`0 0 8px ${color}60`,
+        }} />
+      </div>
+      <span style={{ fontFamily:C.mono, fontSize:13, color, fontWeight:700, minWidth:24 }}>{score}</span>
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────
+   PIPELINE NODES
+───────────────────────────────────────────── */
+function PipelineMiniNodes({ pipeline }) {
+  if (!pipeline?.length) return null;
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:0, margin:"14px 0 4px", overflowX:"auto", paddingBottom:4 }}>
+      {pipeline.map((stage, i) => {
+        const color =
+          stage.status === "passed"  ? C.teal  :
+          stage.status === "failed"  ? C.red   :
+          stage.status === "running" ? C.blue  :
+          stage.status === "skipped" ? C.inkMid :
+          C.inkLow;
+        const { Icon } = stage;
         return (
-          <React.Fragment key={key}>
-            <div style={{
-              display: "flex", flexDirection: "column", alignItems: "center",
-              gap: 6, minWidth: 72, flex: "0 0 auto",
-            }}>
+          <React.Fragment key={stage.id}>
+            {i > 0 && (
               <div style={{
-                width: 44, height: 44, borderRadius: 12,
-                background: bg, border: `1.5px solid ${brd}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "all .2s",
+                flex:1, height:2, minWidth:8, maxWidth:28,
+                background: pipeline[i-1].status === "passed"
+                  ? `linear-gradient(90deg,${C.teal}60,${color}60)` : C.border,
+              }} />
+            )}
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, minWidth:52 }}>
+              <div style={{
+                width:34, height:34, borderRadius:"50%",
+                border:`2px solid ${color}`,
+                background: color+"12",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                color,
+                boxShadow: stage.status === "running"
+                  ? `0 0 0 4px ${color}20, 0 0 16px ${color}40` : `0 0 8px ${color}20`,
+                animation: stage.status === "running" ? "pulseRing 1.5s infinite" : "none",
               }}>
-                {st === "running"
-                  ? <Spinner size={18} color={col} />
-                  : <Ic size={18} style={{ color: col }} />
-                }
+                {stage.status === "running" ? <Loader2 size={15} className="spin" /> :
+                 stage.status === "passed"  ? <CheckCircle size={15} /> :
+                 stage.status === "failed"  ? <XCircle size={15} /> :
+                 stage.status === "skipped" ? <span style={{ fontSize:11 }}>—</span> :
+                 Icon ? <Icon size={13} /> : null}
               </div>
-              <div style={{ textAlign: "center" }}>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.inkMid, lineHeight: 1.2 }}>{label}</p>
-                <p style={{ fontSize: 9, color: col, fontWeight: 600, textTransform: "uppercase", marginTop: 2 }}>{st}</p>
+              <div style={{ fontSize:9, color:C.inkMid, textAlign:"center", whiteSpace:"nowrap" }}>
+                {stage.name}
               </div>
             </div>
-            {idx < PIPELINE_STAGES.length - 1 && (
-              <div className={`sf-pipe-connector ${st === "passed" ? "passed" : st === "failed" ? "failed" : ""}`} />
-            )}
           </React.Fragment>
         );
       })}
@@ -538,996 +623,1816 @@ function PipelineStages({ stages = {} }) {
   );
 }
 
-/* ─── Scan Row ───────────────────────────────────────────────────────────── */
-function ScanRow({ scan, onOpen }) {
-  const status = scan.status === "blocked" ? "failed" : "passed";
+function PipelineFullView({ pipeline }) {
+  if (!pipeline?.length) return null;
   return (
-    <div
-      onClick={() => onOpen(scan)}
-      style={{
-        display: "flex", alignItems: "center", gap: 12,
-        padding: "12px 16px", borderRadius: 10,
-        cursor: "pointer", transition: "background .15s",
-      }}
-      onMouseEnter={e => e.currentTarget.style.background = C.bgSurface}
-      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-    >
-      <div style={{
-        width: 8, height: 8, borderRadius: "50%",
-        background: status === "passed" ? C.green : C.red,
-        flexShrink: 0,
-      }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 13, fontWeight: 500, color: C.ink, truncate: true, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {scan.image || scan.repo || "Unknown target"}
-        </p>
-        <p style={{ fontSize: 11, color: C.inkLow, marginTop: 1 }}>
-          {scan.commit ? `${scan.commit.slice(0, 7)} · ` : ""}{fmt.ago(scan.scanned_at || scan.created_at)}
-        </p>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        {scan.critical > 0 && (
-          <Badge color={C.red} bg={C.redSoft} border={C.redBord}><Flame size={10} />{scan.critical} crit</Badge>
-        )}
-        {scan.high > 0 && (
-          <Badge color={C.amber} bg={C.amberSoft} border={C.amberBord}><AlertTriangle size={10} />{scan.high} high</Badge>
-        )}
-        <StatusBadge status={status} />
-      </div>
-    </div>
-  );
-}
-
-/* ─── Why Blocked Modal ──────────────────────────────────────────────────── */
-function WhyBlockedModal({ scan, onClose }) {
-  const [remedy, setRemedy]     = useState(null);
-  const [remedyState, setRS]    = useState("idle"); // idle | loading | success | empty | error
-  const [remedyErr, setRErr]    = useState("");
-
-  const fetchRemedy = useCallback(async () => {
-    if (!scan) return;
-    setRS("loading");
-    try {
-      const res = await fetch(`${BACKEND}/api/remedy`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scan_id: scan.id, scan }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const text = data?.ai_remedy || data?.remedy || data?.message || "";
-      if (text.trim()) { setRemedy(text); setRS("success"); }
-      else             { setRS("empty"); }
-    } catch (e) {
-      setRErr(e.message);
-      setRS("error");
-    }
-  }, [scan]);
-
-  if (!scan) return null;
-
-  const vulns = scan.vulnerabilities || [];
-  const crit  = vulns.filter(v => v.severity === "CRITICAL");
-  const high  = vulns.filter(v => v.severity === "HIGH");
-  const med   = vulns.filter(v => v.severity === "MEDIUM");
-
-  return (
-    <div
-      className="fade-in"
-      style={{
-        position: "fixed", inset: 0, zIndex: 1000,
-        background: "rgba(15,23,42,.45)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 20,
-      }}
-      onClick={e => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        className="slide-up"
-        style={{
-          background: C.bgCard, border: `1px solid ${C.border}`,
-          borderRadius: 18, width: "100%", maxWidth: 620,
-          maxHeight: "90vh", display: "flex", flexDirection: "column",
-          boxShadow: "0 20px 60px rgba(15,23,42,.16)",
-          overflow: "hidden",
-        }}
-      >
-        {/* Header */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 12,
-          padding: "18px 20px", borderBottom: `1px solid ${C.border}`,
-        }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: 10,
-            background: C.redSoft, display: "flex",
-            alignItems: "center", justifyContent: "center",
-          }}>
-            <AlertCircle size={18} style={{ color: C.red }} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>Why was this blocked?</h3>
-            <p style={{ fontSize: 12, color: C.inkLow, marginTop: 1, fontFamily: C.mono }}>
-              {scan.image || scan.repo}
-            </p>
-          </div>
-          <IconBtn Icon={X} onClick={onClose} title="Close" />
-        </div>
-
-        {/* Body */}
-        <div style={{ overflowY: "auto", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
-
-          {/* Vuln summary */}
-          <div style={{ display: "flex", gap: 10 }}>
-            {[
-              { label: "Critical", count: crit.length, col: C.red,   bg: C.redSoft,   brd: C.redBord },
-              { label: "High",     count: high.length, col: C.amber, bg: C.amberSoft, brd: C.amberBord },
-              { label: "Medium",   count: med.length,  col: C.blue,  bg: C.blueSoft,  brd: C.blueBord },
-            ].map(({ label, count, col, bg, brd }) => (
-              <div key={label} style={{
-                flex: 1, background: bg, border: `1px solid ${brd}`,
-                borderRadius: 10, padding: "12px 14px", textAlign: "center",
+    <div style={{ marginTop:16 }}>
+      {pipeline.map((stage, i) => {
+        const color =
+          stage.status === "passed"  ? C.teal  :
+          stage.status === "failed"  ? C.red   :
+          stage.status === "running" ? C.blue  : C.inkMid;
+        const { Icon } = stage;
+        return (
+          <div key={stage.id} style={{ display:"flex", gap:12, marginBottom:0 }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", width:34, flexShrink:0 }}>
+              <div style={{
+                width:32, height:32, borderRadius:"50%",
+                border:`2px solid ${color}`,
+                background:color+"12",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                color, flexShrink:0,
+                boxShadow: stage.status==="running" ? `0 0 14px ${color}50` : "none",
+                animation: stage.status==="running" ? "pulseRing 1.5s infinite" : "none",
               }}>
-                <p style={{ fontSize: 22, fontWeight: 700, color: col }}>{count}</p>
-                <p style={{ fontSize: 11, color: col, fontWeight: 500, marginTop: 2 }}>{label}</p>
+                {stage.status === "running" ? <Loader2 size={14} className="spin" /> :
+                 stage.status === "passed"  ? <CheckCircle size={14} /> :
+                 stage.status === "failed"  ? <XCircle size={14} /> :
+                 Icon ? <Icon size={12} /> : null}
               </div>
-            ))}
-          </div>
-
-          {/* Vuln list */}
-          {vulns.length > 0 && (
-            <div>
-              <p style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, marginBottom: 8 }}>
-                Top vulnerabilities
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {vulns.slice(0, 8).map((v, i) => (
-                  <div key={i} style={{
-                    display: "flex", alignItems: "flex-start", gap: 10,
-                    padding: "10px 12px", background: C.bgSurface,
-                    borderRadius: 8, border: `1px solid ${C.border}`,
-                  }}>
-                    <Badge
-                      color={v.severity === "CRITICAL" ? C.red : v.severity === "HIGH" ? C.amber : C.blue}
-                      bg={v.severity === "CRITICAL" ? C.redSoft : v.severity === "HIGH" ? C.amberSoft : C.blueSoft}
-                      border={v.severity === "CRITICAL" ? C.redBord : v.severity === "HIGH" ? C.amberBord : C.blueBord}
-                    >
-                      {v.severity}
-                    </Badge>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontSize: 12, fontWeight: 600, color: C.ink, fontFamily: C.mono }}>{v.cve_id || v.id}</p>
-                      <p style={{ fontSize: 11, color: C.inkLow, marginTop: 2 }}>{v.package} {v.version && `(${v.version})`}</p>
-                      {v.description && (
-                        <p style={{ fontSize: 11, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                          {v.description.length > 120 ? v.description.slice(0, 120) + "…" : v.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {i < pipeline.length-1 && (
+                <div style={{
+                  width:2, flex:1, minHeight:20,
+                  background: stage.status==="passed" ? `linear-gradient(${color}, ${color}30)` : C.border,
+                  marginTop:4, marginBottom:4, borderRadius:2,
+                }} />
+              )}
             </div>
-          )}
-
-          {/* Remedy */}
-          <div>
-            <p style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, marginBottom: 8 }}>AI Remedy</p>
-            {remedyState === "idle" && (
-              <button
-                onClick={fetchRemedy}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  background: C.tealSoft, color: C.teal,
-                  border: `1.5px solid ${C.tealBord}`, borderRadius: 10,
-                  padding: "10px 16px", fontSize: 13, fontWeight: 600,
-                  transition: "all .15s",
-                }}
-              >
-                <Sparkles size={14} /> Get AI Remedy
-              </button>
-            )}
-            {remedyState === "loading" && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkLow, fontSize: 13 }}>
-                <Spinner size={14} /> Generating remedy…
+            <div style={{ flex:1, paddingBottom: i < pipeline.length-1 ? 14 : 0 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom: stage.detail ? 4 : 0 }}>
+                <span style={{ fontWeight:600, fontSize:13, color:C.ink }}>{stage.name}</span>
+                <Badge color={color} small>{stage.result || stage.status}</Badge>
               </div>
-            )}
-            {remedyState === "success" && remedy && (
-              <div className="remedy-block">
-                <p style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{remedy}</p>
-              </div>
-            )}
-            {remedyState === "empty" && (
-              <div className="remedy-error">
-                <p style={{ fontSize: 12, color: C.amber, fontWeight: 500 }}>
-                  The backend responded but didn't provide a remedy for this scan.
-                </p>
-                <button onClick={fetchRemedy} style={{ marginTop: 8, fontSize: 12, color: C.amber, background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>
-                  Try again
-                </button>
-              </div>
-            )}
-            {remedyState === "error" && (
-              <div className="remedy-error">
-                <p style={{ fontSize: 12, color: C.red, fontWeight: 500 }}>
-                  Failed to fetch remedy: {remedyErr}
-                </p>
-                <button onClick={fetchRemedy} style={{ marginTop: 8, fontSize: 12, color: C.red, background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>
-                  Retry
-                </button>
-              </div>
-            )}
+              {stage.detail && (
+                <div style={{
+                  fontSize:12, color:C.inkMid, fontFamily:C.mono,
+                  background:C.bgSurface, padding:"6px 10px",
+                  borderRadius:6, border:`1px solid ${C.border}`, marginTop:4,
+                }}>
+                  {stage.detail}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button
-            onClick={onClose}
-            style={{
-              background: C.bgSurface, color: C.inkMid,
-              border: `1px solid ${C.border}`, borderRadius: 9,
-              padding: "8px 16px", fontSize: 13, fontWeight: 500,
-            }}
-          >
-            Close
-          </button>
-        </div>
-      </div>
+        );
+      })}
     </div>
   );
 }
 
-/* ─── AI Analysis Block ──────────────────────────────────────────────────── */
-function AIAnalysisBlock({ scan }) {
-  const [remedy, setRemedy]  = useState(null);
-  const [state, setState]    = useState("idle");
-  const [err, setErr]        = useState("");
+/* ─────────────────────────────────────────────
+   AI ANALYSIS BLOCK  (explanation + remedy)
+   FIX #3: fetchRemedy now distinguishes network failure / bad-status
+   / "ok but empty" / success, and renders a visible error state instead
+   of silently resetting to the "Show remedy" button.
+───────────────────────────────────────────── */
+function AIAnalysisBlock({ scan, compact=false }) {
+  const [loadingRemedy, setLoadingRemedy] = useState(false);
+  const [remedy, setRemedy] = useState(scan.ai_remedy || null);
+  const [remedyError, setRemedyError] = useState(null);
 
-  const fetchRemedy = useCallback(async () => {
-    if (!scan) return;
-    setState("loading");
+  const fetchRemedy = async () => {
+    if (remedy || loadingRemedy) return;
+    setLoadingRemedy(true);
+    setRemedyError(null);
     try {
-      const res = await fetch(`${BACKEND}/api/remedy`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scan_id: scan.id, scan }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const text = data?.ai_remedy || data?.remedy || data?.message || "";
-      if (text.trim()) { setRemedy(text); setState("success"); }
-      else             { setState("empty"); }
-    } catch (e) {
-      setErr(e.message);
-      setState("error");
-    }
-  }, [scan]);
-
-  if (!scan) return null;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <Brain size={14} style={{ color: C.violet }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: C.inkMid }}>AI Analysis</span>
-      </div>
-      {state === "idle" && (
-        <button
-          onClick={fetchRemedy}
-          style={{
-            alignSelf: "flex-start",
-            display: "flex", alignItems: "center", gap: 6,
-            background: C.violetSoft, color: C.violet,
-            border: `1px solid ${C.violetBord}`, borderRadius: 8,
-            padding: "7px 12px", fontSize: 12, fontWeight: 600,
-            transition: "all .15s",
-          }}
-        >
-          <Sparkles size={12} /> Analyse
-        </button>
-      )}
-      {state === "loading" && (
-        <div style={{ display: "flex", gap: 7, alignItems: "center", color: C.inkLow, fontSize: 12 }}>
-          <Spinner size={12} /> Analysing…
-        </div>
-      )}
-      {state === "success" && <div className="remedy-block"><p style={{ fontSize: 12, color: C.ink, lineHeight: 1.65 }}>{remedy}</p></div>}
-      {state === "empty"   && <p style={{ fontSize: 12, color: C.amberMid }}>No AI remedy available from backend.</p>}
-      {state === "error"   && (
-        <div className="remedy-error">
-          <p style={{ fontSize: 12, color: C.red }}>Error: {err}</p>
-          <button onClick={fetchRemedy} style={{ fontSize: 11, color: C.red, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", marginTop: 4 }}>Retry</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ─── AI Copilot Chat ────────────────────────────────────────────────────── */
-function CopilotChat({ isOpen, onClose, recentScans, stats, focusScan }) {
-  const [messages, setMessages] = useState([
-    { role: "bot", text: "Hi! I'm your SecureFlow AI Copilot. Ask me about your pipeline security, scan results, or how to fix specific vulnerabilities." },
-  ]);
-  const [input, setInput]   = useState("");
-  const [loading, setLoading] = useState(false);
-  const scrollRef = useRef(null);
-
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages]);
-
-  const send = useCallback(async () => {
-    const q = input.trim();
-    if (!q || loading) return;
-    setInput("");
-    setMessages(m => [...m, { role: "user", text: q }]);
-    setLoading(true);
-    try {
-      const context = {
-        question: q,
-        recent_scans: recentScans?.slice(0, 5) || [],
-        stats: stats || {},
-        focus_scan: focusScan || null,
-        timestamp: new Date().toISOString(),
-      };
-      const res = await fetch(`${BACKEND}/api/copilot`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(context),
-      });
-      const data = await res.json();
-      const reply = data?.response || data?.message || data?.answer || "I couldn't get a response. Please try again.";
-      setMessages(m => [...m, { role: "bot", text: reply }]);
-    } catch (e) {
-      setMessages(m => [...m, { role: "bot", text: `Network error: ${e.message}. Is the backend running?` }]);
+      const res = await fetch(`${BACKEND}/api/scan-results/${scan.id}/reanalyze`, { method:"POST" });
+      if (!res.ok) {
+        setRemedyError(`Backend returned ${res.status}. The reanalyze endpoint may be failing — check backend logs.`);
+        return;
+      }
+      const d = await res.json();
+      if (d?.ai_fix || d?.ai_remedy) {
+        setRemedy(d.ai_fix || d.ai_remedy);
+        return;
+      }
+      if (d?.ai_explanation) {
+        const m = d.ai_explanation.match(/REMEDY[:\-–]?\s*([\s\S]+)/i);
+        if (m) { setRemedy(m[1].trim()); return; }
+      }
+      // Backend responded 200 but had nothing usable — surface this
+      // instead of silently re-showing the button with no explanation.
+      setRemedyError("The AI re-analysis didn't return a remedy. The backend may not have generated one for this scan type — try again, or check the AI analysis text above for manual next steps.");
+    } catch (err) {
+      setRemedyError("Couldn't reach the backend to fetch a remedy. Check your connection or the backend service status.");
     } finally {
-      setLoading(false);
+      setLoadingRemedy(false);
     }
-  }, [input, loading, recentScans, stats, focusScan]);
+  };
 
-  if (!isOpen) return null;
+  if (!scan.ai_explanation && !scan.ai_remedy) return null;
+
   return (
-    <div
-      className="slide-right"
-      style={{
-        position: "fixed", right: 20, bottom: 88, zIndex: 900,
-        width: 360, maxHeight: "70vh",
-        background: C.bgCard, border: `1px solid ${C.border}`,
-        borderRadius: 18, display: "flex", flexDirection: "column",
-        boxShadow: "0 16px 48px rgba(15,23,42,.14)",
-        overflow: "hidden",
-      }}
-    >
+    <div style={{
+      marginTop:12, padding:compact?10:14,
+      background:C.violetSoft, borderRadius:10,
+      border:`1px solid ${C.violetBord}`,
+      fontSize:13, lineHeight:1.65,
+    }}>
       {/* Header */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
-        padding: "14px 16px", borderBottom: `1px solid ${C.border}`,
-        background: C.bgSurface,
+        display:"flex", gap:6, alignItems:"center",
+        color:C.violet, fontWeight:700, marginBottom:8,
+        fontSize:10, letterSpacing:"0.1em",
       }}>
-        <div style={{
-          width: 32, height: 32, borderRadius: 9,
-          background: C.tealSoft, display: "flex",
-          alignItems: "center", justifyContent: "center",
-          border: `1px solid ${C.tealBord}`,
-        }}>
-          <Bot size={15} style={{ color: C.teal }} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <p style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>AI Copilot</p>
-          <p style={{ fontSize: 11, color: C.green, display: "flex", alignItems: "center", gap: 3 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green, display: "inline-block" }} />
-            Online
-          </p>
-        </div>
-        <IconBtn Icon={Minimize2} onClick={onClose} title="Minimise" />
-      </div>
-
-      {/* Messages */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px 10px", display: "flex", flexDirection: "column", gap: 10 }}>
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={m.role === "user" ? "sf-msg-user" : "sf-msg-bot"}
-            style={{ padding: "10px 13px", fontSize: 13, lineHeight: 1.6, maxWidth: "90%" }}
-          >
-            {m.text}
-          </div>
-        ))}
-        {loading && (
-          <div className="sf-msg-bot" style={{ padding: "10px 13px", display: "flex", gap: 6, alignItems: "center", color: C.inkLow, fontSize: 13 }}>
-            <Spinner size={13} /> Thinking…
-          </div>
+        <Brain size={11} /> AI ANALYSIS
+        {scan.ai_confidence != null && (
+          <span style={{ marginLeft:"auto", color:C.inkMid, fontSize:10, letterSpacing:0, fontWeight:400 }}>
+            {scan.ai_confidence}% confidence
+          </span>
         )}
       </div>
 
-      {/* Input */}
-      <div style={{ padding: "10px 12px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 8 }}>
-        <input
-          className="sf-chat-input"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
-          placeholder="Ask about your pipeline security…"
-        />
-        <button
-          onClick={send}
-          disabled={!input.trim() || loading}
-          style={{
-            width: 36, height: 36, borderRadius: 9, flexShrink: 0,
-            background: (!input.trim() || loading) ? C.bgSurface : C.teal,
-            border: `1px solid ${(!input.trim() || loading) ? C.border : C.teal}`,
-            color: (!input.trim() || loading) ? C.inkMuted : "#fff",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            transition: "all .15s",
-          }}
-        >
-          <Send size={14} />
+      {/* Explanation */}
+      {scan.ai_explanation && (
+        <div style={{ color:C.ink, marginBottom: (remedy || !compact) ? 10 : 0 }}>
+          {scan.ai_explanation}
+        </div>
+      )}
+
+      {/* Remedy */}
+      {(remedy || loadingRemedy) && (
+        <div className="remedy-block">
+          <div style={{
+            display:"flex", alignItems:"center", gap:6,
+            fontSize:10, fontWeight:800, color:C.teal,
+            letterSpacing:"0.1em", marginBottom:6,
+          }}>
+            <Wrench size={11} /> RECOMMENDED REMEDY
+          </div>
+          {loadingRemedy ? (
+            <div style={{ display:"flex", alignItems:"center", gap:6, color:C.inkMid, fontSize:12 }}>
+              <Loader2 size={11} className="spin" /> Generating fix…
+            </div>
+          ) : (
+            <div style={{ fontSize:12, color:C.ink, lineHeight:1.65 }}>{remedy}</div>
+          )}
+        </div>
+      )}
+
+      {/* Error state — visible, with retry */}
+      {remedyError && !loadingRemedy && (
+        <div className="remedy-error">
+          <div style={{
+            display:"flex", alignItems:"center", gap:6,
+            fontSize:10, fontWeight:800, color:C.red,
+            letterSpacing:"0.1em", marginBottom:6,
+          }}>
+            <AlertCircle size={11} /> REMEDY UNAVAILABLE
+          </div>
+          <div style={{ fontSize:12, color:C.ink, lineHeight:1.6, marginBottom:8 }}>{remedyError}</div>
+          <button onClick={() => { setRemedyError(null); fetchRemedy(); }} style={{
+            display:"flex", alignItems:"center", gap:5,
+            fontSize:11, color:C.red, background:"none", border:`1px solid ${C.redBord}`,
+            borderRadius:6, padding:"4px 10px", fontWeight:600,
+          }}>
+            <RefreshCw size={11} /> Retry
+          </button>
+        </div>
+      )}
+
+      {/* Fetch remedy button (if no remedy yet, and no error showing) */}
+      {!remedy && !loadingRemedy && !remedyError && scan.action_taken === "BLOCK" && (
+        <button onClick={fetchRemedy} style={{
+          marginTop:8, display:"flex", alignItems:"center", gap:5,
+          fontSize:11, color:C.teal, background:"none", border:`1px solid ${C.tealBord}`,
+          borderRadius:6, padding:"4px 10px", fontWeight:600,
+        }}>
+          <Wrench size={11} /> Show remedy
         </button>
-      </div>
+      )}
     </div>
   );
 }
 
-/* ─── Sidebar Nav ────────────────────────────────────────────────────────── */
-const NAV_ITEMS = [
-  { key: "overview",   label: "Overview",    Icon: BarChart2       },
-  { key: "scans",      label: "Scans",       Icon: Shield          },
-  { key: "pipeline",   label: "Pipeline",    Icon: GitPullRequest  },
-  { key: "analytics",  label: "Analytics",   Icon: Activity        },
-  { key: "policy",     label: "Policy",      Icon: Lock            },
-];
+/* ─────────────────────────────────────────────
+   VULN BREAKDOWN
+───────────────────────────────────────────── */
+const VulnBreakdown = ({ breakdown }) => {
+  const [open, setOpen] = useState(false);
+  if (!breakdown?.total) return null;
+  const { total, fixable_count, fixable_details = [], base_image_note } = breakdown;
 
-function Sidebar({ active, onNav, connected }) {
   return (
-    <aside style={{
-      width: 220, flexShrink: 0,
-      background: C.bgCard, borderRight: `1px solid ${C.border}`,
-      display: "flex", flexDirection: "column",
-      height: "100vh", position: "sticky", top: 0,
-    }}>
-      {/* Logo */}
-      <div style={{
-        padding: "22px 20px 18px",
-        borderBottom: `1px solid ${C.border}`,
+    <div style={{ marginTop:12, border:`1px solid ${C.border}`, borderRadius:10, overflow:"hidden" }}>
+      <button onClick={() => setOpen(o=>!o)} style={{
+        width:"100%", padding:"10px 14px", background:C.bgSurface,
+        border:"none", color:C.ink,
+        display:"flex", justifyContent:"space-between", alignItems:"center",
+        fontSize:12, fontWeight:600,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 10,
-            background: C.teal, display: "flex",
-            alignItems: "center", justifyContent: "center",
-          }}>
-            <ShieldCheck size={18} style={{ color: "#fff" }} />
-          </div>
-          <div>
-            <p style={{ fontSize: 14, fontWeight: 700, color: C.ink, letterSpacing: "-.01em" }}>SecureFlow</p>
-            <p style={{ fontSize: 10, color: C.inkLow, marginTop: 1 }}>CI/CD Security</p>
-          </div>
+        <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <AlertTriangle size={13} color={C.amber} />
+          {total} vulnerabilities · {fixable_count} fixable
+        </span>
+        {open ? <ChevronUp size={14} color={C.inkMid} /> : <ChevronDown size={14} color={C.inkMid} />}
+      </button>
+      {open && (
+        <div style={{ padding:"12px 14px", background:C.bgCard, animation:"fadeIn .2s ease" }}>
+          {base_image_note && (
+            <div style={{ fontSize:12, color:C.inkMid, marginBottom:10, padding:"6px 10px", background:C.bgSurface, borderRadius:6 }}>
+              {base_image_note}
+            </div>
+          )}
+          {fixable_details.length === 0 && (
+            <div style={{ fontSize:12, color:C.inkMid }}>No actionable CVEs in top findings.</div>
+          )}
+          {fixable_details.map((v, i) => (
+            <div key={v.id||i} style={{
+              padding:"8px 0",
+              borderBottom: i < fixable_details.length-1 ? `1px solid ${C.border}` : "none",
+            }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                <Badge color={sevColor(v.severity)} small>{v.severity}</Badge>
+                <span style={{ fontFamily:C.mono, fontSize:11, color:C.blue }}>{v.id}</span>
+                {v.cvss > 0 && <span style={{ fontSize:10, color:C.inkMid }}>CVSS {v.cvss.toFixed(1)}</span>}
+              </div>
+              <div style={{ fontSize:12, color:C.inkMid }}>
+                <span style={{ color:C.ink }}>{v.package}</span>
+                {" → fix: "}
+                <span style={{ color:C.teal }}>{v.fix}</span>
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
-
-      {/* Nav */}
-      <nav style={{ flex: 1, padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
-        {NAV_ITEMS.map(({ key, label, Icon: Ic }) => (
-          <button
-            key={key}
-            onClick={() => onNav(key)}
-            style={{
-              display: "flex", alignItems: "center", gap: 10,
-              padding: "9px 12px", borderRadius: 9, border: "none",
-              background: active === key ? C.tealSoft : "transparent",
-              color: active === key ? C.teal : C.inkMid,
-              fontWeight: active === key ? 600 : 400,
-              fontSize: 13, textAlign: "left",
-              transition: "all .15s",
-              borderLeft: active === key ? `3px solid ${C.teal}` : "3px solid transparent",
-            }}
-          >
-            <Ic size={16} />
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      {/* Status */}
-      <div style={{ padding: "14px 16px", borderTop: `1px solid ${C.border}` }}>
-        <div style={{
-          display: "flex", alignItems: "center", gap: 7,
-          padding: "9px 12px", borderRadius: 9,
-          background: connected ? C.greenSoft : C.redSoft,
-          border: `1px solid ${connected ? C.greenBord : C.redBord}`,
-        }}>
-          {connected
-            ? <><Wifi size={13} style={{ color: C.green }} /><span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>Backend connected</span></>
-            : <><WifiOff size={13} style={{ color: C.red }} /><span style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>Backend offline</span></>
-          }
-        </div>
-      </div>
-    </aside>
+      )}
+    </div>
   );
-}
+};
 
-/* ─── Overview Tab ───────────────────────────────────────────────────────── */
-function OverviewTab({ stats, recentScans, loading, onOpenScan }) {
-  const chartData = useMemo(() => {
-    if (!recentScans?.length) return [];
-    return recentScans.slice(0, 10).reverse().map((s, i) => ({
-      name: `#${i + 1}`,
-      critical: s.critical || 0,
-      high:     s.high || 0,
-      medium:   s.medium || 0,
-    }));
-  }, [recentScans]);
-
-  const pieData = [
-    { name: "Passed", value: stats?.passed || 0, color: C.green },
-    { name: "Blocked", value: stats?.blocked || 0, color: C.red },
-  ];
+/* ─────────────────────────────────────────────
+   COMMIT CARD
+───────────────────────────────────────────── */
+const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail, animDelay=0 }) => {
+  const [expanded, setExpanded] = useState(false);
+  const blocked   = scan.action_taken === "BLOCK";
+  const isRunning = scan.status === "running";
+  const isTimeout = scan.status === "timeout";
+  const accent    = isRunning ? C.blue : isTimeout ? C.amber : blocked ? C.red : C.teal;
+  const myFb      = feedback?.[scan.id];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Stat cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-        <StatCard label="Total Scans"   value={stats?.total}   icon={Shield}        accent={C.teal}  loading={loading} delta="+12% this week" deltaDir="up" />
-        <StatCard label="Blocked"       value={stats?.blocked} icon={XCircle}       accent={C.red}   loading={loading} delta="-3 vs last week" deltaDir="down" />
-        <StatCard label="Passed"        value={stats?.passed}  icon={CheckCircle}   accent={C.green} loading={loading} />
-        <StatCard label="Avg Vuln/Scan" value={stats?.avg_vulns?.toFixed(1) ?? "—"} icon={AlertTriangle} accent={C.amber} loading={loading} />
+    <div className="fade-up" style={{
+      background: C.bgCard, borderRadius:14,
+      border:`1px solid ${C.border}`, borderLeft:`3px solid ${accent}`,
+      padding:"16px", marginBottom:10,
+      transition:"border-color .25s, box-shadow .25s, transform .2s",
+      animationDelay:`${animDelay}s`,
+    }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor=C.borderBright; e.currentTarget.style.transform="translateY(-1px)"; e.currentTarget.style.boxShadow="0 8px 24px rgba(0,0,0,.35)"; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor=C.border; e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; }}
+    >
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}>
+        <div style={{ minWidth:0, flex:1 }}>
+          <div style={{ display:"flex", gap:7, alignItems:"center", marginBottom:6, flexWrap:"wrap" }}>
+            <span style={{ fontFamily:C.mono, color:C.blue, fontSize:12 }}>{scan.commit_sha?.slice(0,8)}</span>
+            {isRunning  && <Badge color={C.blue}>SCANNING</Badge>}
+            {isTimeout  && <Badge color={C.amber}>TIMED OUT</Badge>}
+            {!isRunning && !isTimeout && <Badge color={blocked ? C.red : C.teal}>{scan.action_taken || "ALLOW"}</Badge>}
+            {scan.severity && scan.severity !== "UNKNOWN" && <Badge color={sevColor(scan.severity)}>{scan.severity}</Badge>}
+            {scan.risk_score != null && <Badge color={riskColor(scan.risk_score)}>Risk {scan.risk_score}</Badge>}
+          </div>
+          <div style={{ fontSize:14, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:C.ink }}>
+            {scan.commit_message || scan.repo_name}
+          </div>
+          <div style={{ fontSize:11, color:C.inkMid, display:"flex", alignItems:"center", gap:6, marginTop:3 }}>
+            <GitBranch size={10} />
+            {scan.repo_name}
+            <span style={{ color:C.inkLow }}>·</span>
+            {scan.branch}
+            <span style={{ color:C.inkLow }}>·</span>
+            {relTime(scan.created_at || scan.started_at)}
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:7, flexShrink:0 }}>
+          {blocked && (
+            <button onClick={() => onOpenWhyBlocked?.(scan)} style={{
+              padding:"6px 11px", borderRadius:8,
+              background:C.redSoft, border:`1px solid ${C.redBord}`,
+              color:C.red, fontSize:12, fontWeight:600,
+              display:"flex", alignItems:"center", gap:5,
+            }}>
+              <AlertTriangle size={12} /> Why blocked?
+            </button>
+          )}
+          <button onClick={() => setExpanded(e=>!e)} style={{
+            padding:"6px 11px", borderRadius:8,
+            background:C.bgSurface, border:`1px solid ${C.border}`,
+            color:C.ink, fontSize:12, fontWeight:600,
+          }}>
+            {expanded ? "Collapse" : "Expand"}
+          </button>
+        </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 14 }}>
-        {/* Vulnerability trend */}
-        <Card>
-          <SectionHeader title="Vulnerability Trend" subtitle="Last 10 scans" />
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
-              <defs>
-                <linearGradient id="gc" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={C.red}   stopOpacity={0.15} />
-                  <stop offset="95%" stopColor={C.red}   stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="gh" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={C.amber} stopOpacity={0.12} />
-                  <stop offset="95%" stopColor={C.amber} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: C.inkLow }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: C.inkLow }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="critical" stroke={C.red}   fill="url(#gc)" strokeWidth={2} name="Critical" />
-              <Area type="monotone" dataKey="high"     stroke={C.amber} fill="url(#gh)" strokeWidth={2} name="High" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
+      <PipelineMiniNodes pipeline={scan.pipeline} />
 
-        {/* Pass/fail ratio */}
-        <Card>
-          <SectionHeader title="Pass / Block Ratio" />
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-            <ResponsiveContainer width="100%" height={160}>
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" innerRadius={52} outerRadius={72} paddingAngle={3} dataKey="value">
-                  {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                </Pie>
-                <Tooltip content={<ChartTooltip />} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div style={{ display: "flex", gap: 14 }}>
-              {pieData.map(({ name, value, color }) => (
-                <div key={name} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
-                  <span style={{ fontSize: 11, color: C.inkLow }}>{name} ({value})</span>
+      {isRunning && (
+        <div style={{
+          marginTop:6, padding:"7px 12px",
+          background:C.blueSoft, borderRadius:8, border:`1px solid ${C.blueBord}`,
+          fontSize:12, color:C.blue, display:"flex", alignItems:"center", gap:6,
+        }}>
+          <Loader2 size={12} className="spin" />
+          Pipeline running — auto-refreshing live
+        </div>
+      )}
+
+      {expanded && (
+        <div style={{ marginTop:16, paddingTop:16, borderTop:`1px solid ${C.border}`, animation:"fadeIn .25s ease" }}>
+          <PipelineFullView pipeline={scan.pipeline} />
+          {scan.vuln_breakdown && <VulnBreakdown breakdown={scan.vuln_breakdown} />}
+          <AIAnalysisBlock scan={scan} />
+          {!isRunning && (
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:14 }}>
+              <span style={{ fontSize:11, color:C.inkLow }}>Assessment accurate?</span>
+              {["accept","reject"].map(type => (
+                <button key={type} onClick={() => onFeedback?.(scan.id, type)} style={{
+                  display:"flex", alignItems:"center", gap:4,
+                  padding:"4px 10px", borderRadius:8,
+                  background: myFb===type ? (type==="accept"?C.greenSoft:C.redSoft) : C.bgSurface,
+                  border:`1px solid ${myFb===type ? (type==="accept"?C.green:C.red) : C.border}`,
+                  color: myFb===type ? (type==="accept"?C.green:C.red) : C.inkMid,
+                  fontSize:12,
+                }}>
+                  {type==="accept" ? <ThumbsUp size={12}/> : <ThumbsDown size={12}/>}
+                  {type==="accept" ? "Accurate" : "Incorrect"}
+                </button>
+              ))}
+              {onOpenDetail && (
+                <button onClick={() => onOpenDetail(scan)} style={{
+                  marginLeft:"auto", fontSize:12, color:C.inkMid,
+                  background:"none", border:"none", textDecoration:"underline",
+                }}>Full detail →</button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────
+   WHY BLOCKED MODAL
+   FIX #3 (continued): same loud-error treatment for the modal's own
+   reanalyze fetch (used when scan.ai_explanation isn't already cached).
+───────────────────────────────────────────── */
+const WhyBlockedModal = ({ scan, onClose }) => {
+  const [aiText, setAiText]       = useState(scan?.ai_explanation || null);
+  const [aiRemedy, setAiRemedy]   = useState(scan?.ai_remedy || null);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState(null);
+
+  const loadAnalysis = useCallback(() => {
+    if (!scan) return;
+    setLoading(true);
+    setError(null);
+    fetch(`${BACKEND}/api/scan-results/${scan.id}/reanalyze`, { method:"POST" })
+      .then(r => {
+        if (!r.ok) throw new Error(`Backend returned ${r.status}`);
+        return r.json();
+      })
+      .then(d => {
+        if (d?.ai_explanation || d?.ai_fix || d?.ai_remedy) {
+          let exp = d.ai_explanation || null;
+          let rem = d.ai_fix || d.ai_remedy || null;
+          if (exp && !rem) {
+            const m = exp.match(/REMEDY[:\-–]?\s*([\s\S]+)/i);
+            if (m) { rem = m[1].trim(); exp = exp.slice(0, m.index).trim(); }
+          }
+          setAiText(exp); setAiRemedy(rem);
+        } else {
+          setError("The AI service responded but returned no analysis for this scan. The backend's reanalyze endpoint may need attention.");
+        }
+      })
+      .catch((err) => {
+        setError("Couldn't reach the AI analysis service. Check the backend is running and reachable.");
+      })
+      .finally(()=>setLoading(false));
+  }, [scan]);
+
+  useEffect(() => {
+    if (!scan) return;
+    if (scan.ai_explanation) { setAiText(scan.ai_explanation); setAiRemedy(scan.ai_remedy||null); return; }
+    loadAnalysis();
+  }, [scan, loadAnalysis]);
+
+  if (!scan) return null;
+  const failedStages = (scan.pipeline || []).filter(s => s.status === "failed");
+  const vb = scan.vuln_breakdown;
+
+  return (
+    <div style={{
+      position:"fixed", inset:0,
+      background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)",
+      zIndex:400, display:"flex", alignItems:"center", justifyContent:"center",
+      padding:20, animation:"fadeIn .2s ease",
+    }} onClick={onClose}>
+      <div style={{
+        background:C.bgCard, borderRadius:20,
+        maxWidth:560, width:"100%",
+        border:`1px solid ${C.redBord}`,
+        boxShadow:`0 0 80px ${C.red}18, 0 32px 64px rgba(0,0,0,.6)`,
+        animation:"slideInUp .3s ease", overflow:"hidden",
+      }} onClick={e => e.stopPropagation()}>
+
+        <div style={{
+          padding:"18px 24px",
+          background:`linear-gradient(135deg, ${C.red}18, ${C.redSoft})`,
+          borderBottom:`1px solid ${C.redBord}`,
+          display:"flex", alignItems:"center", gap:10,
+        }}>
+          <div style={{
+            width:36, height:36, borderRadius:10,
+            background:C.redSoft, border:`1px solid ${C.redBord}`,
+            display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+          }}>
+            <AlertTriangle size={18} color={C.red} />
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:C.ink }}>Why was this blocked?</div>
+            <div style={{ fontSize:11, color:C.inkMid, fontFamily:C.mono, marginTop:2 }}>
+              {scan.repo_name} · {scan.commit_sha?.slice(0,8)} · {relTime(scan.created_at)}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:C.inkMid, padding:4, borderRadius:6, display:"flex" }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ padding:"20px 24px", maxHeight:"70vh", overflowY:"auto" }}>
+          {failedStages.length > 0 && (
+            <div style={{ marginBottom:18 }}>
+              <div style={{ fontSize:10, fontWeight:800, color:C.red, letterSpacing:"0.1em", textTransform:"uppercase", display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
+                <div style={{ width:3, height:12, background:C.red, borderRadius:2 }} />
+                Failed stages
+              </div>
+              {failedStages.map(stage => (
+                <div key={stage.id} style={{
+                  display:"flex", alignItems:"flex-start", gap:10,
+                  padding:"10px 12px", marginBottom:6,
+                  background:C.redSoft, borderRadius:10, border:`1px solid ${C.redBord}`,
+                }}>
+                  <XCircle size={15} color={C.red} style={{ flexShrink:0, marginTop:1 }} />
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:600, color:C.ink }}>{stage.name}</div>
+                    {stage.detail && (
+                      <div style={{ fontSize:11, color:C.inkMid, fontFamily:C.mono, marginTop:4, lineHeight:1.5 }}>
+                        {stage.detail}
+                      </div>
+                    )}
+                  </div>
+                  <Badge color={C.red} small>FAILED</Badge>
                 </div>
               ))}
             </div>
+          )}
+
+          {vb && vb.total > 0 && (
+            <div style={{ marginBottom:18 }}>
+              <div style={{ fontSize:10, fontWeight:800, color:C.amber, letterSpacing:"0.1em", textTransform:"uppercase", display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
+                <div style={{ width:3, height:12, background:C.amber, borderRadius:2 }} />
+                Vulnerabilities detected
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:10 }}>
+                {[
+                  { label:"Total",   value:vb.total,         color:C.amber },
+                  { label:"Fixable", value:vb.fixable_count, color:C.blue  },
+                  { label:"Critical",value:vb.fixable_details?.filter(v=>v.severity==="CRITICAL").length||0, color:C.red },
+                ].map(s => (
+                  <div key={s.label} style={{ padding:"10px 12px", borderRadius:10, background:s.color+"10", border:`1px solid ${s.color}30`, textAlign:"center" }}>
+                    <div style={{ fontSize:22, fontWeight:900, fontFamily:C.mono, color:s.color }}>{s.value}</div>
+                    <div style={{ fontSize:10, color:C.inkMid, marginTop:2 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              {vb.fixable_details?.length > 0 && (
+                <div style={{ background:C.bgSurface, borderRadius:10, border:`1px solid ${C.border}`, overflow:"hidden" }}>
+                  {vb.fixable_details.slice(0,4).map((v,i) => (
+                    <div key={v.id||i} style={{
+                      padding:"8px 12px",
+                      borderBottom:i<Math.min(vb.fixable_details.length,4)-1?`1px solid ${C.border}`:"none",
+                      display:"flex", alignItems:"center", gap:8,
+                    }}>
+                      <Badge color={sevColor(v.severity)} small>{v.severity}</Badge>
+                      <span style={{ fontFamily:C.mono, fontSize:11, color:C.blue, flex:1 }}>{v.id}</span>
+                      <span style={{ fontSize:11, color:C.inkMid }}>{v.package}</span>
+                      <span style={{ fontSize:11, color:C.teal }}>→ {v.fix}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Analysis + Remedy */}
+          <div>
+            <div style={{ fontSize:10, fontWeight:800, color:C.violet, letterSpacing:"0.1em", textTransform:"uppercase", display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
+              <div style={{ width:3, height:12, background:C.violet, borderRadius:2 }} />
+              AI analysis
+              {scan.ai_confidence != null && (
+                <span style={{ color:C.inkMid, fontWeight:400, textTransform:"none", letterSpacing:0, marginLeft:4 }}>
+                  {scan.ai_confidence}% confidence
+                </span>
+              )}
+            </div>
+            <div style={{ padding:"14px 16px", background:error ? C.redSoft : C.violetSoft, borderRadius:12, border:`1px solid ${error ? C.redBord : C.violetBord}`, fontSize:13, lineHeight:1.7, color:C.ink, minHeight:60 }}>
+              {loading ? (
+                <div style={{ display:"flex", alignItems:"center", gap:8, color:C.inkMid }}>
+                  <Loader2 size={14} className="spin" /> Fetching AI analysis…
+                </div>
+              ) : error ? (
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, color:C.red, fontWeight:700, fontSize:11, marginBottom:6 }}>
+                    <AlertCircle size={12} /> ANALYSIS UNAVAILABLE
+                  </div>
+                  <div style={{ color:C.ink, marginBottom:10 }}>{error}</div>
+                  <button onClick={loadAnalysis} style={{
+                    display:"flex", alignItems:"center", gap:5,
+                    fontSize:11, color:C.red, background:"none", border:`1px solid ${C.redBord}`,
+                    borderRadius:6, padding:"4px 10px", fontWeight:600,
+                  }}>
+                    <RefreshCw size={11} /> Retry
+                  </button>
+                </div>
+              ) : aiText ? (
+                <>{aiText}</>
+              ) : (
+                <span style={{ color:C.inkMid }}>No AI explanation available. Check the failed stages above for specifics.</span>
+              )}
+            </div>
+
+            {/* Remedy in modal */}
+            {aiRemedy && (
+              <div className="remedy-block" style={{ marginTop:12 }}>
+                <div style={{ fontSize:10, fontWeight:800, color:C.teal, letterSpacing:"0.1em", display:"flex", alignItems:"center", gap:6, marginBottom:7 }}>
+                  <Wrench size={11} /> RECOMMENDED REMEDY
+                </div>
+                <div style={{ fontSize:13, color:C.ink, lineHeight:1.65 }}>{aiRemedy}</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding:"14px 24px", borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"flex-end" }}>
+          <button onClick={onClose} style={{
+            padding:"9px 22px", background:C.red, color:"#fff",
+            border:"none", borderRadius:9, fontWeight:700, fontSize:13,
+          }}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────
+   SCAN DETAIL SLIDE-IN
+───────────────────────────────────────────── */
+function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked }) {
+  if (!scan) return null;
+  return (
+    <div style={{
+      position:"fixed", top:0, right:0,
+      width:460, maxWidth:"100vw", height:"100vh",
+      background:`${C.bgCard}f5`, backdropFilter:"blur(16px)",
+      borderLeft:`1px solid ${C.border}`,
+      zIndex:250, overflowY:"auto", padding:24,
+      animation:"slideInRight .35s ease",
+    }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <h2 style={{ margin:0, fontSize:17, fontWeight:700 }}>{scan.repo_name}</h2>
+        <button onClick={onClose} style={{ background:C.bgSurface, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 10px", color:C.inkMid, display:"flex" }}>
+          <X size={16} />
+        </button>
+      </div>
+      <div style={{ fontFamily:C.mono, color:C.blue, fontSize:12, marginBottom:4 }}>{scan.commit_sha}</div>
+      <div style={{ fontSize:13, color:C.inkMid, marginBottom:6 }}>{scan.commit_message}</div>
+      <div style={{ fontSize:11, color:C.inkLow, marginBottom:18 }}>{fmtFull(scan.created_at)}</div>
+      <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+        <Badge color={scan.action_taken==="BLOCK"?C.red:C.teal}>{scan.action_taken||"ALLOW"}</Badge>
+        {scan.severity && <Badge color={sevColor(scan.severity)}>{scan.severity}</Badge>}
+        {scan.risk_score != null && <Badge color={riskColor(scan.risk_score)}>Risk {scan.risk_score}</Badge>}
+      </div>
+      <SectionTitle accent={C.teal}>Pipeline stages</SectionTitle>
+      <PipelineFullView pipeline={scan.pipeline} />
+      {scan.vuln_breakdown && <><SectionTitle accent={C.amber} style={{ marginTop:20 }}>Vulnerabilities</SectionTitle><VulnBreakdown breakdown={scan.vuln_breakdown} /></>}
+      <AIAnalysisBlock scan={scan} />
+      {scan.action_taken === "BLOCK" && (
+        <button onClick={() => onWhyBlocked(scan)} style={{
+          marginTop:20, padding:"12px", width:"100%",
+          background:C.redSoft, border:`1px solid ${C.redBord}`,
+          borderRadius:10, color:C.red, fontWeight:700, fontSize:13,
+          display:"flex", alignItems:"center", justifyContent:"center", gap:7,
+        }}>
+          <AlertTriangle size={15} /> Why blocked?
+        </button>
+      )}
+      <div style={{ display:"flex", gap:8, marginTop:16 }}>
+        {["accept","reject"].map(type => {
+          const myFb = feedback?.[scan.id];
+          return (
+            <button key={type} onClick={() => onFeedback?.(scan.id,type)} style={{
+              flex:1, padding:"9px", borderRadius:9,
+              background:myFb===type?(type==="accept"?C.greenSoft:C.redSoft):C.bgSurface,
+              border:`1px solid ${myFb===type?(type==="accept"?C.green:C.red):C.border}`,
+              color:myFb===type?(type==="accept"?C.green:C.red):C.inkMid,
+              fontSize:12, fontWeight:600, display:"flex", alignItems:"center", justifyContent:"center", gap:5,
+            }}>
+              {type==="accept"?<ThumbsUp size={13}/>:<ThumbsDown size={13}/>}
+              {type==="accept"?"Accurate":"Incorrect"}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   AI COPILOT  (floating, with breathing animation)
+   FIX #2: send actual scan context with each question so the backend
+   AI has something real to ground its answer in, instead of a bare
+   { question } string. We send:
+     - a compact summary of the most recent N scans (sha, repo, action,
+       severity, risk score, short AI explanation if present)
+     - aggregate stats (blocked/allowed/running counts)
+     - the conversation history so far, so follow-ups make sense
+   NOTE: this only helps if the backend's /api/copilot/ask handler
+   actually reads and uses a `context` field. If the backend ignores
+   it, replies will still be ungrounded — that's a backend fix, not
+   something fixable from here. See bottom-of-file notes.
+───────────────────────────────────────────── */
+function AICopilot({ scans, onClose }) {
+  const [messages, setMessages] = useState([{
+    role:"assistant",
+    text:"Hi! I'm your SecureFlow AI assistant. Ask me about blocked commits, CVEs, risk scores, or pipeline failures — I can also suggest remedies.",
+  }]);
+  const [input,     setInput]     = useState("");
+  const [sending,   setSending]   = useState(false);
+  const [minimised, setMinimised] = useState(false);
+  const [sendError, setSendError] = useState(false);
+  const endRef   = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages]);
+
+  // Build a compact, token-cheap snapshot of real scan data to ground
+  // the AI's answer. Capped at 15 scans so the payload stays small.
+  const buildContext = useCallback(() => {
+    const completed = scans.filter(s => s.status !== "running");
+    const blocked   = completed.filter(s => s.action_taken === "BLOCK");
+    const allowed   = completed.filter(s => s.action_taken === "ALLOW");
+    const running   = scans.filter(s => s.status === "running");
+
+    const recentSummary = completed.slice(0, 15).map(s => ({
+      commit_sha:      s.commit_sha?.slice(0, 8),
+      repo_name:       s.repo_name,
+      commit_message:  s.commit_message,
+      action_taken:    s.action_taken,
+      severity:        s.severity,
+      risk_score:      s.risk_score,
+      ai_confidence:    s.ai_confidence,
+      ai_explanation:  s.ai_explanation ? s.ai_explanation.slice(0, 280) : null,
+      vuln_total:      s.vuln_breakdown?.total ?? null,
+      vuln_fixable:    s.vuln_breakdown?.fixable_count ?? null,
+      top_cves:        s.vuln_breakdown?.fixable_details?.slice(0, 3).map(v => ({
+        id: v.id, package: v.package, severity: v.severity, fix: v.fix,
+      })) ?? null,
+      created_at:      s.created_at,
+    }));
+
+    return {
+      stats: {
+        total_completed: completed.length,
+        blocked_count:    blocked.length,
+        allowed_count:    allowed.length,
+        running_count:    running.length,
+      },
+      recent_scans: recentSummary,
+    };
+  }, [scans]);
+
+  const send = async (q) => {
+    const question = q || input.trim();
+    if (!question || sending) return;
+    setInput("");
+    setSendError(false);
+    const nextMessages = [...messages, { role:"user", text:question }];
+    setMessages(nextMessages);
+    setSending(true);
+    try {
+      const res = await fetch(`${BACKEND}/api/copilot/ask`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({
+          question,
+          context: buildContext(),
+          // Send recent turns so follow-up questions ("what about the one before that?")
+          // have something to resolve against.
+          conversation_history: nextMessages.slice(-8).map(m => ({ role: m.role, text: m.text })),
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`Backend returned ${res.status}`);
+      }
+      const data = await res.json();
+      if (!data?.answer) {
+        setMessages(m => [...m, { role:"assistant", text:"The AI service responded but didn't include an answer. This usually means the backend's copilot endpoint has an issue — try rephrasing, or check backend logs." }]);
+        setSendError(true);
+      } else {
+        setMessages(m => [...m, { role:"assistant", text:data.answer }]);
+      }
+    } catch (err) {
+      setMessages(m => [...m, { role:"assistant", text:`Couldn't reach the AI service (${err.message || "network error"}). Try again in a moment, or check that the backend is running.` }]);
+      setSendError(true);
+    } finally {
+      setSending(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const blocked = scans.filter(s=>s.action_taken==="BLOCK").length;
+  const running = scans.filter(s=>s.status==="running").length;
+  const QUICK   = ["Why was the last commit blocked?","What's the best remedy for top CVEs?","Show fixable vulnerabilities"];
+
+  return (
+    <div style={{
+      position:"fixed", bottom:24, right:24,
+      width: minimised ? "auto" : 360,
+      zIndex:500, animation:"bounceIn .55s cubic-bezier(.22,.68,0,1.2)",
+    }}>
+      {minimised ? (
+        <button onClick={() => setMinimised(false)} style={{
+          display:"flex", alignItems:"center", gap:8,
+          padding:"10px 16px", borderRadius:999,
+          background:`${C.bgCard}e8`,
+          backdropFilter:"blur(16px)",
+          border:`1px solid ${C.tealBord}`,
+          color:C.teal, fontSize:13, fontWeight:700,
+          boxShadow:`0 8px 32px rgba(0,0,0,.5), 0 0 24px ${C.teal}18`,
+        }}>
+          <Bot size={16} />
+          AI Copilot
+          {(blocked>0||running>0) && (
+            <span style={{ background:C.red, color:"#fff", borderRadius:999, fontSize:10, fontWeight:800, padding:"1px 6px" }}>
+              {blocked+running}
+            </span>
+          )}
+        </button>
+      ) : (
+        <div style={{
+          background:`${C.bgCard}ee`, backdropFilter:"blur(20px)",
+          border:`1px solid ${C.border}`, borderRadius:20, overflow:"hidden",
+          boxShadow:`0 24px 64px rgba(0,0,0,.6), 0 0 40px ${C.teal}10`,
+          display:"flex", flexDirection:"column", maxHeight:"70vh",
+        }}>
+          <div style={{
+            padding:"14px 16px", borderBottom:`1px solid ${C.border}`,
+            display:"flex", alignItems:"center", gap:10,
+            background:`${C.bgSurface}80`,
+          }}>
+            <div style={{
+              width:32, height:32, borderRadius:"50%",
+              background:`linear-gradient(135deg, ${C.teal}30, ${C.violet}30)`,
+              border:`1px solid ${C.tealBord}`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              animation:"float 3s ease-in-out infinite",
+            }}>
+              <Bot size={16} color={C.teal} />
+            </div>
+            <div>
+              <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>AI Copilot</div>
+              <div style={{ fontSize:10, color: sendError ? C.amber : C.teal, display:"flex", alignItems:"center", gap:4 }}>
+                <span style={{ width:6, height:6, borderRadius:"50%", background: sendError ? C.amber : C.teal, display:"inline-block", animation:"pulseRing 2s infinite" }} />
+                {sendError ? "having trouble reaching backend" : "online · remedies enabled"}
+              </div>
+            </div>
+            {running>0 && <Badge color={C.blue} small>{running} running</Badge>}
+            {blocked>0 && <Badge color={C.red} small>{blocked} blocked</Badge>}
+            <div style={{ marginLeft:"auto", display:"flex", gap:4 }}>
+              <button onClick={() => setMinimised(true)} style={{ background:"none", border:"none", color:C.inkMid, padding:4, borderRadius:6 }}><Minimize2 size={15} /></button>
+              <button onClick={onClose} style={{ background:"none", border:"none", color:C.inkMid, padding:4, borderRadius:6 }}><X size={15} /></button>
+            </div>
+          </div>
+
+          <div style={{ flex:1, overflowY:"auto", padding:"14px 14px 0", display:"flex", flexDirection:"column", gap:10, minHeight:200, maxHeight:"45vh" }}>
+            {messages.map((m,i) => (
+              <div key={i} className={m.role==="user"?"sf-msg-user":"sf-msg-bot"} style={{
+                maxWidth:"88%", padding:"9px 13px",
+                borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",
+                fontSize:13, lineHeight:1.6, color:C.ink, animation:"fadeInUp .25s ease",
+              }}>
+                {m.text}
+              </div>
+            ))}
+            {sending && (
+              <div className="sf-msg-bot" style={{ maxWidth:"60%", padding:"9px 13px", borderRadius:"14px 14px 14px 4px", fontSize:13, color:C.inkMid, display:"flex", alignItems:"center", gap:6 }}>
+                <Loader2 size={12} className="spin" /> Thinking…
+              </div>
+            )}
+            <div ref={endRef} />
+          </div>
+
+          <div style={{ padding:"10px 14px 0", display:"flex", gap:5, flexWrap:"wrap" }}>
+            {QUICK.map(q => (
+              <button key={q} onClick={() => send(q)} style={{
+                fontSize:10, padding:"4px 9px", borderRadius:999,
+                background:C.tealSoft, border:`1px solid ${C.tealBord}`,
+                color:C.teal, fontWeight:600, whiteSpace:"nowrap",
+              }}>{q}</button>
+            ))}
+          </div>
+
+          <div style={{ padding:"12px 14px 14px", display:"flex", gap:8 }}>
+            <input ref={inputRef} className="sf-chat-input" value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key==="Enter" && send()}
+              placeholder="Ask about your pipeline…"
+            />
+            <button onClick={() => send()} disabled={!input.trim()||sending} style={{
+              padding:"0 14px", borderRadius:12,
+              background:input.trim()&&!sending?C.teal:C.bgSurface,
+              border:`1px solid ${input.trim()&&!sending?C.teal:C.border}`,
+              color:input.trim()&&!sending?C.bg:C.inkMid,
+              fontWeight:700, fontSize:13, transition:"all .2s",
+              display:"flex", alignItems:"center",
+            }}>
+              <Send size={15} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   CUSTOM TOOLTIP
+───────────────────────────────────────────── */
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ ...TT, padding:"10px 14px" }}>
+      <div style={{ fontSize:11, color:C.inkMid, marginBottom:6 }}>{label}</div>
+      {payload.map((p,i) => (
+        <div key={i} style={{ fontSize:12, color:p.color||C.ink, fontFamily:C.mono }}>
+          {p.name}: {typeof p.value==="number"?p.value.toFixed(1):p.value}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────
+   OVERVIEW TAB
+───────────────────────────────────────────── */
+function OverviewTab({ scans, healthScore, avgRisk, blocked, allowed, running, completed, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail }) {
+  const chartData = useMemo(() => (
+    [...scans].filter(s=>s.status!=="running").slice(0,20).reverse().map(s => ({
+      name:  s.commit_sha?.slice(0,6)||"—",
+      risk:  s.risk_score||0,
+      score: s.ai_confidence||0,
+    }))
+  ), [scans]);
+
+  const pieData = [
+    { name:"Allowed", value:allowed.length, color:C.teal },
+    { name:"Blocked", value:blocked.length, color:C.red  },
+  ];
+
+  const sevDist = useMemo(() => {
+    const counts = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0, CLEAN:0 };
+    completed.forEach(s => {
+      const k = (s.severity||"CLEAN").toUpperCase();
+      if (counts[k]!==undefined) counts[k]++;
+    });
+    return Object.entries(counts).map(([name,value]) => ({ name, value, color:sevColor(name) }));
+  }, [completed]);
+
+  const radarData = useMemo(() => [
+    { subject:"Availability",A:Math.max(0,100-(running.length*20)) },
+    { subject:"Block Rate",  A:Math.max(0,100-(blocked.length/(completed.length||1))*100) },
+    { subject:"Avg Risk",    A:Math.max(0,100-parseFloat(avgRisk)*10) },
+    { subject:"AI Coverage", A:completed.filter(s=>s.ai_confidence).length/(completed.length||1)*100 },
+    { subject:"Clean Scans", A:allowed.length/(completed.length||1)*100 },
+  ], [running,blocked,completed,avgRisk,allowed]);
+
+  const [trendWindow, setTrendWindow] = useState(14);
+
+  return (
+    <div style={{ animation:"fadeInUp .4s ease" }}>
+      {/* KPI row */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:14, marginBottom:16 }}>
+        {[
+          { label:"Pipeline health", value:healthScore, color:healthScore>=75?C.teal:healthScore>=50?C.amber:C.red, sub:"block rate + risk" },
+          { label:"Average risk",    value:avgRisk,     color:riskColor(parseFloat(avgRisk)), sub:"out of 10.0" },
+          { label:"Scans completed", value:completed.length, color:C.blue,  sub:"all time" },
+          { label:"Blocked",         value:blocked.length,   color:C.red,   sub:`${((blocked.length/(completed.length||1))*100).toFixed(0)}% block rate` },
+          { label:"Currently live",  value:running.length,   color:C.cyan,  sub:"pipelines running" },
+        ].map(k => (
+          <Card key={k.label} style={{ padding:"16px 18px" }}>
+            <div style={{ fontSize:10, color:C.inkLow, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10 }}>{k.label}</div>
+            <div style={{ fontSize:30, fontWeight:900, fontFamily:C.mono, color:k.color, lineHeight:1 }}>{k.value}</div>
+            <div style={{ fontSize:11, color:C.inkMid, marginTop:5 }}>{k.sub}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Charts row */}
+      <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:14, marginBottom:16 }}>
+        <Card glow>
+          <SectionTitle accent={C.violet} right={
+            <div style={{ display:"flex", gap:5 }}>
+              {[7,14,30].map(w => (
+                <button key={w} onClick={()=>setTrendWindow(w)} style={{
+                  fontSize:10, padding:"2px 8px", borderRadius:999,
+                  background:trendWindow===w?C.violetSoft:"none",
+                  border:`1px solid ${trendWindow===w?C.violetBord:C.border}`,
+                  color:trendWindow===w?C.violet:C.inkMid, fontWeight:600,
+                }}>{w}d</button>
+              ))}
+            </div>
+          }>Risk score trend</SectionTitle>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={chartData.slice(-trendWindow)}>
+              <defs>
+                <linearGradient id="rg" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={C.violet} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={C.violet} stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={C.cyan} stopOpacity={0.25} />
+                  <stop offset="100%" stopColor={C.cyan} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+              <XAxis dataKey="name" stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} />
+              <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} domain={[0,10]} />
+              <Tooltip content={<CustomTooltip />} />
+              <Area type="monotone" dataKey="risk" name="Risk" stroke={C.violet} fill="url(#rg)" strokeWidth={2} dot={false} />
+              <Area type="monotone" dataKey="score" name="AI Confidence" stroke={C.cyan} fill="url(#cg)" strokeWidth={1.5} dot={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card>
+          <SectionTitle accent={C.blue}>Allow vs block</SectionTitle>
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie data={pieData} dataKey="value" innerRadius={52} outerRadius={78} paddingAngle={4} strokeWidth={0}>
+                {pieData.map(e => <Cell key={e.name} fill={e.color} />)}
+              </Pie>
+              <Tooltip content={<CustomTooltip />} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{ display:"flex", justifyContent:"center", gap:20, marginTop:8 }}>
+            {pieData.map(e => (
+              <div key={e.name} style={{ display:"flex", alignItems:"center", gap:5, fontSize:12 }}>
+                <div style={{ width:8, height:8, borderRadius:"50%", background:e.color }} />
+                <span style={{ color:C.inkMid }}>{e.name}</span>
+                <span style={{ color:e.color, fontFamily:C.mono, fontWeight:700 }}>{e.value}</span>
+              </div>
+            ))}
           </div>
         </Card>
       </div>
 
-      {/* Recent scans */}
-      <Card style={{ padding: 0 }}>
-        <div style={{ padding: "18px 20px 12px" }}>
-          <SectionHeader title="Recent Scans" subtitle="Click a row for details" />
-        </div>
-        <Divider />
-        {loading
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} style={{ padding: "14px 20px", display: "flex", gap: 12, alignItems: "center" }}>
-                <div className="sf-skeleton" style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0 }} />
-                <div className="sf-skeleton" style={{ flex: 1, height: 14 }} />
-                <div className="sf-skeleton" style={{ width: 80, height: 22, borderRadius: 6 }} />
-              </div>
-            ))
-          : recentScans?.length
-            ? recentScans.slice(0, 8).map((s, i) => (
-                <React.Fragment key={s.id || i}>
-                  {i > 0 && <Divider style={{ margin: "0 16px" }} />}
-                  <ScanRow scan={s} onOpen={onOpenScan} />
-                </React.Fragment>
-              ))
-            : <EmptyState title="No scans yet" desc="Scans will appear here once your pipeline runs." />
-        }
-      </Card>
-    </div>
-  );
-}
-
-/* ─── Scans Tab ──────────────────────────────────────────────────────────── */
-function ScansTab({ scans, loading, onOpenScan }) {
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
-
-  const filtered = useMemo(() => {
-    if (!scans) return [];
-    return scans.filter(s => {
-      const matchFilter = filter === "all" || (filter === "blocked" ? s.status === "blocked" : s.status !== "blocked");
-      const matchSearch = !search || (s.image || s.repo || "").toLowerCase().includes(search.toLowerCase());
-      return matchFilter && matchSearch;
-    });
-  }, [scans, filter, search]);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Toolbar */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <div style={{
-          flex: 1, position: "relative",
-          display: "flex", alignItems: "center",
-        }}>
-          <Eye size={14} style={{ position: "absolute", left: 11, color: C.inkLow }} />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by image or repo…"
-            className="sf-chat-input"
-            style={{ paddingLeft: 32 }}
-          />
-        </div>
-        <div style={{ display: "flex", gap: 4, background: C.bgSurface, borderRadius: 9, padding: 3, border: `1px solid ${C.border}` }}>
-          {["all", "blocked", "passed"].map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`sf-tab ${filter === f ? "active" : ""}`}
-              style={{ padding: "5px 12px", fontSize: 12, borderRadius: 6 }}
-            >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <Card style={{ padding: 0 }}>
-        {loading
-          ? <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><Spinner /></div>
-          : filtered.length
-            ? filtered.map((s, i) => (
-                <React.Fragment key={s.id || i}>
-                  {i > 0 && <Divider style={{ margin: "0 16px" }} />}
-                  <ScanRow scan={s} onOpen={onOpenScan} />
-                </React.Fragment>
-              ))
-            : <EmptyState title="No results" desc={search ? "Try a different search term." : "No scans match this filter."} />
-        }
-      </Card>
-    </div>
-  );
-}
-
-/* ─── Pipeline Tab ───────────────────────────────────────────────────────── */
-function PipelineTab({ scans, loading }) {
-  const latestScan = scans?.[0];
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Card>
-        <SectionHeader
-          title="Latest Pipeline Run"
-          subtitle={latestScan ? `${latestScan.image || latestScan.repo} · ${fmt.ago(latestScan.scanned_at || latestScan.created_at)}` : "No runs yet"}
-        />
-        {loading
-          ? <div style={{ display: "flex", justifyContent: "center", padding: 24 }}><Spinner /></div>
-          : latestScan
-            ? <PipelineStages stages={latestScan.stages || {}} />
-            : <EmptyState title="No pipeline data" desc="Run your CI pipeline to see stage results here." />
-        }
-      </Card>
-
-      {/* Run history */}
-      <Card style={{ padding: 0 }}>
-        <div style={{ padding: "18px 20px 12px" }}>
-          <SectionHeader title="Run History" />
-        </div>
-        <Divider />
-        {scans?.slice(0, 6).map((scan, i) => {
-          const hasBlocked = scan.status === "blocked";
-          return (
-            <React.Fragment key={scan.id || i}>
-              {i > 0 && <Divider style={{ margin: "0 16px" }} />}
-              <div style={{ padding: "14px 20px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 500, color: C.ink }}>{scan.image || scan.repo}</p>
-                    <p style={{ fontSize: 11, color: C.inkLow, marginTop: 1 }}>
-                      {scan.commit?.slice(0, 7) || "unknown"} · {fmt.ago(scan.scanned_at || scan.created_at)}
-                    </p>
-                  </div>
-                  <StatusBadge status={hasBlocked ? "failed" : "passed"} />
-                </div>
-                <PipelineStages stages={scan.stages || {}} />
-              </div>
-            </React.Fragment>
-          );
-        })}
-      </Card>
-    </div>
-  );
-}
-
-/* ─── Analytics Tab ──────────────────────────────────────────────────────── */
-function AnalyticsTab({ scans }) {
-  const barData = useMemo(() => {
-    if (!scans?.length) return [];
-    return scans.slice(0, 14).reverse().map((s, i) => ({
-      name: `R${i + 1}`,
-      critical: s.critical || 0,
-      high:     s.high || 0,
-      medium:   s.medium || 0,
-      low:      s.low || 0,
-    }));
-  }, [scans]);
-
-  const radarData = useMemo(() => [
-    { subject: "Code Scan",    A: 80 },
-    { subject: "Container",   A: 65 },
-    { subject: "Policy Gate", A: 90 },
-    { subject: "Deploy",      A: 55 },
-    { subject: "Secrets",     A: 75 },
-  ], []);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 14 }}>
+      {/* Severity + Radar */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:16 }}>
         <Card>
-          <SectionHeader title="Vulnerability Distribution" subtitle="Per scan run" />
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={barData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }} barSize={12}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: C.inkLow }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: C.inkLow }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="critical" fill={C.red}   radius={[3, 3, 0, 0]} name="Critical" />
-              <Bar dataKey="high"     fill={C.amber} radius={[3, 3, 0, 0]} name="High" />
-              <Bar dataKey="medium"   fill={C.blue}  radius={[3, 3, 0, 0]} name="Medium" />
+          <SectionTitle accent={C.amber}>Severity distribution</SectionTitle>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={sevDist} barSize={28}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+              <XAxis dataKey="name" stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} />
+              <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} allowDecimals={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="value" name="Count" radius={[5,5,0,0]}>
+                {sevDist.map(e => <Cell key={e.name} fill={e.color} />)}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </Card>
-
         <Card>
-          <SectionHeader title="Security Coverage" />
-          <ResponsiveContainer width="100%" height={220}>
+          <SectionTitle accent={C.teal}>Security posture</SectionTitle>
+          <ResponsiveContainer width="100%" height={180}>
             <RadarChart data={radarData}>
               <PolarGrid stroke={C.border} />
-              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: C.inkLow }} />
-              <Radar dataKey="A" stroke={C.teal} fill={C.teal} fillOpacity={0.15} strokeWidth={2} />
+              <PolarAngleAxis dataKey="subject" tick={{ fill:C.inkMid, fontSize:10 }} />
+              <Radar name="Posture" dataKey="A" stroke={C.teal} fill={C.teal} fillOpacity={0.18} strokeWidth={2} />
+              <Tooltip content={<CustomTooltip />} />
             </RadarChart>
           </ResponsiveContainer>
         </Card>
       </div>
 
-      {/* Summary metrics */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-        {[
-          { label: "Critical CVEs (total)",   value: scans?.reduce((a, s) => a + (s.critical || 0), 0) ?? 0, color: C.red },
-          { label: "High CVEs (total)",        value: scans?.reduce((a, s) => a + (s.high || 0), 0) ?? 0,     color: C.amber },
-          { label: "Block rate",               value: scans?.length ? `${((scans.filter(s => s.status === "blocked").length / scans.length) * 100).toFixed(0)}%` : "—", color: C.violet },
-        ].map(({ label, value, color }) => (
-          <Card key={label} style={{ textAlign: "center" }}>
-            <p style={{ fontSize: 32, fontWeight: 700, color }}>{value}</p>
-            <p style={{ fontSize: 12, color: C.inkLow, marginTop: 4 }}>{label}</p>
-          </Card>
-        ))}
-      </div>
+      <SectionTitle accent={C.teal}>Latest activity</SectionTitle>
+      {scans.slice(0,5).map((scan,i) => (
+        <CommitCard key={scan.id} scan={scan} feedback={feedback} animDelay={i*0.05}
+          onFeedback={onFeedback} onOpenWhyBlocked={onOpenWhyBlocked} onOpenDetail={onOpenDetail} />
+      ))}
     </div>
   );
 }
 
-/* ─── Policy Tab ─────────────────────────────────────────────────────────── */
-function PolicyTab() {
-  const rules = [
-    { id: "CVE-CRITICAL", label: "Block on any CRITICAL CVE",             enabled: true,  severity: "critical" },
-    { id: "CVE-HIGH-5",   label: "Block when HIGH CVEs exceed 5",         enabled: true,  severity: "high"     },
-    { id: "SECRETS",      label: "Block on detected secrets in source",   enabled: true,  severity: "critical" },
-    { id: "BASE-IMAGE",   label: "Warn on unapproved base images",        enabled: false, severity: "medium"   },
-    { id: "SCA-MEDIUM",   label: "Warn when MEDIUM CVEs exceed 20",       enabled: false, severity: "medium"   },
-  ];
-
-  const [enabled, setEnabled] = useState(
-    Object.fromEntries(rules.map(r => [r.id, r.enabled]))
-  );
-
-  const sColor = { critical: C.red, high: C.amber, medium: C.blue };
-  const sBg    = { critical: C.redSoft, high: C.amberSoft, medium: C.blueSoft };
-  const sBord  = { critical: C.redBord, high: C.amberBord, medium: C.blueBord };
+/* ─────────────────────────────────────────────
+   PIPELINE TAB
+───────────────────────────────────────────── */
+function PipelineTab({ scans, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail }) {
+  const running = scans.filter(s=>s.status==="running");
+  const recent  = scans.filter(s=>s.status!=="running").slice(0,25);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ animation:"fadeInUp .4s ease" }}>
+      {running.length > 0 && (
+        <div style={{ marginBottom:20 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+            <div style={{ width:8, height:8, borderRadius:"50%", background:C.blue, animation:"pulseRing 1.5s infinite" }} />
+            <span style={{ fontSize:11, fontWeight:800, color:C.blue, letterSpacing:"0.1em" }}>
+              LIVE — {running.length} PIPELINE{running.length>1?"S":""} RUNNING
+            </span>
+          </div>
+          {running.map((scan,i) => (
+            <CommitCard key={scan.id} scan={scan} feedback={feedback}
+              onFeedback={onFeedback} onOpenWhyBlocked={onOpenWhyBlocked}
+              onOpenDetail={onOpenDetail} animDelay={i*0.05} />
+          ))}
+          <div style={{ height:1, background:C.border, margin:"20px 0" }} />
+        </div>
+      )}
+      <SectionTitle accent={C.teal}>Recent runs</SectionTitle>
+      {recent.length===0 && <div style={{ color:C.inkLow, textAlign:"center", padding:"40px 0", fontSize:14 }}>No completed runs yet.</div>}
+      {recent.map((scan,i) => (
+        <CommitCard key={scan.id} scan={scan} feedback={feedback}
+          onFeedback={onFeedback} onOpenWhyBlocked={onOpenWhyBlocked}
+          onOpenDetail={onOpenDetail} animDelay={i*0.04} />
+      ))}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   AI INSIGHTS TAB  (replaces Scan Feed)
+   Prometheus-style gauges + blocked AI cards
+───────────────────────────────────────────── */
+function AIInsightsTab({ scans, feedback, onFeedback, onOpenWhyBlocked }) {
+  const completed  = scans.filter(s=>s.status!=="running");
+  const blockedAll = completed.filter(s=>s.action_taken==="BLOCK");
+  const allowedAll = completed.filter(s=>s.action_taken==="ALLOW");
+  const withAI     = completed.filter(s=>s.ai_explanation||s.ai_remedy);
+
+  /* Prometheus gauges data */
+  const blockRate = completed.length ? (blockedAll.length/completed.length)*100 : 0;
+  const avgConf   = withAI.length
+    ? withAI.reduce((a,s)=>a+(s.ai_confidence||0),0)/withAI.length : 0;
+  const aiCoverage = completed.length ? (withAI.length/completed.length)*100 : 0;
+  const critCount  = completed.filter(s=>(s.severity||"").toUpperCase()==="CRITICAL").length;
+
+  /* Confidence histogram */
+  const confHist = useMemo(() => {
+    const bins = [
+      { range:"60–69", min:60, max:69, count:0, color:C.red    },
+      { range:"70–79", min:70, max:79, count:0, color:C.amber  },
+      { range:"80–89", min:80, max:89, count:0, color:C.blue   },
+      { range:"90–99", min:90, max:99, count:0, color:C.teal   },
+    ];
+    withAI.forEach(s => {
+      const c = s.ai_confidence||0;
+      bins.forEach(b => { if (c>=b.min && c<=b.max) b.count++; });
+    });
+    return bins;
+  }, [withAI]);
+
+  /* Repo-level risk heatmap data */
+  const repoRisk = useMemo(() => {
+    const map = {};
+    completed.forEach(s => {
+      const r = s.repo_name?.split("/").pop() || "unknown";
+      if (!map[r]) map[r] = { repo:r, total:0, blocked:0, risk:0 };
+      map[r].total++;
+      if (s.action_taken==="BLOCK") map[r].blocked++;
+      map[r].risk = Math.max(map[r].risk, s.risk_score||0);
+    });
+    return Object.values(map).sort((a,b)=>b.risk-a.risk).slice(0,8);
+  }, [completed]);
+
+  /* AI decision scatter (confidence vs risk) */
+  const scatterData = useMemo(() =>
+    completed.filter(s=>s.ai_confidence&&s.risk_score!=null).map(s => ({
+      x: s.risk_score,
+      y: s.ai_confidence,
+      z: s.action_taken==="BLOCK" ? 3 : 1,
+      color: s.action_taken==="BLOCK" ? C.red : C.teal,
+      name: s.commit_sha?.slice(0,8)||"—",
+    })).slice(-40)
+  , [completed]);
+
+  return (
+    <div style={{ animation:"fadeInUp .4s ease" }}>
+      {/* Prometheus-style gauge row */}
+      <Card glow style={{ marginBottom:16 }}>
+        <SectionTitle accent={C.teal}>System metrics</SectionTitle>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:20, alignItems:"start" }}>
+          <PrometheusGauge value={blockRate} max={100} label="Block rate" unit="%" color={blockRate>30?C.red:blockRate>15?C.amber:C.teal} />
+          <PrometheusGauge value={avgConf}   max={100} label="Avg AI confidence" unit="%" color={C.violet} />
+          <PrometheusGauge value={aiCoverage} max={100} label="AI coverage" unit="%" color={C.cyan} />
+          <PrometheusGauge value={completed.length} max={Math.max(completed.length,100)} label="Total scans" unit="" color={C.blue} />
+          <PrometheusGauge value={critCount} max={Math.max(critCount,10)} label="Critical findings" unit="" color={C.red} />
+          <PrometheusGauge value={withAI.length} max={Math.max(completed.length,1)} label="AI-analysed" unit="" color={C.green} />
+        </div>
+      </Card>
+
+      {/* Charts row: confidence histogram + repo risk heatmap */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
+        {/* AI confidence histogram */}
+        <Card>
+          <SectionTitle accent={C.violet}>AI confidence distribution</SectionTitle>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={confHist} barSize={40}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+              <XAxis dataKey="range" stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} />
+              <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} allowDecimals={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="count" name="Scans" radius={[5,5,0,0]}>
+                {confHist.map((e,i) => <Cell key={i} fill={e.color} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+
+        {/* Repo risk heatmap (horizontal bar) */}
+        <Card>
+          <SectionTitle accent={C.amber}>Risk by repository</SectionTitle>
+          {repoRisk.length === 0 ? (
+            <div style={{ color:C.inkLow, fontSize:13, padding:"20px 0" }}>No repo data yet.</div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:10, marginTop:4 }}>
+              {repoRisk.map((r,i) => (
+                <div key={r.repo}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:4 }}>
+                    <span style={{ color:C.ink, fontFamily:C.mono }}>{r.repo}</span>
+                    <span style={{ color:riskColor(r.risk), fontWeight:700 }}>{r.blocked}/{r.total} blocked · risk {r.risk}</span>
+                  </div>
+                  <div style={{ height:6, background:C.bgSurface, borderRadius:3, overflow:"hidden" }}>
+                    <div style={{
+                      height:"100%",
+                      width:`${(r.blocked/r.total)*100}%`,
+                      background:`linear-gradient(90deg,${riskColor(r.risk)}80,${riskColor(r.risk)})`,
+                      borderRadius:3,
+                      transition:"width 1s ease",
+                      boxShadow:`0 0 6px ${riskColor(r.risk)}50`,
+                    }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* AI decision scatter: confidence vs risk */}
       <Card>
-        <SectionHeader
-          title="Policy Rules"
-          subtitle="Configure what triggers a pipeline block or warning"
-        />
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {rules.map(rule => (
-            <div
-              key={rule.id}
-              style={{
-                display: "flex", alignItems: "center", gap: 14,
-                padding: "13px 16px", borderRadius: 10,
-                background: enabled[rule.id] ? C.bgSurface : C.bgCard,
-                border: `1px solid ${enabled[rule.id] ? C.borderMid : C.border}`,
-                transition: "all .15s",
-              }}
-            >
-              <Badge
-                color={sColor[rule.severity]}
-                bg={sBg[rule.severity]}
-                border={sBord[rule.severity]}
-                style={{ minWidth: 68, justifyContent: "center" }}
-              >
-                {rule.severity}
-              </Badge>
-              <p style={{ flex: 1, fontSize: 13, color: enabled[rule.id] ? C.ink : C.inkLow, fontWeight: 400 }}>
-                {rule.label}
-              </p>
-              <code style={{ fontSize: 10, color: C.inkMuted, fontFamily: C.mono, flexShrink: 0 }}>{rule.id}</code>
-              {/* Toggle */}
-              <button
-                onClick={() => setEnabled(e => ({ ...e, [rule.id]: !e[rule.id] }))}
-                style={{
-                  width: 42, height: 24, borderRadius: 12, flexShrink: 0, border: "none",
-                  background: enabled[rule.id] ? C.teal : C.bgElevated,
-                  position: "relative", transition: "background .2s",
-                }}
-              >
-                <span style={{
-                  position: "absolute", top: 3,
-                  left: enabled[rule.id] ? "calc(100% - 21px)" : 3,
-                  width: 18, height: 18, borderRadius: "50%",
-                  background: "#fff",
-                  boxShadow: "0 1px 4px rgba(0,0,0,.15)",
-                  transition: "left .2s",
-                }} />
-              </button>
+        <SectionTitle accent={C.blue}>
+          AI confidence vs risk score
+          <span style={{ fontSize:9, color:C.inkMid, fontWeight:400, marginLeft:8, textTransform:"none", letterSpacing:0 }}>
+            — each dot is one scan (red=blocked, teal=allowed)
+          </span>
+        </SectionTitle>
+        {scatterData.length < 2 ? (
+          <div style={{ color:C.inkLow, fontSize:13, padding:"20px 0" }}>Need more scans to render scatter plot.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <ScatterChart>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+              <XAxis type="number" dataKey="x" name="Risk" domain={[0,10]} tick={{ fill:C.inkMid, fontSize:10 }} label={{ value:"Risk score", fill:C.inkMid, fontSize:10, position:"insideBottom", offset:-2 }} />
+              <YAxis type="number" dataKey="y" name="Confidence" domain={[55,100]} tick={{ fill:C.inkMid, fontSize:10 }} label={{ value:"AI conf %", fill:C.inkMid, fontSize:10, angle:-90, position:"insideLeft" }} />
+              <ZAxis type="number" dataKey="z" range={[40, 200]} />
+              <Tooltip cursor={{ strokeDasharray:"3 3" }} content={({ active, payload }) => {
+                if (!active||!payload?.length) return null;
+                const d = payload[0]?.payload;
+                return (
+                  <div style={{ ...TT, padding:"8px 12px" }}>
+                    <div style={{ fontFamily:C.mono, color:C.blue, fontSize:11 }}>{d?.name}</div>
+                    <div style={{ fontSize:11, color:C.inkMid }}>Risk: {d?.x} · Confidence: {d?.y}%</div>
+                  </div>
+                );
+              }} />
+              <Scatter data={scatterData.filter(d=>d.color===C.red)}    fill={C.red}  fillOpacity={0.8} />
+              <Scatter data={scatterData.filter(d=>d.color===C.teal)}   fill={C.teal} fillOpacity={0.6} />
+            </ScatterChart>
+          </ResponsiveContainer>
+        )}
+      </Card>
+
+      {/* Blocked scans with full AI analysis */}
+      <SectionTitle accent={C.red}>Blocked commits — AI analysis & remedies</SectionTitle>
+      {blockedAll.length === 0 && (
+        <div style={{
+          color:C.teal, textAlign:"center", padding:"40px 0", fontSize:14,
+          display:"flex", flexDirection:"column", alignItems:"center", gap:8,
+        }}>
+          <CheckCircle size={32} color={C.teal} />
+          No blocked commits. Pipeline is clean!
+        </div>
+      )}
+      {blockedAll.map((scan,i) => (
+        <div key={scan.id} className="fade-up" style={{
+          background:C.bgCard, borderRadius:14,
+          border:`1px solid ${C.redBord}`, borderLeft:`3px solid ${C.red}`,
+          padding:"18px", marginBottom:12,
+          animationDelay:`${i*0.05}s`,
+          boxShadow:`0 0 20px ${C.red}08`,
+        }}>
+          {/* Header */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap" }}>
+            <div>
+              <div style={{ display:"flex", gap:7, alignItems:"center", marginBottom:5, flexWrap:"wrap" }}>
+                <span style={{ fontFamily:C.mono, color:C.blue, fontSize:12 }}>{scan.commit_sha?.slice(0,8)}</span>
+                <Badge color={C.red}>BLOCKED</Badge>
+                {scan.severity && <Badge color={sevColor(scan.severity)} small>{scan.severity}</Badge>}
+                {scan.risk_score != null && <Badge color={riskColor(scan.risk_score)} small>Risk {scan.risk_score}</Badge>}
+              </div>
+              <div style={{ fontSize:14, fontWeight:600, color:C.ink }}>
+                {scan.commit_message || scan.repo_name}
+              </div>
+              <div style={{ fontSize:11, color:C.inkMid, marginTop:3, display:"flex", gap:5, alignItems:"center" }}>
+                <GitBranch size={10} />
+                {scan.repo_name} · {scan.branch} · {relTime(scan.created_at)}
+              </div>
+            </div>
+            <button onClick={() => onOpenWhyBlocked?.(scan)} style={{
+              padding:"7px 13px", borderRadius:8, flexShrink:0,
+              background:C.redSoft, border:`1px solid ${C.redBord}`,
+              color:C.red, fontSize:12, fontWeight:600,
+              display:"flex", alignItems:"center", gap:5,
+            }}>
+              <Eye size={12} /> Full detail
+            </button>
+          </div>
+
+          {/* Pipeline nodes */}
+          <PipelineMiniNodes pipeline={scan.pipeline} />
+
+          {/* Failed stages summary */}
+          {(scan.pipeline||[]).filter(p=>p.status==="failed").map(p => (
+            <div key={p.id} style={{
+              marginTop:8, padding:"7px 11px",
+              background:C.redSoft, borderRadius:8, border:`1px solid ${C.redBord}`,
+              fontSize:12, color:C.red,
+              display:"flex", alignItems:"center", gap:7,
+            }}>
+              <XCircle size={12} />
+              <strong>{p.name}</strong>
+              {p.detail && <span style={{ color:C.inkMid, fontFamily:C.mono, fontSize:11 }}>— {p.detail}</span>}
             </div>
           ))}
+
+          {/* AI analysis + remedy (always visible for blocked) */}
+          <AIAnalysisBlock scan={scan} />
+
+          {/* Vuln quick summary */}
+          {scan.vuln_breakdown?.total > 0 && (
+            <div style={{ marginTop:10, display:"flex", gap:8, flexWrap:"wrap" }}>
+              <Badge color={C.amber}>{scan.vuln_breakdown.total} vulns</Badge>
+              <Badge color={C.blue}>{scan.vuln_breakdown.fixable_count} fixable</Badge>
+              {scan.vuln_breakdown.fixable_details?.some(v=>v.severity==="CRITICAL") && (
+                <Badge color={C.red}>CRITICAL CVEs found</Badge>
+              )}
+            </div>
+          )}
+
+          {/* Feedback */}
+          <div style={{ display:"flex", gap:8, marginTop:12, alignItems:"center" }}>
+            <span style={{ fontSize:11, color:C.inkLow }}>Assessment accurate?</span>
+            {["accept","reject"].map(type => {
+              const myFb = feedback?.[scan.id];
+              return (
+                <button key={type} onClick={() => onFeedback?.(scan.id,type)} style={{
+                  display:"flex", alignItems:"center", gap:4,
+                  padding:"4px 10px", borderRadius:8,
+                  background:myFb===type?(type==="accept"?C.greenSoft:C.redSoft):C.bgSurface,
+                  border:`1px solid ${myFb===type?(type==="accept"?C.green:C.red):C.border}`,
+                  color:myFb===type?(type==="accept"?C.green:C.red):C.inkMid,
+                  fontSize:11,
+                }}>
+                  {type==="accept"?<ThumbsUp size={11}/>:<ThumbsDown size={11}/>}
+                  {type==="accept"?"Accurate":"Incorrect"}
+                </button>
+              );
+            })}
+          </div>
         </div>
+      ))}
+
+      {/* Allowed scans — compact list with AI notes */}
+      {allowedAll.some(s=>s.ai_explanation) && (
+        <>
+          <div style={{ height:1, background:C.border, margin:"24px 0 16px" }} />
+          <SectionTitle accent={C.teal}>Allowed commits — AI notes</SectionTitle>
+          {allowedAll.filter(s=>s.ai_explanation).slice(0,8).map((scan,i) => (
+            <div key={scan.id} className="fade-up" style={{
+              background:C.bgCard, borderRadius:12,
+              border:`1px solid ${C.border}`, borderLeft:`3px solid ${C.teal}`,
+              padding:"14px 16px", marginBottom:10,
+              animationDelay:`${i*0.04}s`,
+            }}>
+              <div style={{ display:"flex", gap:7, alignItems:"center", marginBottom:6, flexWrap:"wrap" }}>
+                <span style={{ fontFamily:C.mono, color:C.blue, fontSize:11 }}>{scan.commit_sha?.slice(0,8)}</span>
+                <Badge color={C.teal} small>ALLOWED</Badge>
+                {scan.risk_score!=null && <Badge color={riskColor(scan.risk_score)} small>Risk {scan.risk_score}</Badge>}
+                <span style={{ fontSize:11, color:C.inkMid, marginLeft:"auto" }}>{relTime(scan.created_at)}</span>
+              </div>
+              <div style={{ fontSize:13, color:C.ink, marginBottom:4 }}>{scan.commit_message||scan.repo_name}</div>
+              {scan.ai_explanation && (
+                <div style={{ fontSize:12, color:C.inkMid, lineHeight:1.5, padding:"8px 10px", background:C.bgSurface, borderRadius:7, border:`1px solid ${C.border}` }}>
+                  <span style={{ color:C.violet, fontSize:10, fontWeight:700, letterSpacing:"0.08em" }}>AI: </span>
+                  {scan.ai_explanation}
+                </div>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   METRICS TAB
+───────────────────────────────────────────── */
+function MetricsTab({ scans }) {
+  const completed = scans.filter(s=>s.status!=="running");
+  const blockRate = completed.length
+    ? ((completed.filter(s=>s.action_taken==="BLOCK").length/completed.length)*100).toFixed(1) : "0";
+  const avgConf = useMemo(() => {
+    const w = completed.filter(s=>s.ai_confidence!=null);
+    return w.length ? Math.round(w.reduce((a,s)=>a+s.ai_confidence,0)/w.length) : null;
+  }, [completed]);
+
+  const dailyVol = useMemo(() => {
+    const by={};
+    completed.forEach(s => {
+      const d=fmt(s.created_at);
+      if(!by[d]) by[d]={day:d,total:0,blocked:0,allowed:0};
+      by[d].total++; if(s.action_taken==="BLOCK") by[d].blocked++; else by[d].allowed++;
+    });
+    return Object.values(by).slice(-14);
+  }, [completed]);
+
+  const riskDist = useMemo(() => {
+    const bins={"0-2":0,"3-4":0,"5-6":0,"7-8":0,"9-10":0};
+    completed.forEach(s => {
+      const r=s.risk_score||0;
+      if(r<=2) bins["0-2"]++;
+      else if(r<=4) bins["3-4"]++;
+      else if(r<=6) bins["5-6"]++;
+      else if(r<=8) bins["7-8"]++;
+      else bins["9-10"]++;
+    });
+    return Object.entries(bins).map(([name,value])=>({name,value}));
+  }, [completed]);
+
+  const confOverTime = useMemo(() =>
+    completed.filter(s=>s.ai_confidence!=null).slice(-20).reverse().map(s => ({
+      name:s.commit_sha?.slice(0,6)||"—", conf:s.ai_confidence, risk:s.risk_score||0,
+    }))
+  , [completed]);
+
+  const stageStats = useMemo(() => {
+    const stats={};
+    PIPELINE_STAGES.forEach(st=>{stats[st.key]={passed:0,failed:0,total:0};});
+    completed.forEach(s => {
+      s.pipeline?.forEach(p => {
+        if(!stats[p.id]) return;
+        stats[p.id].total++;
+        if(p.status==="passed") stats[p.id].passed++;
+        if(p.status==="failed") stats[p.id].failed++;
+      });
+    });
+    return PIPELINE_STAGES.map(st=>({
+      name:st.label,
+      pass:stats[st.key].total?+((stats[st.key].passed/stats[st.key].total)*100).toFixed(0):100,
+      fail:stats[st.key].total?+((stats[st.key].failed/stats[st.key].total)*100).toFixed(0):0,
+    }));
+  }, [completed]);
+
+  /* Cumulative block rate over time */
+  const cumulativeData = useMemo(() => {
+    let total=0, blocked=0;
+    return completed.slice().reverse().map(s => {
+      total++; if(s.action_taken==="BLOCK") blocked++;
+      return { name:s.commit_sha?.slice(0,6)||"—", rate:total?+(blocked/total*100).toFixed(1):0 };
+    }).slice(-20);
+  }, [completed]);
+
+  return (
+    <div style={{ animation:"fadeInUp .4s ease" }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:14, marginBottom:16 }}>
+        {[
+          { label:"Block rate",    value:`${blockRate}%`,             color:C.red    },
+          { label:"AI confidence", value:avgConf!=null?`${avgConf}%`:"—", color:C.violet },
+          { label:"Total scans",   value:completed.length,             color:C.teal   },
+          { label:"Blocked",       value:completed.filter(s=>s.action_taken==="BLOCK").length, color:C.amber },
+          { label:"With AI",       value:completed.filter(s=>s.ai_explanation).length, color:C.cyan  },
+        ].map(k => (
+          <Card key={k.label} style={{ padding:"16px 18px" }}>
+            <div style={{ fontSize:9, color:C.inkLow, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10 }}>{k.label}</div>
+            <div style={{ fontSize:30, fontWeight:900, fontFamily:C.mono, color:k.color, lineHeight:1 }}>{k.value}</div>
+          </Card>
+        ))}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"3fr 2fr", gap:14, marginBottom:14 }}>
+        <Card>
+          <SectionTitle accent={C.blue}>Daily scan volume</SectionTitle>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={dailyVol} barSize={18}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+              <XAxis dataKey="day" stroke="transparent" tick={{ fill:C.inkMid, fontSize:9 }} />
+              <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} allowDecimals={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="allowed" name="Allowed" fill={C.teal} stackId="a" />
+              <Bar dataKey="blocked" name="Blocked" fill={C.red}  stackId="a" radius={[4,4,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card>
+          <SectionTitle accent={C.amber}>Risk distribution</SectionTitle>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={riskDist} layout="vertical" barSize={14}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
+              <XAxis type="number" stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} allowDecimals={false} />
+              <YAxis dataKey="name" type="category" stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} width={40} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="value" name="Scans" radius={[0,4,4,0]}>
+                {riskDist.map((e,i) => <Cell key={i} fill={e.name==="9-10"?C.red:e.name==="7-8"?C.amber:e.name==="5-6"?C.blue:C.teal} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+
+      {/* Cumulative block rate trend */}
+      <Card>
+        <SectionTitle accent={C.red}>Cumulative block rate over time</SectionTitle>
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={cumulativeData}>
+            <defs>
+              <linearGradient id="brGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={C.red} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={C.red} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+            <XAxis dataKey="name" stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} />
+            <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} domain={[0,100]} unit="%" />
+            <Tooltip content={<CustomTooltip />} />
+            <Area type="monotone" dataKey="rate" name="Block rate %" stroke={C.red} fill="url(#brGrad)" strokeWidth={2} dot={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </Card>
+
+      <Card>
+        <SectionTitle accent={C.violet}>AI confidence over time</SectionTitle>
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={confOverTime}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+            <XAxis dataKey="name" stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} />
+            <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} domain={[50,100]} />
+            <Tooltip content={<CustomTooltip />} />
+            <Line type="monotone" dataKey="conf" name="AI Confidence %" stroke={C.violet} strokeWidth={2} dot={{ r:3, fill:C.violet }} />
+            <Line type="monotone" dataKey="risk" name="Risk score" stroke={C.amber} strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+
+      <Card>
+        <SectionTitle accent={C.green}>Pipeline stage pass rates</SectionTitle>
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={stageStats} barSize={22}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+            <XAxis dataKey="name" stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} />
+            <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} domain={[0,100]} unit="%" />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey="pass" name="Pass %" fill={C.green} stackId="s" />
+            <Bar dataKey="fail" name="Fail %" fill={C.red}   stackId="s" radius={[4,4,0,0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </Card>
     </div>
   );
 }
 
-/* ─── Main App ───────────────────────────────────────────────────────────── */
-export default function App() {
-  const [tab, setTab]              = useState("overview");
-  const [scans, setScans]          = useState([]);
-  const [stats, setStats]          = useState({});
-  const [loading, setLoading]      = useState(true);
-  const [lastFetch, setLastFetch]  = useState(null);
-  const [connected, setConnected]  = useState(false);
-  const [copilotOpen, setCopilot]  = useState(false);
-  const [modalScan, setModalScan]  = useState(null);
+/* ─────────────────────────────────────────────
+   LIVE CLOCK  (ticks every second)
+───────────────────────────────────────────── */
+function LiveRelTime({ date }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick(n=>n+1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (!date) return null;
+  return <span>{relTime(date.toISOString())}</span>;
+}
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+/* ─────────────────────────────────────────────
+   ANIMATED COPILOT FAB  (breathing + ripple)
+───────────────────────────────────────────── */
+function CopilotFAB({ active, blocked, running, onClick }) {
+  const count = blocked + running;
+  return (
+    <div style={{ position:"relative", display:"inline-flex" }}>
+      {/* Ripple rings (only when not active) */}
+      {!active && (
+        <>
+          <span style={{
+            position:"absolute", inset:-8, borderRadius:999,
+            border:`2px solid ${C.teal}`,
+            animation:"ripple 2.4s ease-out infinite",
+            pointerEvents:"none",
+          }} />
+          <span style={{
+            position:"absolute", inset:-8, borderRadius:999,
+            border:`2px solid ${C.teal}`,
+            animation:"ripple 2.4s ease-out 1.2s infinite",
+            pointerEvents:"none",
+          }} />
+        </>
+      )}
+      <button onClick={onClick} style={{
+        display:"flex", alignItems:"center", gap:7,
+        padding:"7px 14px", borderRadius:20,
+        background: active ? C.tealSoft : `linear-gradient(135deg, ${C.teal}22, ${C.violet}18)`,
+        border:`1.5px solid ${active ? C.teal : C.tealBord}`,
+        color: active ? C.teal : C.teal,
+        fontSize:12, fontWeight:700,
+        transition:"all .25s",
+        animation: active ? "none" : "breathe 2.8s ease-in-out infinite",
+        position:"relative",
+        boxShadow: active ? "none" : `0 0 18px ${C.teal}20`,
+      }}>
+        <Sparkles size={14} style={{ animation: active ? "none" : "float 2s ease-in-out infinite" }} />
+        AI Copilot
+        {count > 0 && (
+          <span style={{
+            background:C.red, color:"#fff", borderRadius:999,
+            fontSize:9, fontWeight:800, padding:"1px 5px", minWidth:16, textAlign:"center",
+          }}>{count}</span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   ROOT APP
+───────────────────────────────────────────── */
+export default function App() {
+  const [scans,          setScans]         = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [activeTab,      setActiveTab]      = useState("overview");
+  const [selectedScan,   setSelectedScan]   = useState(null);
+  const [whyBlockedScan, setWhyBlockedScan] = useState(null);
+  const [showCopilot,    setShowCopilot]    = useState(false);
+  const [feedback,       setFeedback]       = useState({});
+  const [lastUpdated,    setLastUpdated]    = useState(null);
+  const [wsStatus,       setWsStatus]       = useState("connecting"); // connecting | connected | reconnecting
+  const wsRef = useRef(null);
+
+  const fetchScans = useCallback(async () => {
     try {
-      const [scansRes, statsRes] = await Promise.all([
-        fetch(`${BACKEND}/api/scans`),
-        fetch(`${BACKEND}/api/stats`),
-      ]);
-      const scansData = await scansRes.json();
-      const statsData = await statsRes.json();
-      setScans(Array.isArray(scansData) ? scansData : scansData?.scans || []);
-      setStats(statsData);
-      setConnected(true);
-    } catch {
-      setConnected(false);
+      const res = await fetch(`${BACKEND}/api/scan-results`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setScans(Array.isArray(data) ? data.map(normaliseScan) : []);
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error("Fetch error:", err);
     } finally {
       setLoading(false);
-      setLastFetch(new Date());
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  /* Auto-refresh every 30s */
   useEffect(() => {
-    const id = setInterval(fetchData, 30_000);
-    return () => clearInterval(id);
-  }, [fetchData]);
+    let reconnectTimer;
+    let reconnectDelay = 4000;
 
-  const tabProps = { scans, stats, loading, onOpenScan: setModalScan };
+    const connectWS = () => {
+      setWsStatus("connecting");
+      const url = BACKEND.replace(/^http/, "ws") + "/ws/scans";
+      try {
+        const ws = new WebSocket(url);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          setWsStatus("connected");
+          reconnectDelay = 4000; // reset backoff
+          console.log("WS connected");
+        };
+        ws.onmessage = (e) => {
+          try { const m = JSON.parse(e.data); if (m.type==="ping") return; } catch {}
+          fetchScans();
+        };
+        ws.onclose = () => {
+          setWsStatus("reconnecting");
+          reconnectTimer = setTimeout(() => {
+            reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
+            connectWS();
+          }, reconnectDelay);
+        };
+        ws.onerror = () => ws.close();
+      } catch {
+        setWsStatus("reconnecting");
+        reconnectTimer = setTimeout(connectWS, reconnectDelay);
+      }
+    };
+
+    connectWS();
+    const poll = setInterval(fetchScans, 12000);
+    fetchScans();
+
+    return () => {
+      clearInterval(poll);
+      clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+    };
+  }, [fetchScans]);
+
+  const submitFeedback = useCallback(async (scanId, type) => {
+    setFeedback(prev => ({ ...prev, [scanId]: type }));
+    try {
+      await fetch(`${BACKEND}/api/scan-results/${scanId}/feedback`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({ feedback: type==="accept"?"accurate":"incorrect" }),
+      });
+    } catch {}
+  }, []);
+
+  const running   = useMemo(() => scans.filter(s=>s.status==="running"), [scans]);
+  const completed = useMemo(() => scans.filter(s=>s.status!=="running"), [scans]);
+  const blocked   = useMemo(() => completed.filter(s=>s.action_taken==="BLOCK"), [completed]);
+  const allowed   = useMemo(() => completed.filter(s=>s.action_taken==="ALLOW"), [completed]);
+
+  const avgRisk = completed.length
+    ? (completed.reduce((a,s)=>a+(s.risk_score||0),0)/completed.length).toFixed(1) : "0";
+
+  const healthScore = Math.max(0, Math.min(100,
+    Math.round(100 - (blocked.length/(completed.length||1))*40 - parseFloat(avgRisk)*6)
+  ));
+
+  const TABS = [
+    { id:"overview",   label:"Overview",     Icon:Activity      },
+    { id:"pipeline",   label:"Pipeline",     Icon:GitPullRequest },
+    { id:"ai-insights",label:"AI Insights",  Icon:Brain         },
+    { id:"metrics",    label:"Metrics",      Icon:BarChart2     },
+  ];
+
+  /* WS status indicator */
+  const wsColor = wsStatus==="connected" ? C.teal : wsStatus==="reconnecting" ? C.amber : C.inkMid;
+  const wsLabel = wsStatus==="connected" ? "Live" : wsStatus==="reconnecting" ? "Reconnecting…" : "Connecting…";
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: C.bg }}>
-      <Sidebar active={tab} onNav={setTab} connected={connected} />
+    <>
+      {whyBlockedScan && (
+        <WhyBlockedModal scan={whyBlockedScan} onClose={() => setWhyBlockedScan(null)} />
+      )}
 
-      {/* Main content */}
-      <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        {/* Topbar */}
+      <div style={{ minHeight:"100vh", background:C.bg, color:C.ink, fontFamily:C.sans }}>
+        {/* HEADER */}
         <header style={{
-          height: 60, flexShrink: 0,
-          background: C.bgCard, borderBottom: `1px solid ${C.border}`,
-          display: "flex", alignItems: "center",
-          padding: "0 24px", gap: 14,
-          position: "sticky", top: 0, zIndex: 100,
+          position:"sticky", top:0, zIndex:200,
+          background:`${C.bg}e8`,
+          backdropFilter:"blur(16px) saturate(180%)",
+          borderBottom:`1px solid ${C.border}`,
+          padding:"0 24px",
+          display:"flex", alignItems:"center", gap:16, height:56,
         }}>
-          <h1 style={{ fontSize: 15, fontWeight: 600, color: C.ink, flex: 1 }}>
-            {NAV_ITEMS.find(n => n.key === tab)?.label}
-          </h1>
-
-          {lastFetch && (
-            <span style={{ fontSize: 11, color: C.inkMuted }}>
-              Updated {fmt.ago(lastFetch)}
+          {/* Logo */}
+          <div style={{ display:"flex", alignItems:"center", gap:9, flexShrink:0 }}>
+            <div style={{
+              width:30, height:30, borderRadius:8,
+              background:`linear-gradient(135deg, ${C.teal}30, ${C.blue}20)`,
+              border:`1px solid ${C.tealBord}`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+            }}>
+              <Shield size={16} color={C.teal} />
+            </div>
+            <span style={{ fontSize:16, fontWeight:800, letterSpacing:"-0.02em" }}>
+              Secure<span style={{ color:C.teal }}>Flow</span>
             </span>
-          )}
+          </div>
 
-          <IconBtn Icon={RefreshCw} onClick={fetchData} title="Refresh" />
+          <div style={{ width:1, height:20, background:C.border, flexShrink:0 }} />
 
-          <button
-            onClick={() => setCopilot(o => !o)}
-            className="fab-breathe"
-            style={{
-              display: "flex", alignItems: "center", gap: 7,
-              background: C.teal, color: "#fff", border: "none",
-              borderRadius: 10, padding: "8px 14px",
-              fontSize: 13, fontWeight: 600,
-              boxShadow: "0 2px 12px rgba(13,148,136,.25)",
-              transition: "all .15s",
-              position: "relative",
-            }}
-          >
-            <Sparkles size={14} />
-            AI Copilot
-          </button>
+          {/* Tabs */}
+          <nav style={{ display:"flex", gap:4 }}>
+            {TABS.map(({ id, label, Icon }) => (
+              <button key={id} className={`sf-tab ${activeTab===id?"active":""}`}
+                onClick={() => setActiveTab(id)}>
+                <Icon size={14} /> {label}
+              </button>
+            ))}
+          </nav>
+
+          {/* Right side */}
+          <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:12 }}>
+            {/* WS indicator */}
+            <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:wsColor }}>
+              {wsStatus==="connected"
+                ? <Wifi size={13} />
+                : wsStatus==="reconnecting"
+                ? <WifiOff size={13} style={{ animation:"pulseRing 1.2s infinite" }} />
+                : <Loader2 size={13} className="spin" />}
+              {wsLabel}
+            </div>
+
+            {running.length > 0 && (
+              <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:C.blue, fontWeight:600 }}>
+                <div style={{ width:7, height:7, borderRadius:"50%", background:C.blue, animation:"pulseRing 1.5s infinite" }} />
+                {running.length} running
+              </div>
+            )}
+
+            {/* Live "updated X ago" timer */}
+            {lastUpdated && (
+              <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:C.inkLow }}>
+                <Clock size={12} />
+                <LiveRelTime date={lastUpdated} />
+              </div>
+            )}
+
+            <CopilotFAB
+              active={showCopilot}
+              blocked={blocked.length}
+              running={running.length}
+              onClick={() => setShowCopilot(v=>!v)}
+            />
+
+            <button onClick={fetchScans} title="Refresh" style={{
+              padding:"6px", background:"none",
+              border:"none", color:C.inkMid, borderRadius:8,
+              display:"flex", alignItems:"center",
+            }}>
+              <RefreshCw size={16} />
+            </button>
+          </div>
         </header>
 
-        {/* Tab content */}
-        <div className="fade-up" style={{ flex: 1, padding: "24px", overflowY: "auto" }}>
-          {tab === "overview"  && <OverviewTab  {...tabProps} recentScans={scans} />}
-          {tab === "scans"     && <ScansTab     {...tabProps} />}
-          {tab === "pipeline"  && <PipelineTab  {...tabProps} />}
-          {tab === "analytics" && <AnalyticsTab {...tabProps} />}
-          {tab === "policy"    && <PolicyTab />}
-        </div>
-      </main>
+        {/* MAIN */}
+        <main style={{ padding:"24px", maxWidth:1280, margin:"0 auto" }}>
+          {loading ? (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"60vh", gap:16 }}>
+              <div style={{
+                width:48, height:48, borderRadius:"50%",
+                border:`3px solid ${C.border}`,
+                borderTop:`3px solid ${C.teal}`,
+                animation:"spin 1s linear infinite",
+              }} />
+              <div style={{ color:C.inkMid, fontSize:14 }}>Connecting to SecureFlow…</div>
+            </div>
+          ) : (
+            <>
+              {activeTab==="overview" && (
+                <OverviewTab
+                  scans={scans} healthScore={healthScore} avgRisk={avgRisk}
+                  blocked={blocked} allowed={allowed} running={running} completed={completed}
+                  feedback={feedback} onFeedback={submitFeedback}
+                  onOpenWhyBlocked={setWhyBlockedScan} onOpenDetail={setSelectedScan}
+                />
+              )}
+              {activeTab==="pipeline" && (
+                <PipelineTab
+                  scans={scans} feedback={feedback}
+                  onFeedback={submitFeedback}
+                  onOpenWhyBlocked={setWhyBlockedScan} onOpenDetail={setSelectedScan}
+                />
+              )}
+              {activeTab==="ai-insights" && (
+                <AIInsightsTab
+                  scans={scans} feedback={feedback}
+                  onFeedback={submitFeedback}
+                  onOpenWhyBlocked={setWhyBlockedScan}
+                />
+              )}
+              {activeTab==="metrics" && <MetricsTab scans={scans} />}
+            </>
+          )}
+        </main>
+      </div>
 
-      {/* Copilot */}
-      <CopilotChat
-        isOpen={copilotOpen}
-        onClose={() => setCopilot(false)}
-        recentScans={scans}
-        stats={stats}
-        focusScan={modalScan}
-      />
-
-      {/* FAB (mobile) */}
-      <button
-        className="fab-ripple fab-breathe"
-        onClick={() => setCopilot(o => !o)}
-        style={{
-          position: "fixed", right: 20, bottom: 24,
-          width: 52, height: 52, borderRadius: "50%",
-          background: C.teal, color: "#fff", border: "none",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 4px 20px rgba(13,148,136,.35)",
-          zIndex: 800,
-        }}
-      >
-        <Bot size={22} />
-      </button>
-
-      {/* Modal */}
-      {modalScan && (
-        <WhyBlockedModal scan={modalScan} onClose={() => setModalScan(null)} />
+      {selectedScan && (
+        <ScanDetail
+          scan={selectedScan} onClose={() => setSelectedScan(null)}
+          feedback={feedback} onFeedback={submitFeedback}
+          onWhyBlocked={setWhyBlockedScan}
+        />
       )}
-    </div>
+
+      {showCopilot && (
+        <AICopilot scans={scans} onClose={() => setShowCopilot(false)} />
+      )}
+    </>
   );
 }
