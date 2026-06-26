@@ -291,13 +291,20 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     run_id = data.get("run_id")
     pipeline_steps = data.get("pipeline_steps", {})
 
-    # FIX: save_scan() was a nested sync function that called
-    # asyncio.create_task() — which fails in a threadpool with
-    # "RuntimeError: no running event loop". Inlined all DB logic directly
-    # into this async function so await manager.broadcast() works correctly.
+    # -------------------------------------------------------------------
+    # Normalize ALL scanner outputs (IMPORTANT FIX)
+    # -------------------------------------------------------------------
+    gitleaks = data.get("gitleaks", [])
+    semgrep = data.get("semgrep", [])
+    trivy = data.get("findings", {})
+
+    normalized_findings = {
+        "gitleaks": gitleaks,
+        "semgrep": semgrep,
+        "Results": trivy.get("Results", [])
+    }
 
     def _upsert(fields: dict) -> ScanResult:
-        """Pure DB upsert — no asyncio, safe to call from async context."""
         if run_id:
             scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
             if scan:
@@ -310,13 +317,16 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
                 db.commit()
                 db.refresh(scan)
                 return scan
+
         scan = ScanResult(**fields, pipeline_steps=pipeline_steps, status="complete")
         db.add(scan)
         db.commit()
         db.refresh(scan)
         return scan
 
-    # Code scans
+    # -------------------------------------------------------------------
+    # Code scan (unchanged)
+    # -------------------------------------------------------------------
     if scan_type == "code-scan":
         scan = _upsert({
             "commit_sha": data.get("commit_sha", "unknown"),
@@ -331,14 +341,16 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "risk_score": None,
             "action_taken": data.get("action", "ALLOW"),
         })
+
         await manager.broadcast(scan_to_broadcast_payload(scan))
         return {"status": "processed", "id": scan.id, "action": scan.action_taken}
 
-    # Explicit action with no findings (e.g. BLOCK from gitleaks/semgrep)
-    findings = data.get("findings", {})
+    # -------------------------------------------------------------------
+    # Explicit scanner actions (gitleaks/semgrep fast block path)
+    # -------------------------------------------------------------------
     explicit_action = data.get("action")
 
-    if explicit_action and not findings:
+    if explicit_action and not normalized_findings["Results"] and not gitleaks and not semgrep:
         scan = _upsert({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
@@ -352,15 +364,22 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "risk_score": None,
             "action_taken": explicit_action,
         })
+
         await manager.broadcast(scan_to_broadcast_payload(scan))
         return {"status": "processed", "id": scan.id, "action": explicit_action}
 
-    # Normal Trivy flow
-    policy_result = evaluate_policy(findings, repo_name)
+    # -------------------------------------------------------------------
+    # 🔥 MAIN POLICY ENGINE (NOW FIXED FOR ALL SCANNERS)
+    # -------------------------------------------------------------------
+    policy_result = evaluate_policy(normalized_findings, repo_name)
 
+    # -------------------------------------------------------------------
+    # AI analysis (Trivy only, unchanged)
+    # -------------------------------------------------------------------
     ai_results = []
     vulnerabilities = []
-    for r in (findings or {}).get("Results", []) or []:
+
+    for r in normalized_findings.get("Results", []) or []:
         vulnerabilities.extend(r.get("Vulnerabilities", []) or [])
 
     if vulnerabilities:
@@ -368,6 +387,9 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
 
     first_ai = ai_results[0] if ai_results else {}
 
+    # -------------------------------------------------------------------
+    # Save scan result
+    # -------------------------------------------------------------------
     scan = _upsert({
         "commit_sha": data.get("commit_sha", "unknown"),
         "commit_message": data.get("commit_message", ""),
@@ -375,7 +397,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         "branch": data.get("branch", "main"),
         "scan_type": scan_type,
         "severity": policy_result["severity"],
-        "findings": findings,
+        "findings": normalized_findings,
         "ai_explanation": first_ai.get("explanation", ""),
         "ai_fix": first_ai.get("fix", ""),
         "risk_score": first_ai.get("risk_score"),
