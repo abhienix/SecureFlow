@@ -135,6 +135,49 @@ def evaluate_policy(scan_findings, repo_name):
     """
     Main entry point. Takes Trivy's scan output and decides ALLOW or BLOCK.
     """
+    gitleaks_findings = scan_findings.get("gitleaks") or []
+    semgrep_findings = scan_findings.get("semgrep") or []
+
+    if gitleaks_findings:
+        return {
+            "action": "BLOCK",
+            "reason": f"{len(gitleaks_findings)} secret(s) detected by Gitleaks",
+            "policy_used": "code-scan",
+            "severity": "HIGH",
+            "blocked": [
+                {
+                    "cve": item.get("RuleID") or item.get("rule") or "secret",
+                    "severity": "HIGH",
+                    "cvss": 0.0,
+                    "package": item.get("File") or item.get("file") or "source",
+                    "fix": "remove or rotate the exposed secret",
+                }
+                for item in gitleaks_findings[:20]
+            ],
+            "warned": [],
+            "allowlisted": [],
+        }
+
+    if semgrep_findings:
+        return {
+            "action": "BLOCK",
+            "reason": f"{len(semgrep_findings)} insecure pattern(s) detected by Semgrep",
+            "policy_used": "code-scan",
+            "severity": "HIGH",
+            "blocked": [
+                {
+                    "cve": item.get("check_id") or item.get("rule_id") or "semgrep-finding",
+                    "severity": "HIGH",
+                    "cvss": 0.0,
+                    "package": item.get("path") or "source",
+                    "fix": item.get("extra", {}).get("message", "fix the reported pattern"),
+                }
+                for item in semgrep_findings[:20]
+            ],
+            "warned": [],
+            "allowlisted": [],
+        }
+
     policy = get_policy_for_repo(repo_name)
 
     # Pull thresholds from policy — these can differ per repo.
