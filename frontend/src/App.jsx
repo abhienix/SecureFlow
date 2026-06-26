@@ -1,37 +1,16 @@
 /**
- * SecureFlow — App.jsx  (v3.1 — Bugfix Edition)
+ * SecureFlow — App.jsx (v3.3 — Professional White Dashboard)
  * Real-time CI/CD Security Dashboard
  *
- * Fixes vs v3:
- *  1. PIPELINE STAGE ICONS: resultToStatus() now correctly infers "passed"
- *     when a stage has run but the backend sent no explicit result/status
- *     string (was falling through to "pending" → hollow default icon,
- *     even for ALLOW/CLEAN scans). Root cause of the "3D pipeline /
- *     checkout not working" visual bug (abc123, 4faef64c, "unknown" commits
- *     in your screenshots).
- *  2. AI COPILOT: now sends the full scan context (recent scans, current
- *     stats, the currently-open "why blocked" scan if any) alongside the
- *     question, instead of a bare { question } with zero grounding. This
- *     is a frontend-side improvement — it gives the backend AI something
- *     real to reason about. If the backend doesn't use that context, the
- *     replies still won't improve; see note at bottom of file.
- *  3. REMEDY FETCHING: fetchRemedy() (in AIAnalysisBlock and WhyBlockedModal)
- *     no longer fails silently when the backend returns 200 with no usable
- *     remedy field. It now distinguishes network/HTTP failure vs. "backend
- *     responded but had nothing to say" vs. success, and shows the
- *     person which one happened instead of just re-showing the button.
- *
- * IMPORTANT — please read:
- *   Bugs #2 and #3 are backend-shaped problems. This file makes the
- *   frontend send better context and fail loudly/usefully instead of
- *   silently, but it cannot fix a backend AI that ignores context or an
- *   endpoint that never populates ai_remedy. See the comment block at the
- *   very bottom of this file for what to check/fix server-side.
- */
-
-/**
- * SecureFlow — App.jsx (v3.2 — Light Professional Dashboard)
- * Real-time CI/CD Security Dashboard
+ * Fixes vs v3.1/v3.2:
+ *  1. DUPLICATE GLOBAL_CSS: Removed the first (incomplete) declaration;
+ *     only the full, canonical definition remains. This was the ESLint
+ *     syntax error crashing the Docker build.
+ *  2. PIPELINE STAGE ICONS: resultToStatus() correctly infers "passed"
+ *     when a stage has run but the backend sent no explicit result/status.
+ *  3. AI COPILOT: Sends full scan context with every question.
+ *  4. REMEDY FETCHING: Distinguishes network failure vs empty response vs
+ *     success; shows the user which one happened.
  */
 
 import React, {
@@ -52,44 +31,59 @@ import {
   Wrench, Eye, Wifi, WifiOff, Clock, BarChart2, AlertCircle,
 } from "lucide-react";
 
+/* ─── Design Tokens ─────────────────────────────────────────────────────── */
 const C = {
-  bg:          "#f8fafc",
-  bgCard:      "#ffffff",
-  bgSurface:   "#f1f5f9",
-  bgElevated:  "#e2e8f0",
-  border:      "#e2e8f0",
-  borderBright:"#cbd5e1",
-  ink:         "#0f172a",
-  inkMid:      "#475569",
-  inkLow:      "#64748b",
+  /* Surfaces */
+  bg:           "#f8fafc",
+  bgCard:       "#ffffff",
+  bgSurface:    "#f1f5f9",
+  bgElevated:   "#e8edf3",
+  bgHover:      "#f0f4f8",
 
-  teal:        "#14b8a6",
-  tealSoft:    "#14b8a620",
-  tealBord:    "#14b8a640",
+  /* Borders */
+  border:       "#e2e8f0",
+  borderMid:    "#cbd5e1",
+  borderStrong: "#94a3b8",
 
-  blue:        "#3b82f6",
-  blueSoft:    "#3b82f620",
-  blueBord:    "#3b82f640",
+  /* Text */
+  ink:          "#0f172a",
+  inkMid:       "#334155",
+  inkLow:       "#64748b",
+  inkMuted:     "#94a3b8",
 
-  green:       "#10b981",
-  greenSoft:   "#10b98120",
-  greenBord:   "#10b98140",
+  /* Brand — teal */
+  teal:         "#0d9488",
+  tealLight:    "#14b8a6",
+  tealSoft:     "#f0fdfa",
+  tealBord:     "#99f6e4",
+  tealMid:      "#5eead4",
 
-  red:         "#ef4444",
-  redSoft:     "#ef444420",
-  redBord:     "#ef444440",
+  /* Semantic */
+  green:        "#10b981",
+  greenSoft:    "#f0fdf4",
+  greenBord:    "#bbf7d0",
+  greenMid:     "#34d399",
 
-  amber:       "#f59e0b",
-  amberSoft:   "#f59e0b20",
-  amberBord:   "#f59e0b40",
+  red:          "#ef4444",
+  redSoft:      "#fff1f2",
+  redBord:      "#fecdd3",
+  redMid:       "#f87171",
 
-  violet:      "#8b5cf6",
-  violetSoft:  "#8b5cf620",
-  violetBord:  "#8b5cf640",
+  amber:        "#f59e0b",
+  amberSoft:    "#fffbeb",
+  amberBord:    "#fde68a",
+  amberMid:     "#fbbf24",
 
-  cyan:        "#06b6d4",
-  cyanSoft:    "#06b6d420",
+  blue:         "#3b82f6",
+  blueSoft:     "#eff6ff",
+  blueBord:     "#bfdbfe",
+  blueMid:      "#60a5fa",
 
+  violet:       "#7c3aed",
+  violetSoft:   "#f5f3ff",
+  violetBord:   "#ddd6fe",
+
+  /* Typography */
   mono: "'JetBrains Mono','Fira Mono','Consolas',monospace",
   sans: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
 };
@@ -97,157 +91,215 @@ const C = {
 const BACKEND = "https://secureflow-backend-1083585992526.us-central1.run.app";
 
 const PIPELINE_STAGES = [
-  { key: "checkout",  label: "Checkout",     Icon: GitBranch   },
-  { key: "code_scan", label: "Code Scan",    Icon: Terminal    },
-  { key: "docker",    label: "Docker Build", Icon: Cpu         },
-  { key: "trivy",     label: "Trivy Scan",   Icon: Shield      },
-  { key: "policy",    label: "Policy Gate",  Icon: Lock        },
-  { key: "deploy",    label: "Deploy",       Icon: Globe       },
+  { key: "checkout",  label: "Checkout",     Icon: GitBranch },
+  { key: "code_scan", label: "Code Scan",    Icon: Terminal  },
+  { key: "docker",    label: "Docker Build", Icon: Cpu       },
+  { key: "trivy",     label: "Trivy Scan",   Icon: Shield    },
+  { key: "policy",    label: "Policy Gate",  Icon: Lock      },
+  { key: "deploy",    label: "Deploy",       Icon: Globe     },
 ];
 
-/* GLOBAL CSS — Light Theme */
+/* ─── Global CSS (single canonical declaration) ─────────────────────────── */
 const GLOBAL_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
-body { background:${C.bg}; color:${C.ink}; font-family:${C.sans}; -webkit-font-smoothing:antialiased; }
-
-button { cursor:pointer; font-family:${C.sans}; outline:none; }
-button:focus-visible { outline: 2px solid ${C.teal}; outline-offset:2px; }
-
-.sf-card-hover:hover {
-  border-color: ${C.borderBright};
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.1);
+body {
+  background: ${C.bg};
+  color: ${C.ink};
+  font-family: ${C.sans};
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
 }
 
-.sf-tab.active { background:white; color:${C.teal}; border:1px solid ${C.tealBord}; }
-.sf-msg-user { background:${C.tealSoft}; border:1px solid ${C.tealBord}; color:${C.ink}; }
-.sf-msg-bot { background:${C.bgSurface}; border:1px solid ${C.border}; }
-.sf-chat-input { background:white; border:1px solid ${C.border}; }
-.remedy-block { background: linear-gradient(135deg, ${C.greenSoft}, ${C.tealSoft}); border:1px solid ${C.tealBord}; }
+button { cursor: pointer; font-family: ${C.sans}; outline: none; }
+button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: ${C.borderMid}; }
+
+/* Animations */
+@keyframes spin      { to { transform: rotate(360deg); } }
+@keyframes pulse     { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(1.12)} }
+@keyframes fadeInUp  { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeIn    { from{opacity:0} to{opacity:1} }
+@keyframes slideRight{ from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
+@keyframes slideUp   { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+@keyframes ripple    { 0%{transform:scale(1);opacity:.5} 100%{transform:scale(2.2);opacity:0} }
+@keyframes shimmer   { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
+@keyframes breathe   {
+  0%,100%{box-shadow:0 0 0 0 ${C.teal}22,0 4px 24px rgba(13,148,136,.1)}
+  50%{box-shadow:0 0 0 8px ${C.teal}14,0 4px 24px rgba(13,148,136,.18)}
+}
+
+.spin        { animation: spin 1s linear infinite; }
+.pulse-dot   { animation: pulse 1.8s ease-in-out infinite; }
+.fade-up     { animation: fadeInUp .4s ease forwards; }
+.fade-in     { animation: fadeIn .3s ease forwards; }
+.slide-right { animation: slideRight .35s ease forwards; }
+.slide-up    { animation: slideUp .45s cubic-bezier(.22,.68,0,1.15) forwards; }
+.fab-breathe { animation: breathe 3s ease-in-out infinite; }
+
+/* Cards */
+.sf-card {
+  background: ${C.bgCard};
+  border: 1px solid ${C.border};
+  border-radius: 14px;
+  transition: box-shadow .2s, border-color .2s, transform .18s;
+}
+.sf-card:hover {
+  border-color: ${C.borderMid};
+  box-shadow: 0 4px 20px rgba(15,23,42,.06);
+  transform: translateY(-1px);
+}
+.sf-card-flat {
+  background: ${C.bgCard};
+  border: 1px solid ${C.border};
+  border-radius: 14px;
+}
+
+/* Tabs */
+.sf-tab {
+  border: none;
+  background: transparent;
+  color: ${C.inkLow};
+  font-weight: 500;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: background .15s, color .15s;
+}
+.sf-tab:hover { background: ${C.bgSurface}; color: ${C.inkMid}; }
+.sf-tab.active {
+  background: ${C.tealSoft};
+  color: ${C.teal};
+  border: 1px solid ${C.tealBord};
+  font-weight: 600;
+}
+
+/* Chat */
+.sf-msg-user {
+  background: ${C.tealSoft};
+  border: 1px solid ${C.tealBord};
+  color: ${C.ink};
+  align-self: flex-end;
+  border-radius: 14px 14px 4px 14px;
+}
+.sf-msg-bot {
+  background: ${C.bgSurface};
+  border: 1px solid ${C.border};
+  color: ${C.ink};
+  align-self: flex-start;
+  border-radius: 14px 14px 14px 4px;
+}
+.sf-chat-input {
+  background: ${C.bgCard};
+  border: 1.5px solid ${C.border};
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: ${C.ink};
+  font-size: 13px;
+  width: 100%;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+  font-family: ${C.sans};
+}
+.sf-chat-input:focus {
+  border-color: ${C.teal};
+  box-shadow: 0 0 0 3px ${C.teal}18;
+}
+.sf-chat-input::placeholder { color: ${C.inkMuted}; }
+
+/* Badge */
+.sf-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+/* Pipeline connector */
+.sf-pipe-connector {
+  flex: 1;
+  height: 2px;
+  background: linear-gradient(90deg, ${C.border}, ${C.borderMid});
+  border-radius: 1px;
+  margin: 0 4px;
+}
+.sf-pipe-connector.passed {
+  background: linear-gradient(90deg, ${C.tealMid}, ${C.tealLight});
+}
+.sf-pipe-connector.failed {
+  background: linear-gradient(90deg, ${C.redMid}, ${C.red});
+}
+
+/* Recharts overrides */
+.recharts-cartesian-axis-tick-value { fill: ${C.inkLow} !important; font-size: 11px; }
+.recharts-tooltip-wrapper { outline: none !important; }
+
+/* Remedy */
+.remedy-block {
+  background: ${C.greenSoft};
+  border: 1px solid ${C.greenBord};
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+.remedy-error {
+  background: ${C.redSoft};
+  border: 1px solid ${C.redBord};
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+
+/* Skeleton shimmer */
+.sf-skeleton {
+  background: linear-gradient(90deg, ${C.bgSurface} 25%, ${C.bgElevated} 50%, ${C.bgSurface} 75%);
+  background-size: 600px 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+}
+
+/* FAB ripple */
+.fab-ripple::before, .fab-ripple::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 2px solid ${C.teal};
+  animation: ripple 2.4s ease-out infinite;
+  pointer-events: none;
+}
+.fab-ripple::after { animation-delay: 1.2s; }
+
+/* Stat delta badges */
+.delta-up   { color: ${C.green}; background: ${C.greenSoft}; }
+.delta-down { color: ${C.red};   background: ${C.redSoft};   }
+.delta-flat { color: ${C.inkLow}; background: ${C.bgSurface}; }
 `;
 
-// Inject CSS
+/* Inject CSS once */
 if (typeof document !== "undefined") {
-  let style = document.getElementById("sf-css");
-  if (style) style.remove();
-  style = document.createElement("style");
+  const existing = document.getElementById("sf-css");
+  if (existing) existing.remove();
+  const style = document.createElement("style");
   style.id = "sf-css";
   style.textContent = GLOBAL_CSS;
   document.head.appendChild(style);
 }
 
-
-/* ─────────────────────────────────────────────
-   GLOBAL CSS
-───────────────────────────────────────────── */
-const GLOBAL_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
-body { background:${C.bg}; color:${C.ink}; font-family:${C.sans}; -webkit-font-smoothing:antialiased; }
-
-button { cursor:pointer; font-family:${C.sans}; outline:none; }
-button:focus-visible { outline: 2px solid ${C.teal}; outline-offset:2px; }
-
-::-webkit-scrollbar { width:5px; height:5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background:${C.border}; border-radius:3px; }
-::-webkit-scrollbar-thumb:hover { background:${C.borderBright}; }
-
-@keyframes spin        { to { transform: rotate(360deg); } }
-@keyframes pulseRing   { 0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.15)} }
-@keyframes fadeInUp    { from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)} }
-@keyframes fadeIn      { from{opacity:0}to{opacity:1} }
-@keyframes slideInRight{ from{opacity:0;transform:translateX(32px)}to{opacity:1;transform:translateX(0)} }
-@keyframes slideInUp   { from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)} }
-@keyframes glow        { 0%,100%{box-shadow:0 0 12px ${C.teal}20,0 0 0 0 ${C.teal}00}50%{box-shadow:0 0 28px ${C.teal}50,0 0 40px ${C.teal}20} }
-@keyframes dash        { to { stroke-dashoffset: 0; } }
-@keyframes float       { 0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)} }
-@keyframes breathe     { 0%,100%{box-shadow:0 0 0 0 ${C.teal}00,0 8px 32px rgba(0,0,0,.5)} 40%{box-shadow:0 0 0 10px ${C.teal}18,0 8px 32px rgba(0,0,0,.5)} 60%{box-shadow:0 0 0 20px ${C.teal}08,0 8px 32px rgba(0,0,0,.5)} }
-@keyframes bounceIn    { 0%{opacity:0;transform:scale(.6) translateY(20px)} 60%{transform:scale(1.07) translateY(-4px)} 80%{transform:scale(.97)} 100%{opacity:1;transform:scale(1) translateY(0)} }
-@keyframes shimmer     { 0%{background-position:-400px 0}100%{background-position:400px 0} }
-@keyframes gradShift   { 0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%} }
-@keyframes ripple      { 0%{transform:scale(1);opacity:.6} 100%{transform:scale(2.4);opacity:0} }
-@keyframes scanline    { 0%{transform:translateY(-100%)}100%{transform:translateY(100vh)} }
-
-.spin        { animation: spin 1.1s linear infinite; }
-.pulse-dot   { animation: pulseRing 1.6s ease-in-out infinite; }
-.fade-up     { animation: fadeInUp .45s ease forwards; }
-.fade-in     { animation: fadeIn .35s ease forwards; }
-.slide-right { animation: slideInRight .4s ease forwards; }
-.slide-up    { animation: slideInUp .5s cubic-bezier(.22,.68,0,1.2) forwards; }
-.bounce-in   { animation: bounceIn .55s cubic-bezier(.22,.68,0,1.2) forwards; }
-.fab-breathe { animation: breathe 2.8s ease-in-out infinite; }
-
-.sf-card-hover {
-  transition: border-color .25s, box-shadow .25s, transform .2s;
-}
-.sf-card-hover:hover {
-  border-color: ${C.borderBright} !important;
-  transform: translateY(-1px);
-  box-shadow: 0 8px 32px rgba(0,229,176,.06);
-}
-
-.sf-tab { border:none; background:transparent; color:${C.inkMid}; font-weight:600; font-size:13px; padding:8px 16px; border-radius:8px; display:flex; align-items:center; gap:6px; transition:background .2s, color .2s; }
-.sf-tab:hover { background:${C.bgSurface}; color:${C.ink}; }
-.sf-tab.active { background:${C.bgSurface}; color:${C.teal}; border:1px solid ${C.tealBord}; }
-
-.sf-msg-user   { background:${C.tealSoft}; border:1px solid ${C.tealBord}; align-self:flex-end; }
-.sf-msg-bot    { background:${C.bgSurface}; border:1px solid ${C.border}; align-self:flex-start; }
-.sf-chat-input { background:${C.bgSurface}; border:1px solid ${C.border}; border-radius:12px; padding:10px 14px; color:${C.ink}; font-size:13px; width:100%; outline:none; transition:border-color .2s; }
-.sf-chat-input:focus { border-color:${C.tealBord}; }
-.sf-chat-input::placeholder { color:${C.inkLow}; }
-
-.recharts-cartesian-axis-tick-value { fill:${C.inkMid} !important; font-size:11px; }
-.recharts-tooltip-wrapper { outline:none; }
-
-/* Prometheus-gauge ring */
-.gauge-ring-track { stroke: ${C.bgSurface}; }
-.gauge-ring-fill  { transition: stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1); }
-
-/* Ripple behind copilot fab */
-.fab-ripple::before, .fab-ripple::after {
-  content:''; position:absolute; inset:-6px;
-  border-radius:999px;
-  border:2px solid ${C.teal};
-  animation: ripple 2.2s ease-out infinite;
-  pointer-events:none;
-}
-.fab-ripple::after { animation-delay:1.1s; }
-
-/* AI remedy highlight */
-.remedy-block {
-  background: linear-gradient(135deg, ${C.greenSoft}, ${C.tealSoft});
-  border: 1px solid ${C.tealBord};
-  border-radius:10px;
-  padding:12px 14px;
-  margin-top:10px;
-}
-
-/* Remedy error state */
-.remedy-error {
-  background: ${C.redSoft};
-  border: 1px solid ${C.redBord};
-  border-radius:10px;
-  padding:12px 14px;
-  margin-top:10px;
-}
-`;
-
-if (typeof document !== "undefined" && !document.getElementById("sf-css")) {
-  const s = document.createElement("style");
-  s.id = "sf-css";
-  s.textContent = GLOBAL_CSS;
-  document.head.appendChild(s);
-}
-
-/* ─────────────────────────────────────────────
-   HELPERS
-───────────────────────────────────────────── */
 
 /**
  * FIX #1 — pipeline stage status inference.
