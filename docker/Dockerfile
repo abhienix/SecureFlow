@@ -1,5 +1,4 @@
-FROM ubuntu:16.04
-#FROM python:3.11-alpine3.22
+FROM python:3.11-alpine3.22
 WORKDIR /app
 RUN apk add --no-cache gcc musl-dev libffi-dev && \
     apk upgrade --no-cache
