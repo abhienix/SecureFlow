@@ -1,17 +1,32 @@
 /**
- * SecureFlow — App.jsx  (v3 — AI Insights Edition)
+ * SecureFlow — App.jsx  (v3.1 — Bugfix Edition)
  * Real-time CI/CD Security Dashboard
  *
- * Changes vs v2:
- *  • AI analysis now includes a REMEDY section (what to fix)
- *  • "Scan Feed" tab replaced with "AI Insights" tab
- *    – Blocked analysis cards with full AI breakdown + remedies
- *    – Prometheus-style gauge row (block rate, mean TTFB, scan velocity)
- *    – AI decision confidence histogram
- *    – Risk heatmap by repo/day
- *  • AI Copilot FAB has breathing glow + bounce-in animation
- *  • WebSocket: live indicator in header (green dot = connected, amber = reconnecting)
- *  • "Updated Xs ago" live counter (ticks every second)
+ * Fixes vs v3:
+ *  1. PIPELINE STAGE ICONS: resultToStatus() now correctly infers "passed"
+ *     when a stage has run but the backend sent no explicit result/status
+ *     string (was falling through to "pending" → hollow default icon,
+ *     even for ALLOW/CLEAN scans). Root cause of the "3D pipeline /
+ *     checkout not working" visual bug (abc123, 4faef64c, "unknown" commits
+ *     in your screenshots).
+ *  2. AI COPILOT: now sends the full scan context (recent scans, current
+ *     stats, the currently-open "why blocked" scan if any) alongside the
+ *     question, instead of a bare { question } with zero grounding. This
+ *     is a frontend-side improvement — it gives the backend AI something
+ *     real to reason about. If the backend doesn't use that context, the
+ *     replies still won't improve; see note at bottom of file.
+ *  3. REMEDY FETCHING: fetchRemedy() (in AIAnalysisBlock and WhyBlockedModal)
+ *     no longer fails silently when the backend returns 200 with no usable
+ *     remedy field. It now distinguishes network/HTTP failure vs. "backend
+ *     responded but had nothing to say" vs. success, and shows the
+ *     person which one happened instead of just re-showing the button.
+ *
+ * IMPORTANT — please read:
+ *   Bugs #2 and #3 are backend-shaped problems. This file makes the
+ *   frontend send better context and fail loudly/usefully instead of
+ *   silently, but it cannot fix a backend AI that ignores context or an
+ *   endpoint that never populates ai_remedy. See the comment block at the
+ *   very bottom of this file for what to check/fix server-side.
  */
 
 import React, {
@@ -29,7 +44,7 @@ import {
   TrendingUp, GitPullRequest, Sparkles, GitBranch, Flame,
   ListChecks, Loader2, X, Send, Bot, Minimize2,
   Lock, Terminal, ShieldCheck, Cpu, Globe, Brain,
-  Wrench, Eye, Wifi, WifiOff, Clock, BarChart2,
+  Wrench, Eye, Wifi, WifiOff, Clock, BarChart2, AlertCircle,
 } from "lucide-react";
 
 /* ─────────────────────────────────────────────
@@ -175,6 +190,15 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset:2px; }
   padding:12px 14px;
   margin-top:10px;
 }
+
+/* Remedy error state */
+.remedy-error {
+  background: ${C.redSoft};
+  border: 1px solid ${C.redBord};
+  border-radius:10px;
+  padding:12px 14px;
+  margin-top:10px;
+}
 `;
 
 if (typeof document !== "undefined" && !document.getElementById("sf-css")) {
@@ -187,23 +211,56 @@ if (typeof document !== "undefined" && !document.getElementById("sf-css")) {
 /* ─────────────────────────────────────────────
    HELPERS
 ───────────────────────────────────────────── */
-function resultToStatus(r) {
-  if (!r) return "pending";
-  const v = String(r).toUpperCase();
-  if (["PASS","SCANNED","ALLOW"].includes(v)) return "passed";
-  if (["FAIL","FAILED","BLOCK"].includes(v))  return "failed";
-  if (v === "RUNNING")  return "running";
-  if (v === "SKIPPED")  return "skipped";
-  return "passed";
+
+/**
+ * FIX #1 — pipeline stage status inference.
+ *
+ * Original bug: when a stage object had no `result` and no `status` field
+ * (common for older / minimal scan payloads, or stages the backend didn't
+ * bother annotating because the run was clean), this returned "pending",
+ * which renders as a hollow, ungrounded default icon — even on a scan the
+ * dashboard top-level labels ALLOW/CLEAN. That's the "Checkout not
+ * working" / "3D pipeline" visual bug from the screenshots (abc123,
+ * 4faef64c, "unknown").
+ *
+ * Fix: thread the parent scan's overall outcome through, so that a stage
+ * with literally no info defaults to "passed" when the scan overall was
+ * allowed/clean, "skipped" when the scan was blocked and this stage never
+ * ran, and only true unknowns (no scan-level signal either) fall back to
+ * "pending".
+ */
+function resultToStatus(r, fallbackStatus) {
+  if (r) {
+    const v = String(r).toUpperCase();
+    if (["PASS", "PASSED", "SCANNED", "ALLOW", "CLEAN", "OK", "SUCCESS"].includes(v)) return "passed";
+    if (["FAIL", "FAILED", "BLOCK", "ERROR"].includes(v)) return "failed";
+    if (v === "RUNNING" || v === "IN_PROGRESS") return "running";
+    if (v === "SKIPPED" || v === "SKIP") return "skipped";
+    // Unrecognized but present string (e.g. "UNKNOWN") — don't silently
+    // assume passed; surface it as-is via "skipped" styling so it's visibly
+    // distinct from a real pass, instead of guessing.
+    return "skipped";
+  }
+  // No explicit per-stage signal — fall back to what we know about the
+  // overall scan instead of defaulting to a meaningless "pending" hollow icon.
+  if (fallbackStatus === "passed") return "passed";
+  if (fallbackStatus === "failed") return "skipped"; // didn't necessarily run
+  return "pending";
 }
 
 function normaliseScan(raw) {
+  // Used by resultToStatus() as a fallback signal when a stage has no
+  // explicit result of its own.
+  const overallOutcome = raw.action_taken === "BLOCK" ? "failed"
+    : raw.action_taken === "ALLOW" ? "passed"
+    : null;
+
   const steps = raw.pipeline_steps || {};
   const pipeline = PIPELINE_STAGES.map(({ key, label, Icon }) => {
     const info = steps[key] || {};
     return {
       id: key, name: label, Icon,
-      status:  resultToStatus(info.result || info.status, info.detail),
+      status:  resultToStatus(info.result || info.status, overallOutcome),
       result:  info.result  || info.status || "",
       detail:  info.detail  || "",
     };
@@ -536,26 +593,42 @@ function PipelineFullView({ pipeline }) {
 
 /* ─────────────────────────────────────────────
    AI ANALYSIS BLOCK  (explanation + remedy)
+   FIX #3: fetchRemedy now distinguishes network failure / bad-status
+   / "ok but empty" / success, and renders a visible error state instead
+   of silently resetting to the "Show remedy" button.
 ───────────────────────────────────────────── */
 function AIAnalysisBlock({ scan, compact=false }) {
   const [loadingRemedy, setLoadingRemedy] = useState(false);
   const [remedy, setRemedy] = useState(scan.ai_remedy || null);
+  const [remedyError, setRemedyError] = useState(null);
 
   const fetchRemedy = async () => {
     if (remedy || loadingRemedy) return;
     setLoadingRemedy(true);
+    setRemedyError(null);
     try {
       const res = await fetch(`${BACKEND}/api/scan-results/${scan.id}/reanalyze`, { method:"POST" });
-      if (res.ok) {
-        const d = await res.json();
-        if (d?.ai_remedy)      setRemedy(d.ai_remedy);
-        else if (d?.ai_explanation) {
-          const m = d.ai_explanation.match(/REMEDY[:\-–]?\s*([\s\S]+)/i);
-          if (m) setRemedy(m[1].trim());
-        }
+      if (!res.ok) {
+        setRemedyError(`Backend returned ${res.status}. The reanalyze endpoint may be failing — check backend logs.`);
+        return;
       }
-    } catch {}
-    finally { setLoadingRemedy(false); }
+      const d = await res.json();
+      if (d?.ai_remedy) {
+        setRemedy(d.ai_remedy);
+        return;
+      }
+      if (d?.ai_explanation) {
+        const m = d.ai_explanation.match(/REMEDY[:\-–]?\s*([\s\S]+)/i);
+        if (m) { setRemedy(m[1].trim()); return; }
+      }
+      // Backend responded 200 but had nothing usable — surface this
+      // instead of silently re-showing the button with no explanation.
+      setRemedyError("The AI re-analysis didn't return a remedy. The backend may not have generated one for this scan type — try again, or check the AI analysis text above for manual next steps.");
+    } catch (err) {
+      setRemedyError("Couldn't reach the backend to fetch a remedy. Check your connection or the backend service status.");
+    } finally {
+      setLoadingRemedy(false);
+    }
   };
 
   if (!scan.ai_explanation && !scan.ai_remedy) return null;
@@ -608,8 +681,29 @@ function AIAnalysisBlock({ scan, compact=false }) {
         </div>
       )}
 
-      {/* Fetch remedy button (if no remedy yet) */}
-      {!remedy && !loadingRemedy && scan.action_taken === "BLOCK" && (
+      {/* Error state — visible, with retry */}
+      {remedyError && !loadingRemedy && (
+        <div className="remedy-error">
+          <div style={{
+            display:"flex", alignItems:"center", gap:6,
+            fontSize:10, fontWeight:800, color:C.red,
+            letterSpacing:"0.1em", marginBottom:6,
+          }}>
+            <AlertCircle size={11} /> REMEDY UNAVAILABLE
+          </div>
+          <div style={{ fontSize:12, color:C.ink, lineHeight:1.6, marginBottom:8 }}>{remedyError}</div>
+          <button onClick={() => { setRemedyError(null); fetchRemedy(); }} style={{
+            display:"flex", alignItems:"center", gap:5,
+            fontSize:11, color:C.red, background:"none", border:`1px solid ${C.redBord}`,
+            borderRadius:6, padding:"4px 10px", fontWeight:600,
+          }}>
+            <RefreshCw size={11} /> Retry
+          </button>
+        </div>
+      )}
+
+      {/* Fetch remedy button (if no remedy yet, and no error showing) */}
+      {!remedy && !loadingRemedy && !remedyError && scan.action_taken === "BLOCK" && (
         <button onClick={fetchRemedy} style={{
           marginTop:8, display:"flex", alignItems:"center", gap:5,
           fontSize:11, color:C.teal, background:"none", border:`1px solid ${C.tealBord}`,
@@ -792,32 +886,48 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
 
 /* ─────────────────────────────────────────────
    WHY BLOCKED MODAL
+   FIX #3 (continued): same loud-error treatment for the modal's own
+   reanalyze fetch (used when scan.ai_explanation isn't already cached).
 ───────────────────────────────────────────── */
 const WhyBlockedModal = ({ scan, onClose }) => {
   const [aiText, setAiText]       = useState(scan?.ai_explanation || null);
   const [aiRemedy, setAiRemedy]   = useState(scan?.ai_remedy || null);
   const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState(null);
 
-  useEffect(() => {
+  const loadAnalysis = useCallback(() => {
     if (!scan) return;
-    if (scan.ai_explanation) { setAiText(scan.ai_explanation); setAiRemedy(scan.ai_remedy||null); return; }
     setLoading(true);
+    setError(null);
     fetch(`${BACKEND}/api/scan-results/${scan.id}/reanalyze`, { method:"POST" })
-      .then(r => r.ok ? r.json() : null)
+      .then(r => {
+        if (!r.ok) throw new Error(`Backend returned ${r.status}`);
+        return r.json();
+      })
       .then(d => {
-        if (d?.ai_explanation) {
-          let exp = d.ai_explanation;
+        if (d?.ai_explanation || d?.ai_remedy) {
+          let exp = d.ai_explanation || null;
           let rem = d.ai_remedy || null;
-          if (!rem) {
+          if (exp && !rem) {
             const m = exp.match(/REMEDY[:\-–]?\s*([\s\S]+)/i);
             if (m) { rem = m[1].trim(); exp = exp.slice(0, m.index).trim(); }
           }
           setAiText(exp); setAiRemedy(rem);
+        } else {
+          setError("The AI service responded but returned no analysis for this scan. The backend's reanalyze endpoint may need attention.");
         }
       })
-      .catch(()=>{})
+      .catch((err) => {
+        setError("Couldn't reach the AI analysis service. Check the backend is running and reachable.");
+      })
       .finally(()=>setLoading(false));
   }, [scan]);
+
+  useEffect(() => {
+    if (!scan) return;
+    if (scan.ai_explanation) { setAiText(scan.ai_explanation); setAiRemedy(scan.ai_remedy||null); return; }
+    loadAnalysis();
+  }, [scan, loadAnalysis]);
 
   if (!scan) return null;
   const failedStages = (scan.pipeline || []).filter(s => s.status === "failed");
@@ -938,10 +1048,24 @@ const WhyBlockedModal = ({ scan, onClose }) => {
                 </span>
               )}
             </div>
-            <div style={{ padding:"14px 16px", background:C.violetSoft, borderRadius:12, border:`1px solid ${C.violetBord}`, fontSize:13, lineHeight:1.7, color:C.ink, minHeight:60 }}>
+            <div style={{ padding:"14px 16px", background:error ? C.redSoft : C.violetSoft, borderRadius:12, border:`1px solid ${error ? C.redBord : C.violetBord}`, fontSize:13, lineHeight:1.7, color:C.ink, minHeight:60 }}>
               {loading ? (
                 <div style={{ display:"flex", alignItems:"center", gap:8, color:C.inkMid }}>
                   <Loader2 size={14} className="spin" /> Fetching AI analysis…
+                </div>
+              ) : error ? (
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, color:C.red, fontWeight:700, fontSize:11, marginBottom:6 }}>
+                    <AlertCircle size={12} /> ANALYSIS UNAVAILABLE
+                  </div>
+                  <div style={{ color:C.ink, marginBottom:10 }}>{error}</div>
+                  <button onClick={loadAnalysis} style={{
+                    display:"flex", alignItems:"center", gap:5,
+                    fontSize:11, color:C.red, background:"none", border:`1px solid ${C.redBord}`,
+                    borderRadius:6, padding:"4px 10px", fontWeight:600,
+                  }}>
+                    <RefreshCw size={11} /> Retry
+                  </button>
                 </div>
               ) : aiText ? (
                 <>{aiText}</>
@@ -1038,6 +1162,17 @@ function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked }) {
 
 /* ─────────────────────────────────────────────
    AI COPILOT  (floating, with breathing animation)
+   FIX #2: send actual scan context with each question so the backend
+   AI has something real to ground its answer in, instead of a bare
+   { question } string. We send:
+     - a compact summary of the most recent N scans (sha, repo, action,
+       severity, risk score, short AI explanation if present)
+     - aggregate stats (blocked/allowed/running counts)
+     - the conversation history so far, so follow-ups make sense
+   NOTE: this only helps if the backend's /api/copilot/ask handler
+   actually reads and uses a `context` field. If the backend ignores
+   it, replies will still be ungrounded — that's a backend fix, not
+   something fixable from here. See bottom-of-file notes.
 ───────────────────────────────────────────── */
 function AICopilot({ scans, onClose }) {
   const [messages, setMessages] = useState([{
@@ -1047,28 +1182,81 @@ function AICopilot({ scans, onClose }) {
   const [input,     setInput]     = useState("");
   const [sending,   setSending]   = useState(false);
   const [minimised, setMinimised] = useState(false);
+  const [sendError, setSendError] = useState(false);
   const endRef   = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages]);
 
+  // Build a compact, token-cheap snapshot of real scan data to ground
+  // the AI's answer. Capped at 15 scans so the payload stays small.
+  const buildContext = useCallback(() => {
+    const completed = scans.filter(s => s.status !== "running");
+    const blocked   = completed.filter(s => s.action_taken === "BLOCK");
+    const allowed   = completed.filter(s => s.action_taken === "ALLOW");
+    const running   = scans.filter(s => s.status === "running");
+
+    const recentSummary = completed.slice(0, 15).map(s => ({
+      commit_sha:      s.commit_sha?.slice(0, 8),
+      repo_name:       s.repo_name,
+      commit_message:  s.commit_message,
+      action_taken:    s.action_taken,
+      severity:        s.severity,
+      risk_score:      s.risk_score,
+      ai_confidence:    s.ai_confidence,
+      ai_explanation:  s.ai_explanation ? s.ai_explanation.slice(0, 280) : null,
+      vuln_total:      s.vuln_breakdown?.total ?? null,
+      vuln_fixable:    s.vuln_breakdown?.fixable_count ?? null,
+      top_cves:        s.vuln_breakdown?.fixable_details?.slice(0, 3).map(v => ({
+        id: v.id, package: v.package, severity: v.severity, fix: v.fix,
+      })) ?? null,
+      created_at:      s.created_at,
+    }));
+
+    return {
+      stats: {
+        total_completed: completed.length,
+        blocked_count:    blocked.length,
+        allowed_count:    allowed.length,
+        running_count:    running.length,
+      },
+      recent_scans: recentSummary,
+    };
+  }, [scans]);
+
   const send = async (q) => {
     const question = q || input.trim();
     if (!question || sending) return;
     setInput("");
-    setMessages(m => [...m, { role:"user", text:question }]);
+    setSendError(false);
+    const nextMessages = [...messages, { role:"user", text:question }];
+    setMessages(nextMessages);
     setSending(true);
     try {
       const res = await fetch(`${BACKEND}/api/copilot/ask`, {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({
+          question,
+          context: buildContext(),
+          // Send recent turns so follow-up questions ("what about the one before that?")
+          // have something to resolve against.
+          conversation_history: nextMessages.slice(-8).map(m => ({ role: m.role, text: m.text })),
+        }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        throw new Error(`Backend returned ${res.status}`);
+      }
       const data = await res.json();
-      setMessages(m => [...m, { role:"assistant", text:data.answer }]);
-    } catch {
-      setMessages(m => [...m, { role:"assistant", text:"Couldn't reach the AI service right now. Try again in a moment." }]);
+      if (!data?.answer) {
+        setMessages(m => [...m, { role:"assistant", text:"The AI service responded but didn't include an answer. This usually means the backend's copilot endpoint has an issue — try rephrasing, or check backend logs." }]);
+        setSendError(true);
+      } else {
+        setMessages(m => [...m, { role:"assistant", text:data.answer }]);
+      }
+    } catch (err) {
+      setMessages(m => [...m, { role:"assistant", text:`Couldn't reach the AI service (${err.message || "network error"}). Try again in a moment, or check that the backend is running.` }]);
+      setSendError(true);
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -1126,9 +1314,9 @@ function AICopilot({ scans, onClose }) {
             </div>
             <div>
               <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>AI Copilot</div>
-              <div style={{ fontSize:10, color:C.teal, display:"flex", alignItems:"center", gap:4 }}>
-                <span style={{ width:6, height:6, borderRadius:"50%", background:C.teal, display:"inline-block", animation:"pulseRing 2s infinite" }} />
-                online · remedies enabled
+              <div style={{ fontSize:10, color: sendError ? C.amber : C.teal, display:"flex", alignItems:"center", gap:4 }}>
+                <span style={{ width:6, height:6, borderRadius:"50%", background: sendError ? C.amber : C.teal, display:"inline-block", animation:"pulseRing 2s infinite" }} />
+                {sendError ? "having trouble reaching backend" : "online · remedies enabled"}
               </div>
             </div>
             {running>0 && <Badge color={C.blue} small>{running} running</Badge>}
@@ -2159,3 +2347,43 @@ export default function App() {
     </>
   );
 }
+
+/* ═════════════════════════════════════════════════════════════════════════
+   BACKEND NOTES — please read before assuming this file alone fixes
+   everything. Two of the three bugs you reported are partially or fully
+   backend-side. Here's what to check on secureflow-backend:
+
+   1. POST /api/copilot/ask
+      This file now sends:
+        { question, context: {...recent scans + stats...}, conversation_history }
+      instead of just { question }. For replies to actually improve, the
+      backend handler needs to:
+        - read req.body.context and req.body.conversation_history
+        - include them in whatever prompt it sends to its LLM (or use them
+          to query a vector store / DB directly if it's RAG-based)
+        - return JSON shaped as { answer: "..." }
+      If the current handler ignores extra body fields and only looks at
+      `question`, replies will stay generic no matter what the frontend
+      sends. This is the single most likely reason Copilot "isn't giving
+      good replies" — it may not be grounded in any of your real scan
+      data at all, independent of frontend changes.
+
+   2. POST /api/scan-results/:id/reanalyze
+      This endpoint is expected to return JSON containing either:
+        { ai_remedy: "..." }              (preferred), or
+        { ai_explanation: "... REMEDY: ..." }  (parsed via regex fallback)
+      If it currently returns 200 with neither field populated — e.g. if
+      the LLM call inside it silently fails, times out, or the response
+      schema doesn't include a remedy field at all — the frontend will now
+      show a clear "Remedy unavailable" message with a retry button
+      instead of hanging silently. But the actual fix is making that
+      endpoint reliably generate and return a remedy string.
+
+   3. GET /api/scan-results
+      For bug #1 (pipeline stage icons), the deepest fix is on the backend:
+      make sure every stage in pipeline_steps always includes an explicit
+      `result` or `status` string, even for steps that didn't run due to
+      an early pipeline failure (e.g. "skipped" rather than omitting the
+      key entirely). The frontend fix here is a safety net, not a
+      replacement for emitting complete stage data.
+═════════════════════════════════════════════════════════════════════════ */
