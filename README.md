@@ -2,7 +2,7 @@
 
 **AI-powered DevSecOps platform that automatically scans code and container images, enforces security policies, and blocks insecure deployments before production.**
 
-**Live Dashboard:** https://secure-flow-rho.vercel.app/
+**Live Dashboard:** https://secureflow-frontend-1083585992526.us-central1.run.app/
 
 ---
 
