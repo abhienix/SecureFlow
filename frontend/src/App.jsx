@@ -16,6 +16,7 @@
 import React, {
   useState, useEffect, useCallback, useRef, useMemo,
 } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -23,11 +24,11 @@ import {
   LineChart, Line, ScatterChart, Scatter, ZAxis,
 } from "recharts";
 import {
-  Shield, Activity, CheckCircle, XCircle, AlertTriangle, Zap,
+  Shield, Activity, CheckCircle, XCircle, AlertTriangle,
   RefreshCw, ThumbsUp, ThumbsDown, ChevronDown, ChevronUp,
-  TrendingUp, GitPullRequest, Sparkles, GitBranch, Flame,
-  ListChecks, Loader2, X, Send, Bot, Minimize2,
-  Lock, Terminal, ShieldCheck, Cpu, Globe, Brain,
+  GitPullRequest, Sparkles, GitBranch,
+  Loader2, X, Send, Bot, Minimize2,
+  Lock, Terminal, Cpu, Globe, Brain,
   Wrench, Eye, Wifi, WifiOff, Clock, BarChart2, AlertCircle,
 } from "lucide-react";
 
@@ -83,6 +84,12 @@ const C = {
   violetSoft:   "#f5f3ff",
   violetBord:   "#ddd6fe",
 
+  cyan:         "#06b6d4",
+  cyanSoft:     "#ecfeff",
+  cyanBord:     "#a5f3fc",
+
+  borderBright: "#cbd5e1",
+
   /* Typography */
   mono: "'JetBrains Mono','Fira Mono','Consolas',monospace",
   sans: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
@@ -134,6 +141,24 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   0%,100%{box-shadow:0 0 0 0 ${C.teal}22,0 4px 24px rgba(13,148,136,.1)}
   50%{box-shadow:0 0 0 8px ${C.teal}14,0 4px 24px rgba(13,148,136,.18)}
 }
+@keyframes pulseRing {
+  0%   { transform: scale(1);   opacity: 1; }
+  70%  { transform: scale(1.8); opacity: 0; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(32px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes bounceIn {
+  0%   { opacity: 0; transform: scale(.88) translateY(12px); }
+  60%  { opacity: 1; transform: scale(1.02) translateY(-2px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
 
 .spin        { animation: spin 1s linear infinite; }
 .pulse-dot   { animation: pulse 1.8s ease-in-out infinite; }
@@ -150,10 +175,18 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   border-radius: 14px;
   transition: box-shadow .2s, border-color .2s, transform .18s;
 }
-.sf-card:hover {
+.sf-card:hover,
+.sf-card-hover:hover {
   border-color: ${C.borderMid};
   box-shadow: 0 4px 20px rgba(15,23,42,.06);
-  transform: translateY(-1px);
+  transform: translateY(-2px) perspective(800px) rotateX(1deg);
+}
+.sf-card-hover {
+  background: ${C.bgCard};
+  border: 1px solid ${C.border};
+  border-radius: 16px;
+  transition: box-shadow .25s, border-color .25s, transform .25s;
+  transform-style: preserve-3d;
 }
 .sf-card-flat {
   background: ${C.bgCard};
@@ -380,10 +413,35 @@ function normaliseScan(raw) {
     }
   }
 
+  let vulnerabilities = raw.vulnerabilities || [];
+  if (!vulnerabilities.length && raw.findings?.Results) {
+    (raw.findings.Results || []).forEach(r => {
+      (r.Vulnerabilities || []).forEach(v => {
+        vulnerabilities.push({
+          severity:    v.Severity,
+          id:          v.VulnerabilityID,
+          cve_id:      v.VulnerabilityID,
+          package:     v.PkgName,
+          version:     v.InstalledVersion,
+          description: v.Title || v.Description || "",
+        });
+      });
+    });
+  }
+  if (!vulnerabilities.length && vuln_breakdown?.fixable_details) {
+    vulnerabilities = vuln_breakdown.fixable_details.map(v => ({
+      severity: v.severity,
+      id:       v.id,
+      cve_id:   v.id,
+      package:  v.package,
+    }));
+  }
+
   return {
     ...raw,
     pipeline,
     vuln_breakdown,
+    vulnerabilities,
     ai_confidence:  aiConf,
     ai_explanation,
     ai_remedy,
@@ -435,16 +493,51 @@ const Badge = ({ color, children, small }) => (
   }}>{children}</span>
 );
 
+const IconBtn = ({ Icon, onClick, title, style={} }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={title}
+    style={{
+      background: C.bgSurface,
+      border: `1px solid ${C.border}`,
+      borderRadius: 8,
+      padding: "6px 8px",
+      color: C.inkMid,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      transition: "background .15s, color .15s, transform .15s",
+      ...style,
+    }}
+  >
+    <Icon size={16} />
+  </button>
+);
+
+const Spinner = ({ size=14 }) => (
+  <Loader2 size={size} className="spin" aria-hidden="true" />
+);
+
 const Card = ({ children, glow, style={}, className="" }) => (
-  <div className={`sf-card-hover ${className}`} style={{
-    background: C.bgCard,
-    borderRadius:16,
-    border:`1px solid ${glow ? C.tealBord : C.border}`,
-    padding:"20px",
-    marginBottom:16,
-    boxShadow: glow ? `0 0 30px ${C.teal}12` : "0 2px 12px rgba(0,0,0,.3)",
-    ...style,
-  }}>{children}</div>
+  <motion.div
+    className={`sf-card-hover ${className}`}
+    initial={{ opacity: 0, y: 16, rotateX: 8 }}
+    animate={{ opacity: 1, y: 0, rotateX: 0 }}
+    whileHover={{ y: -4, rotateX: 2, rotateY: -1 }}
+    transition={{ type: "spring", stiffness: 260, damping: 22 }}
+    style={{
+      background: C.bgCard,
+      borderRadius:16,
+      border:`1px solid ${glow ? C.tealBord : C.border}`,
+      padding:"20px",
+      marginBottom:16,
+      boxShadow: glow ? `0 0 30px ${C.teal}12` : "0 2px 12px rgba(15,23,42,.06)",
+      transformStyle: "preserve-3d",
+      perspective: 900,
+      ...style,
+    }}
+  >{children}</motion.div>
 );
 
 const SectionTitle = ({ children, accent, right }) => (
@@ -859,15 +952,19 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
   const myFb      = feedback?.[scan.id];
 
   return (
-    <div className="fade-up" style={{
+    <motion.div
+      className="fade-up"
+      initial={{ opacity: 0, y: 18, rotateX: 6 }}
+      animate={{ opacity: 1, y: 0, rotateX: 0 }}
+      whileHover={{ y: -3, rotateX: 1 }}
+      transition={{ type: "spring", stiffness: 300, damping: 24, delay: animDelay }}
+      style={{
       background: C.bgCard, borderRadius:14,
       border:`1px solid ${C.border}`, borderLeft:`3px solid ${accent}`,
       padding:"16px", marginBottom:10,
-      transition:"border-color .25s, box-shadow .25s, transform .2s",
-      animationDelay:`${animDelay}s`,
+      transition:"border-color .25s, box-shadow .25s",
+      transformStyle: "preserve-3d",
     }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor=C.borderBright; e.currentTarget.style.transform="translateY(-1px)"; e.currentTarget.style.boxShadow="0 8px 24px rgba(0,0,0,.35)"; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor=C.border; e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; }}
     >
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}>
         <div style={{ minWidth:0, flex:1 }}>
@@ -956,11 +1053,11 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
           )}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };
 
-        * ─── Why Blocked Modal ──────────────────────────────────────────────────── */
+       
 function WhyBlockedModal({ scan, onClose }) {
   const [remedy, setRemedy]     = useState(null);
   const [remedyState, setRS]    = useState("idle"); // idle | loading | success | empty | error
@@ -969,15 +1066,14 @@ function WhyBlockedModal({ scan, onClose }) {
   const fetchRemedy = useCallback(async () => {
     if (!scan) return;
     setRS("loading");
+    setRErr("");
     try {
-      const res = await fetch(`${BACKEND}/api/remedy`, {
+      const res = await fetch(`${BACKEND}/api/scan-results/${scan.id}/reanalyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scan_id: scan.id, scan }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const text = data?.ai_remedy || data?.remedy || data?.message || "";
+      const text = data?.ai_fix || data?.ai_remedy || "";
       if (text.trim()) { setRemedy(text); setRS("success"); }
       else             { setRS("empty"); }
     } catch (e) {
@@ -994,8 +1090,10 @@ function WhyBlockedModal({ scan, onClose }) {
   const med   = vulns.filter(v => v.severity === "MEDIUM");
 
   return (
-    <div
-      className="fade-in"
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       style={{
         position: "fixed", inset: 0, zIndex: 1000,
         background: "rgba(15,23,42,.45)",
@@ -1004,14 +1102,19 @@ function WhyBlockedModal({ scan, onClose }) {
       }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div
-        className="slide-up"
+      <motion.div
+        initial={{ opacity: 0, y: 24, rotateX: 12, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, rotateX: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 280, damping: 24 }}
         style={{
           background: C.bgCard, border: `1px solid ${C.border}`,
           borderRadius: 18, width: "100%", maxWidth: 620,
           maxHeight: "90vh", display: "flex", flexDirection: "column",
           boxShadow: "0 20px 60px rgba(15,23,42,.16)",
           overflow: "hidden",
+          transformStyle: "preserve-3d",
+          perspective: 1000,
         }}
       >
         {/* Header */}
@@ -1029,7 +1132,7 @@ function WhyBlockedModal({ scan, onClose }) {
           <div style={{ flex: 1 }}>
             <h3 style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>Why was this blocked?</h3>
             <p style={{ fontSize: 12, color: C.inkLow, marginTop: 1, fontFamily: C.mono }}>
-              {scan.image || scan.repo}
+              {scan.repo_name} · {scan.commit_sha?.slice(0, 8)}
             </p>
           </div>
           <IconBtn Icon={X} onClick={onClose} title="Close" />
@@ -1068,11 +1171,7 @@ function WhyBlockedModal({ scan, onClose }) {
                     padding: "10px 12px", background: C.bgSurface,
                     borderRadius: 8, border: `1px solid ${C.border}`,
                   }}>
-                    <Badge
-                      color={v.severity === "CRITICAL" ? C.red : v.severity === "HIGH" ? C.amber : C.blue}
-                      bg={v.severity === "CRITICAL" ? C.redSoft : v.severity === "HIGH" ? C.amberSoft : C.blueSoft}
-                      border={v.severity === "CRITICAL" ? C.redBord : v.severity === "HIGH" ? C.amberBord : C.blueBord}
-                    >
+                    <Badge color={v.severity === "CRITICAL" ? C.red : v.severity === "HIGH" ? C.amber : C.blue}>
                       {v.severity}
                     </Badge>
                     <div style={{ flex: 1 }}>
@@ -1087,6 +1186,27 @@ function WhyBlockedModal({ scan, onClose }) {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* AI analysis from scan record */}
+          {(scan.ai_explanation || scan.ai_remedy) && (
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, marginBottom: 8 }}>AI analysis</p>
+              {scan.ai_explanation && (
+                <div style={{
+                  padding: "12px 14px", background: C.violetSoft,
+                  borderRadius: 10, border: `1px solid ${C.violetBord}`,
+                  fontSize: 13, lineHeight: 1.65, color: C.ink,
+                }}>
+                  {scan.ai_explanation}
+                </div>
+              )}
+              {scan.ai_remedy && (
+                <div className="remedy-block" style={{ marginTop: 10 }}>
+                  <p style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{scan.ai_remedy}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1153,71 +1273,10 @@ function WhyBlockedModal({ scan, onClose }) {
             Close
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
-
-
-          {/* AI Analysis + Remedy */}
-          <div>
-            <div style={{ fontSize:10, fontWeight:800, color:C.violet, letterSpacing:"0.1em", textTransform:"uppercase", display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
-              <div style={{ width:3, height:12, background:C.violet, borderRadius:2 }} />
-              AI analysis
-              {scan.ai_confidence != null && (
-                <span style={{ color:C.inkMid, fontWeight:400, textTransform:"none", letterSpacing:0, marginLeft:4 }}>
-                  {scan.ai_confidence}% confidence
-                </span>
-              )}
-            </div>
-            <div style={{ padding:"14px 16px", background:error ? C.redSoft : C.violetSoft, borderRadius:12, border:`1px solid ${error ? C.redBord : C.violetBord}`, fontSize:13, lineHeight:1.7, color:C.ink, minHeight:60 }}>
-              {loading ? (
-                <div style={{ display:"flex", alignItems:"center", gap:8, color:C.inkMid }}>
-                  <Loader2 size={14} className="spin" /> Fetching AI analysis…
-                </div>
-              ) : error ? (
-                <div>
-                  <div style={{ display:"flex", alignItems:"center", gap:6, color:C.red, fontWeight:700, fontSize:11, marginBottom:6 }}>
-                    <AlertCircle size={12} /> ANALYSIS UNAVAILABLE
-                  </div>
-                  <div style={{ color:C.ink, marginBottom:10 }}>{error}</div>
-                  <button onClick={loadAnalysis} style={{
-                    display:"flex", alignItems:"center", gap:5,
-                    fontSize:11, color:C.red, background:"none", border:`1px solid ${C.redBord}`,
-                    borderRadius:6, padding:"4px 10px", fontWeight:600,
-                  }}>
-                    <RefreshCw size={11} /> Retry
-                  </button>
-                </div>
-              ) : aiText ? (
-                <>{aiText}</>
-              ) : (
-                <span style={{ color:C.inkMid }}>No AI explanation available. Check the failed stages above for specifics.</span>
-              )}
-            </div>
-
-            {/* Remedy in modal */}
-            {aiRemedy && (
-              <div className="remedy-block" style={{ marginTop:12 }}>
-                <div style={{ fontSize:10, fontWeight:800, color:C.teal, letterSpacing:"0.1em", display:"flex", alignItems:"center", gap:6, marginBottom:7 }}>
-                  <Wrench size={11} /> RECOMMENDED REMEDY
-                </div>
-                <div style={{ fontSize:13, color:C.ink, lineHeight:1.65 }}>{aiRemedy}</div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div style={{ padding:"14px 24px", borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"flex-end" }}>
-          <button onClick={onClose} style={{
-            padding:"9px 22px", background:C.red, color:"#fff",
-            border:"none", borderRadius:9, fontWeight:700, fontSize:13,
-          }}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 /* ─────────────────────────────────────────────
    SCAN DETAIL SLIDE-IN
@@ -1225,13 +1284,17 @@ function WhyBlockedModal({ scan, onClose }) {
 function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked }) {
   if (!scan) return null;
   return (
-    <div style={{
+    <motion.div
+      initial={{ x: 480, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 480, opacity: 0 }}
+      transition={{ type: "spring", stiffness: 280, damping: 30 }}
+      style={{
       position:"fixed", top:0, right:0,
       width:460, maxWidth:"100vw", height:"100vh",
       background:`${C.bgCard}f5`, backdropFilter:"blur(16px)",
       borderLeft:`1px solid ${C.border}`,
       zIndex:250, overflowY:"auto", padding:24,
-      animation:"slideInRight .35s ease",
     }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
         <h2 style={{ margin:0, fontSize:17, fontWeight:700 }}>{scan.repo_name}</h2>
@@ -1249,7 +1312,14 @@ function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked }) {
       </div>
       <SectionTitle accent={C.teal}>Pipeline stages</SectionTitle>
       <PipelineFullView pipeline={scan.pipeline} />
-      {scan.vuln_breakdown && <><SectionTitle accent={C.amber} style={{ marginTop:20 }}>Vulnerabilities</SectionTitle><VulnBreakdown breakdown={scan.vuln_breakdown} /></>}
+      {scan.vuln_breakdown && (
+        <>
+          <div style={{ marginTop: 20 }}>
+            <SectionTitle accent={C.amber}>Vulnerabilities</SectionTitle>
+            <VulnBreakdown breakdown={scan.vuln_breakdown} />
+          </div>
+        </>
+      )}
       <AIAnalysisBlock scan={scan} />
       {scan.action_taken === "BLOCK" && (
         <button onClick={() => onWhyBlocked(scan)} style={{
@@ -1278,7 +1348,7 @@ function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked }) {
           );
         })}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1310,42 +1380,6 @@ function AICopilot({ scans, onClose }) {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages]);
 
-  // Build a compact, token-cheap snapshot of real scan data to ground
-  // the AI's answer. Capped at 15 scans so the payload stays small.
-  const buildContext = useCallback(() => {
-    const completed = scans.filter(s => s.status !== "running");
-    const blocked   = completed.filter(s => s.action_taken === "BLOCK");
-    const allowed   = completed.filter(s => s.action_taken === "ALLOW");
-    const running   = scans.filter(s => s.status === "running");
-
-    const recentSummary = completed.slice(0, 15).map(s => ({
-      commit_sha:      s.commit_sha?.slice(0, 8),
-      repo_name:       s.repo_name,
-      commit_message:  s.commit_message,
-      action_taken:    s.action_taken,
-      severity:        s.severity,
-      risk_score:      s.risk_score,
-      ai_confidence:    s.ai_confidence,
-      ai_explanation:  s.ai_explanation ? s.ai_explanation.slice(0, 280) : null,
-      vuln_total:      s.vuln_breakdown?.total ?? null,
-      vuln_fixable:    s.vuln_breakdown?.fixable_count ?? null,
-      top_cves:        s.vuln_breakdown?.fixable_details?.slice(0, 3).map(v => ({
-        id: v.id, package: v.package, severity: v.severity, fix: v.fix,
-      })) ?? null,
-      created_at:      s.created_at,
-    }));
-
-    return {
-      stats: {
-        total_completed: completed.length,
-        blocked_count:    blocked.length,
-        allowed_count:    allowed.length,
-        running_count:    running.length,
-      },
-      recent_scans: recentSummary,
-    };
-  }, [scans]);
-
   const send = async (q) => {
     const question = q || input.trim();
     if (!question || sending) return;
@@ -1360,10 +1394,7 @@ function AICopilot({ scans, onClose }) {
         headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({
           question,
-          context: buildContext(),
-          // Send recent turns so follow-up questions ("what about the one before that?")
-          // have something to resolve against.
-          conversation_history: nextMessages.slice(-8).map(m => ({ role: m.role, text: m.text })),
+          scan_id: scans.find(s => s.action_taken === "BLOCK")?.id || scans[0]?.id || null,
         }),
       });
       if (!res.ok) {
@@ -1556,6 +1587,11 @@ function OverviewTab({ scans, healthScore, avgRisk, blocked, allowed, running, c
     { subject:"AI Coverage", A:completed.filter(s=>s.ai_confidence).length/(completed.length||1)*100 },
     { subject:"Clean Scans", A:allowed.length/(completed.length||1)*100 },
   ], [running,blocked,completed,avgRisk,allowed]);
+
+  const pieData = useMemo(() => [
+    { name: "Allowed", value: allowed.length, color: C.teal },
+    { name: "Blocked", value: blocked.length, color: C.red },
+  ], [allowed.length, blocked.length]);
 
   const [trendWindow, setTrendWindow] = useState(14);
 
@@ -2225,6 +2261,7 @@ function CopilotFAB({ active, blocked, running, onClick }) {
 }
 
 /* ─────────────────────────────────────────────
+
    ROOT APP
 ───────────────────────────────────────────── */
 export default function App() {
@@ -2334,11 +2371,41 @@ export default function App() {
 
   return (
     <>
-      {whyBlockedScan && (
-        <WhyBlockedModal scan={whyBlockedScan} onClose={() => setWhyBlockedScan(null)} />
-      )}
+      <AnimatePresence>
+        {whyBlockedScan && (
+          <WhyBlockedModal key="why-blocked" scan={whyBlockedScan} onClose={() => setWhyBlockedScan(null)} />
+        )}
+      </AnimatePresence>
 
-      <div style={{ minHeight:"100vh", background:C.bg, color:C.ink, fontFamily:C.sans }}>
+      <div style={{
+        minHeight:"100vh", background:C.bg, color:C.ink, fontFamily:C.sans,
+        perspective: 1200,
+        position: "relative",
+        overflow: "hidden",
+      }}>
+        {/* Ambient 3D background orbs */}
+        <div aria-hidden="true" style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:0 }}>
+          <motion.div
+            animate={{ x: [0, 30, 0], y: [0, -20, 0], rotateZ: [0, 8, 0] }}
+            transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
+            style={{
+              position:"absolute", top:"-8%", right:"-4%",
+              width:420, height:420, borderRadius:"50%",
+              background:`radial-gradient(circle, ${C.teal}14 0%, transparent 70%)`,
+              filter:"blur(2px)",
+            }}
+          />
+          <motion.div
+            animate={{ x: [0, -24, 0], y: [0, 18, 0], rotateZ: [0, -6, 0] }}
+            transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
+            style={{
+              position:"absolute", bottom:"-10%", left:"-6%",
+              width:360, height:360, borderRadius:"50%",
+              background:`radial-gradient(circle, ${C.violet}12 0%, transparent 70%)`,
+            }}
+          />
+        </div>
+
         {/* HEADER */}
         <header style={{
           position:"sticky", top:0, zIndex:200,
@@ -2420,9 +2487,13 @@ export default function App() {
         </header>
 
         {/* MAIN */}
-        <main style={{ padding:"24px", maxWidth:1280, margin:"0 auto" }}>
+        <main style={{ padding:"24px", maxWidth:1280, margin:"0 auto", position:"relative", zIndex:1 }}>
           {loading ? (
-            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"60vh", gap:16 }}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"60vh", gap:16 }}
+            >
               <div style={{
                 width:48, height:48, borderRadius:"50%",
                 border:`3px solid ${C.border}`,
@@ -2430,9 +2501,17 @@ export default function App() {
                 animation:"spin 1s linear infinite",
               }} />
               <div style={{ color:C.inkMid, fontSize:14 }}>Connecting to SecureFlow…</div>
-            </div>
+            </motion.div>
           ) : (
-            <>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 20, rotateX: 6 }}
+                animate={{ opacity: 1, y: 0, rotateX: 0 }}
+                exit={{ opacity: 0, y: -12, rotateX: -4 }}
+                transition={{ type: "spring", stiffness: 260, damping: 26 }}
+                style={{ transformStyle: "preserve-3d" }}
+              >
               {activeTab==="overview" && (
                 <OverviewTab
                   scans={scans} healthScore={healthScore} avgRisk={avgRisk}
@@ -2456,22 +2535,28 @@ export default function App() {
                 />
               )}
               {activeTab==="metrics" && <MetricsTab scans={scans} />}
-            </>
+              </motion.div>
+            </AnimatePresence>
           )}
         </main>
       </div>
 
+      <AnimatePresence>
       {selectedScan && (
         <ScanDetail
+          key={selectedScan.id}
           scan={selectedScan} onClose={() => setSelectedScan(null)}
           feedback={feedback} onFeedback={submitFeedback}
           onWhyBlocked={setWhyBlockedScan}
         />
       )}
+      </AnimatePresence>
 
+      <AnimatePresence>
       {showCopilot && (
-        <AICopilot scans={scans} onClose={() => setShowCopilot(false)} />
+        <AICopilot key="copilot" scans={scans} onClose={() => setShowCopilot(false)} />
       )}
+      </AnimatePresence>
     </>
   );
 }
