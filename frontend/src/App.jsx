@@ -299,43 +299,30 @@ if (typeof document !== "undefined") {
   style.textContent = GLOBAL_CSS;
   document.head.appendChild(style);
 }
+function resultToStatus(stage, fallbackStatus) {
+  const r = (stage?.result || stage?.status || "").toLowerCase();
 
+  if (["passed","pass","success","allow","clean"].includes(r))
+    return "passed";
 
-/**
- * FIX #1 — pipeline stage status inference.
- *
- * Original bug: when a stage object had no `result` and no `status` field
- * (common for older / minimal scan payloads, or stages the backend didn't
- * bother annotating because the run was clean), this returned "pending",
- * which renders as a hollow, ungrounded default icon — even on a scan the
- * dashboard top-level labels ALLOW/CLEAN. That's the "Checkout not
- * working" / "3D pipeline" visual bug from the screenshots (abc123,
- * 4faef64c, "unknown").
- *
- * Fix: thread the parent scan's overall outcome through, so that a stage
- * with literally no info defaults to "passed" when the scan overall was
- * allowed/clean, "skipped" when the scan was blocked and this stage never
- * ran, and only true unknowns (no scan-level signal either) fall back to
- * "pending".
- */
-function resultToStatus(r, fallbackStatus) {
-  if (r) {
-    const v = String(r).toUpperCase();
-    if (["PASS", "PASSED", "SCANNED", "ALLOW", "CLEAN", "OK", "SUCCESS"].includes(v)) return "passed";
-    if (["FAIL", "FAILED", "BLOCK", "ERROR"].includes(v)) return "failed";
-    if (v === "RUNNING" || v === "IN_PROGRESS") return "running";
-    if (v === "SKIPPED" || v === "SKIP") return "skipped";
-    // Unrecognized but present string (e.g. "UNKNOWN") — don't silently
-    // assume passed; surface it as-is via "skipped" styling so it's visibly
-    // distinct from a real pass, instead of guessing.
+  if (["failed","fail","error","block","blocked"].includes(r))
+    return "failed";
+
+  if (["running","in_progress","active"].includes(r))
+    return "running";
+
+  if (stage?.started_at && !["pending","skipped"].includes(r))
+    return "passed";
+
+  if (fallbackStatus === "passed")
+    return "passed";
+
+  if (fallbackStatus === "failed")
     return "skipped";
-  }
-  // No explicit per-stage signal — fall back to what we know about the
-  // overall scan instead of defaulting to a meaningless "pending" hollow icon.
-  if (fallbackStatus === "passed") return "passed";
-  if (fallbackStatus === "failed") return "skipped"; // didn't necessarily run
+
   return "pending";
 }
+
 
 function normaliseScan(raw) {
   // Used by resultToStatus() as a fallback signal when a stage has no
@@ -349,7 +336,7 @@ function normaliseScan(raw) {
     const info = steps[key] || {};
     return {
       id: key, name: label, Icon,
-      status:  resultToStatus(info.result || info.status, overallOutcome),
+     status: resultToStatus(info, overallOutcome),
       result:  info.result  || info.status || "",
       detail:  info.detail  || "",
     };
@@ -973,158 +960,204 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
   );
 };
 
-/* ─────────────────────────────────────────────
-   WHY BLOCKED MODAL
-   FIX #3 (continued): same loud-error treatment for the modal's own
-   reanalyze fetch (used when scan.ai_explanation isn't already cached).
-───────────────────────────────────────────── */
-const WhyBlockedModal = ({ scan, onClose }) => {
-  const [aiText, setAiText]       = useState(scan?.ai_explanation || null);
-  const [aiRemedy, setAiRemedy]   = useState(scan?.ai_remedy || null);
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState(null);
+        * ─── Why Blocked Modal ──────────────────────────────────────────────────── */
+function WhyBlockedModal({ scan, onClose }) {
+  const [remedy, setRemedy]     = useState(null);
+  const [remedyState, setRS]    = useState("idle"); // idle | loading | success | empty | error
+  const [remedyErr, setRErr]    = useState("");
 
-  const loadAnalysis = useCallback(() => {
+  const fetchRemedy = useCallback(async () => {
     if (!scan) return;
-    setLoading(true);
-    setError(null);
-    fetch(`${BACKEND}/api/scan-results/${scan.id}/reanalyze`, { method:"POST" })
-      .then(r => {
-        if (!r.ok) throw new Error(`Backend returned ${r.status}`);
-        return r.json();
-      })
-      .then(d => {
-        if (d?.ai_explanation || d?.ai_fix || d?.ai_remedy) {
-          let exp = d.ai_explanation || null;
-          let rem = d.ai_fix || d.ai_remedy || null;
-          if (exp && !rem) {
-            const m = exp.match(/REMEDY[:\-–]?\s*([\s\S]+)/i);
-            if (m) { rem = m[1].trim(); exp = exp.slice(0, m.index).trim(); }
-          }
-          setAiText(exp); setAiRemedy(rem);
-        } else {
-          setError("The AI service responded but returned no analysis for this scan. The backend's reanalyze endpoint may need attention.");
-        }
-      })
-      .catch((err) => {
-        setError("Couldn't reach the AI analysis service. Check the backend is running and reachable.");
-      })
-      .finally(()=>setLoading(false));
+    setRS("loading");
+    try {
+      const res = await fetch(`${BACKEND}/api/remedy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scan_id: scan.id, scan }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const text = data?.ai_remedy || data?.remedy || data?.message || "";
+      if (text.trim()) { setRemedy(text); setRS("success"); }
+      else             { setRS("empty"); }
+    } catch (e) {
+      setRErr(e.message);
+      setRS("error");
+    }
   }, [scan]);
 
-  useEffect(() => {
-    if (!scan) return;
-    if (scan.ai_explanation) { setAiText(scan.ai_explanation); setAiRemedy(scan.ai_remedy||null); return; }
-    loadAnalysis();
-  }, [scan, loadAnalysis]);
-
   if (!scan) return null;
-  const failedStages = (scan.pipeline || []).filter(s => s.status === "failed");
-  const vb = scan.vuln_breakdown;
+
+  const vulns = scan.vulnerabilities || [];
+  const crit  = vulns.filter(v => v.severity === "CRITICAL");
+  const high  = vulns.filter(v => v.severity === "HIGH");
+  const med   = vulns.filter(v => v.severity === "MEDIUM");
 
   return (
-    <div style={{
-      position:"fixed", inset:0,
-      background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)",
-      zIndex:400, display:"flex", alignItems:"center", justifyContent:"center",
-      padding:20, animation:"fadeIn .2s ease",
-    }} onClick={onClose}>
-      <div style={{
-        background:C.bgCard, borderRadius:20,
-        maxWidth:560, width:"100%",
-        border:`1px solid ${C.redBord}`,
-        boxShadow:`0 0 80px ${C.red}18, 0 32px 64px rgba(0,0,0,.6)`,
-        animation:"slideInUp .3s ease", overflow:"hidden",
-      }} onClick={e => e.stopPropagation()}>
-
+    <div
+      className="fade-in"
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000,
+        background: "rgba(15,23,42,.45)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 20,
+      }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="slide-up"
+        style={{
+          background: C.bgCard, border: `1px solid ${C.border}`,
+          borderRadius: 18, width: "100%", maxWidth: 620,
+          maxHeight: "90vh", display: "flex", flexDirection: "column",
+          boxShadow: "0 20px 60px rgba(15,23,42,.16)",
+          overflow: "hidden",
+        }}
+      >
+        {/* Header */}
         <div style={{
-          padding:"18px 24px",
-          background:`linear-gradient(135deg, ${C.red}18, ${C.redSoft})`,
-          borderBottom:`1px solid ${C.redBord}`,
-          display:"flex", alignItems:"center", gap:10,
+          display: "flex", alignItems: "center", gap: 12,
+          padding: "18px 20px", borderBottom: `1px solid ${C.border}`,
         }}>
           <div style={{
-            width:36, height:36, borderRadius:10,
-            background:C.redSoft, border:`1px solid ${C.redBord}`,
-            display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+            width: 38, height: 38, borderRadius: 10,
+            background: C.redSoft, display: "flex",
+            alignItems: "center", justifyContent: "center",
           }}>
-            <AlertTriangle size={18} color={C.red} />
+            <AlertCircle size={18} style={{ color: C.red }} />
           </div>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:15, fontWeight:700, color:C.ink }}>Why was this blocked?</div>
-            <div style={{ fontSize:11, color:C.inkMid, fontFamily:C.mono, marginTop:2 }}>
-              {scan.repo_name} · {scan.commit_sha?.slice(0,8)} · {relTime(scan.created_at)}
-            </div>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>Why was this blocked?</h3>
+            <p style={{ fontSize: 12, color: C.inkLow, marginTop: 1, fontFamily: C.mono }}>
+              {scan.image || scan.repo}
+            </p>
           </div>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:C.inkMid, padding:4, borderRadius:6, display:"flex" }}>
-            <X size={18} />
-          </button>
+          <IconBtn Icon={X} onClick={onClose} title="Close" />
         </div>
 
-        <div style={{ padding:"20px 24px", maxHeight:"70vh", overflowY:"auto" }}>
-          {failedStages.length > 0 && (
-            <div style={{ marginBottom:18 }}>
-              <div style={{ fontSize:10, fontWeight:800, color:C.red, letterSpacing:"0.1em", textTransform:"uppercase", display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
-                <div style={{ width:3, height:12, background:C.red, borderRadius:2 }} />
-                Failed stages
-              </div>
-              {failedStages.map(stage => (
-                <div key={stage.id} style={{
-                  display:"flex", alignItems:"flex-start", gap:10,
-                  padding:"10px 12px", marginBottom:6,
-                  background:C.redSoft, borderRadius:10, border:`1px solid ${C.redBord}`,
-                }}>
-                  <XCircle size={15} color={C.red} style={{ flexShrink:0, marginTop:1 }} />
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:600, color:C.ink }}>{stage.name}</div>
-                    {stage.detail && (
-                      <div style={{ fontSize:11, color:C.inkMid, fontFamily:C.mono, marginTop:4, lineHeight:1.5 }}>
-                        {stage.detail}
-                      </div>
-                    )}
-                  </div>
-                  <Badge color={C.red} small>FAILED</Badge>
-                </div>
-              ))}
-            </div>
-          )}
+        {/* Body */}
+        <div style={{ overflowY: "auto", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
 
-          {vb && vb.total > 0 && (
-            <div style={{ marginBottom:18 }}>
-              <div style={{ fontSize:10, fontWeight:800, color:C.amber, letterSpacing:"0.1em", textTransform:"uppercase", display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
-                <div style={{ width:3, height:12, background:C.amber, borderRadius:2 }} />
-                Vulnerabilities detected
+          {/* Vuln summary */}
+          <div style={{ display: "flex", gap: 10 }}>
+            {[
+              { label: "Critical", count: crit.length, col: C.red,   bg: C.redSoft,   brd: C.redBord },
+              { label: "High",     count: high.length, col: C.amber, bg: C.amberSoft, brd: C.amberBord },
+              { label: "Medium",   count: med.length,  col: C.blue,  bg: C.blueSoft,  brd: C.blueBord },
+            ].map(({ label, count, col, bg, brd }) => (
+              <div key={label} style={{
+                flex: 1, background: bg, border: `1px solid ${brd}`,
+                borderRadius: 10, padding: "12px 14px", textAlign: "center",
+              }}>
+                <p style={{ fontSize: 22, fontWeight: 700, color: col }}>{count}</p>
+                <p style={{ fontSize: 11, color: col, fontWeight: 500, marginTop: 2 }}>{label}</p>
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:10 }}>
-                {[
-                  { label:"Total",   value:vb.total,         color:C.amber },
-                  { label:"Fixable", value:vb.fixable_count, color:C.blue  },
-                  { label:"Critical",value:vb.fixable_details?.filter(v=>v.severity==="CRITICAL").length||0, color:C.red },
-                ].map(s => (
-                  <div key={s.label} style={{ padding:"10px 12px", borderRadius:10, background:s.color+"10", border:`1px solid ${s.color}30`, textAlign:"center" }}>
-                    <div style={{ fontSize:22, fontWeight:900, fontFamily:C.mono, color:s.color }}>{s.value}</div>
-                    <div style={{ fontSize:10, color:C.inkMid, marginTop:2 }}>{s.label}</div>
+            ))}
+          </div>
+
+          {/* Vuln list */}
+          {vulns.length > 0 && (
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, marginBottom: 8 }}>
+                Top vulnerabilities
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {vulns.slice(0, 8).map((v, i) => (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "flex-start", gap: 10,
+                    padding: "10px 12px", background: C.bgSurface,
+                    borderRadius: 8, border: `1px solid ${C.border}`,
+                  }}>
+                    <Badge
+                      color={v.severity === "CRITICAL" ? C.red : v.severity === "HIGH" ? C.amber : C.blue}
+                      bg={v.severity === "CRITICAL" ? C.redSoft : v.severity === "HIGH" ? C.amberSoft : C.blueSoft}
+                      border={v.severity === "CRITICAL" ? C.redBord : v.severity === "HIGH" ? C.amberBord : C.blueBord}
+                    >
+                      {v.severity}
+                    </Badge>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: C.ink, fontFamily: C.mono }}>{v.cve_id || v.id}</p>
+                      <p style={{ fontSize: 11, color: C.inkLow, marginTop: 2 }}>{v.package} {v.version && `(${v.version})`}</p>
+                      {v.description && (
+                        <p style={{ fontSize: 11, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          {v.description.length > 120 ? v.description.slice(0, 120) + "…" : v.description}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
-              {vb.fixable_details?.length > 0 && (
-                <div style={{ background:C.bgSurface, borderRadius:10, border:`1px solid ${C.border}`, overflow:"hidden" }}>
-                  {vb.fixable_details.slice(0,4).map((v,i) => (
-                    <div key={v.id||i} style={{
-                      padding:"8px 12px",
-                      borderBottom:i<Math.min(vb.fixable_details.length,4)-1?`1px solid ${C.border}`:"none",
-                      display:"flex", alignItems:"center", gap:8,
-                    }}>
-                      <Badge color={sevColor(v.severity)} small>{v.severity}</Badge>
-                      <span style={{ fontFamily:C.mono, fontSize:11, color:C.blue, flex:1 }}>{v.id}</span>
-                      <span style={{ fontSize:11, color:C.inkMid }}>{v.package}</span>
-                      <span style={{ fontSize:11, color:C.teal }}>→ {v.fix}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           )}
+
+          {/* Remedy */}
+          <div>
+            <p style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, marginBottom: 8 }}>AI Remedy</p>
+            {remedyState === "idle" && (
+              <button
+                onClick={fetchRemedy}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  background: C.tealSoft, color: C.teal,
+                  border: `1.5px solid ${C.tealBord}`, borderRadius: 10,
+                  padding: "10px 16px", fontSize: 13, fontWeight: 600,
+                  transition: "all .15s",
+                }}
+              >
+                <Sparkles size={14} /> Get AI Remedy
+              </button>
+            )}
+            {remedyState === "loading" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkLow, fontSize: 13 }}>
+                <Spinner size={14} /> Generating remedy…
+              </div>
+            )}
+            {remedyState === "success" && remedy && (
+              <div className="remedy-block">
+                <p style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{remedy}</p>
+              </div>
+            )}
+            {remedyState === "empty" && (
+              <div className="remedy-error">
+                <p style={{ fontSize: 12, color: C.amber, fontWeight: 500 }}>
+                  The backend responded but didn't provide a remedy for this scan.
+                </p>
+                <button onClick={fetchRemedy} style={{ marginTop: 8, fontSize: 12, color: C.amber, background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>
+                  Try again
+                </button>
+              </div>
+            )}
+            {remedyState === "error" && (
+              <div className="remedy-error">
+                <p style={{ fontSize: 12, color: C.red, fontWeight: 500 }}>
+                  Failed to fetch remedy: {remedyErr}
+                </p>
+                <button onClick={fetchRemedy} style={{ marginTop: 8, fontSize: 12, color: C.red, background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>
+                  Retry
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: C.bgSurface, color: C.inkMid,
+              border: `1px solid ${C.border}`, borderRadius: 9,
+              padding: "8px 16px", fontSize: 13, fontWeight: 500,
+            }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
           {/* AI Analysis + Remedy */}
           <div>
@@ -1488,18 +1521,24 @@ const CustomTooltip = ({ active, payload, label }) => {
    OVERVIEW TAB
 ───────────────────────────────────────────── */
 function OverviewTab({ scans, healthScore, avgRisk, blocked, allowed, running, completed, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail }) {
-  const chartData = useMemo(() => (
-    [...scans].filter(s=>s.status!=="running").slice(0,20).reverse().map(s => ({
-      name:  s.commit_sha?.slice(0,6)||"—",
-      risk:  s.risk_score||0,
-      score: s.ai_confidence||0,
-    }))
-  ), [scans]);
-
-  const pieData = [
-    { name:"Allowed", value:allowed.length, color:C.teal },
-    { name:"Blocked", value:blocked.length, color:C.red  },
-  ];
+  const chartData = useMemo(() => {
+  return [...scans]
+    .filter(
+      s =>
+        s.status !== "running" &&
+        s.risk_score !== null &&
+        s.risk_score !== undefined
+    )
+    .sort(
+      (a, b) => new Date(a.created_at) - new Date(b.created_at)
+    )
+    .slice(-20)
+    .map(s => ({
+      name: s.commit_sha?.slice(0, 6) || "—",
+      risk: Number(s.risk_score),
+      score: Number(s.ai_confidence || 0),
+    }));
+}, [scans]);
 
   const sevDist = useMemo(() => {
     const counts = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0, CLEAN:0 };
