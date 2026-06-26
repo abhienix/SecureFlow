@@ -203,7 +203,7 @@ function normaliseScan(raw) {
     const info = steps[key] || {};
     return {
       id: key, name: label, Icon,
-      status:  resultToStatus(info.result || info.status),
+      status:  resultToStatus(info.result || info.status, info.detail),
       result:  info.result  || info.status || "",
       detail:  info.detail  || "",
     };
