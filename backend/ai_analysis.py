@@ -16,7 +16,7 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 # paid fallback with higher reliability, and Ollama is the offline safety net
 # so the pipeline never fully dies even without internet or API credits
 GROQ_MODEL = "llama-3.3-70b-versatile"
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 OLLAMA_MODEL = "qwen2.5:7b"
 
 
