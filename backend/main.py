@@ -372,6 +372,37 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "code scan policy decision"
         )
         severity = data.get("severity") or ("HIGH" if explicit_action == "BLOCK" else "CLEAN")
+        ai_explanation = block_reason if explicit_action == "BLOCK" else ""
+        ai_fix = ""
+        risk_score = None
+
+        if explicit_action == "BLOCK":
+            code_detail = (pipeline_steps.get("code_scan") or {}).get("detail") or block_reason
+            if gitleaks:
+                first = gitleaks[0]
+                code_detail = (
+                    f"Gitleaks rule {first.get('RuleID', first.get('rule', '?'))} "
+                    f"in {first.get('File', first.get('file', '?'))}: "
+                    f"{first.get('Description', first.get('description', code_detail))}"
+                )
+                scanner = "gitleaks"
+            elif semgrep:
+                first = semgrep[0]
+                code_detail = first.get("extra", {}).get("message") or code_detail
+                scanner = "semgrep"
+            else:
+                scanner = "code-scan"
+            try:
+                ai_result = await asyncio.to_thread(
+                    analyze_code_scan_failure,
+                    {"scanner": scanner, "reason": severity, "detail": code_detail},
+                )
+                ai_explanation = ai_result.get("explanation") or ai_explanation
+                ai_fix = ai_result.get("fix") or ""
+                risk_score = ai_result.get("risk_score")
+            except Exception as e:
+                print(f"[code-scan AI] error: {e}")
+
         scan = _upsert({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
@@ -380,9 +411,9 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             "scan_type": scan_type,
             "severity": severity,
             "findings": normalized_findings,
-            "ai_explanation": block_reason if explicit_action == "BLOCK" else "",
-            "ai_fix": "",
-            "risk_score": None,
+            "ai_explanation": ai_explanation,
+            "ai_fix": ai_fix,
+            "risk_score": risk_score,
             "action_taken": explicit_action,
         })
         await manager.broadcast(scan_to_broadcast_payload(scan))
@@ -606,6 +637,7 @@ def get_scan_results(db: Session = Depends(get_db), limit: int = SCAN_RESULTS_LI
             "started_at": r.started_at.isoformat() if r.started_at else None,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "ai_confidence": min(99, max(60, int((r.risk_score or 0) * 10))) if r.risk_score is not None else None,
+            "ai_feedback": r.ai_feedback,
         }
         for r in rows
     ]
