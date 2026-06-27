@@ -57,7 +57,7 @@ def _call_gemini(prompt):
 
 
 def _call_ollama(prompt):
-    # Ollama runs the model locally — no API key needed, works offline,
+   # # Ollama runs the model locally — no API key needed, works offline,
     # but slower so we give it a longer timeout (60s vs 30s for cloud)
     resp = requests.post(
         f"{OLLAMA_URL}/api/generate",
