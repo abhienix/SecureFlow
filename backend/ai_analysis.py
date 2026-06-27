@@ -210,27 +210,42 @@ def analyze_scan(vulnerabilities):
 def analyze_code_scan_failure(failure_info):
     # This runs when Gitleaks or Semgrep blocks the pipeline — the developer
     # needs to understand *why* their push was rejected, not just see a generic error
+    scanner = _sanitize(failure_info.get('scanner', 'unknown'))
+    scanner_hint = ""
+    if scanner == "gitleaks":
+        scanner_hint = (
+            " Focus on: credential rotation, removing secrets from git history (git filter-repo/BFG),"
+            " using environment variables or a secret manager, and adding pre-commit hooks."
+        )
+    elif scanner == "semgrep":
+        scanner_hint = (
+            " Focus on: the exact insecure code pattern, a secure code alternative,"
+            " and whether this is a false positive vs a real exploit path."
+        )
+
     prompt = (
         "You are a senior DevSecOps engineer."
         " The CI/CD pipeline was blocked because a code security scan failed.\n\n"
         "What the scanner found:\n"
-        "- Scanner: " + _sanitize(failure_info.get('scanner', 'unknown')) + "\n"
+        "- Scanner: " + scanner + "\n"
         "- Reason: " + _sanitize(failure_info.get('reason', 'unknown')) + "\n"
-        "- Detail: " + _sanitize(failure_info.get('detail', 'unknown'), max_len=300) + "\n\n"
+        "- Detail: " + _sanitize(failure_info.get('detail', 'unknown'), max_len=400) + "\n\n"
         "Explain this clearly to a developer who needs to understand"
-        " why their deployment was blocked.\n\n"
+        " why their deployment was blocked."
+        + scanner_hint + "\n\n"
         "Respond with this exact JSON only."
         " No markdown, no code fences, no extra text:\n"
         '{\n'
         '  "explanation": "Write exactly 4-5 sentences.'
+        ' Quote the specific file/rule/pattern from the detail when available.'
         ' Explain what was detected and why it is dangerous.'
         ' Describe what an attacker could do if this reached production.'
-        ' Explain why blocking the deployment was the right call.'
-        ' State the compliance impact.",\n'
+        ' Explain why blocking the deployment was the right call.",\n'
         '  "fix": "Write exactly 4-5 numbered steps.'
-        ' Include how to rotate or revoke exposed credentials.'
-        ' Include how to remove the secret from git history.'
-        ' Include how to prevent this again.",\n'
+        ' Step 1 must be an immediate containment action.'
+        ' Include credential rotation if secrets were exposed.'
+        ' Include git history cleanup commands if applicable.'
+        ' Include prevention (pre-commit hooks, secret scanning in IDE).",\n'
         '  "risk_score": 8\n'
         '}'
     )

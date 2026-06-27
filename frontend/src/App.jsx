@@ -172,6 +172,63 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(200%); }
 }
+@keyframes liveBorderPulse {
+  0%, 100% {
+    border-color: ${C.blue};
+    box-shadow: 0 0 0 0 ${C.blue}33, 0 8px 32px ${C.blue}12;
+  }
+  50% {
+    border-color: ${C.cyan};
+    box-shadow: 0 0 0 6px ${C.blue}18, 0 12px 40px ${C.cyan}22;
+  }
+}
+@keyframes orbitSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.running-card-live {
+  animation: liveBorderPulse 2.2s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+.running-card-live::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 18px;
+  background: conic-gradient(from 0deg, transparent, ${C.blue}55, ${C.cyan}44, transparent);
+  animation: orbitSpin 3s linear infinite;
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+.live-pulse-bar {
+  height: 3px;
+  background: linear-gradient(90deg, ${C.teal}, ${C.blue}, ${C.cyan}, ${C.teal});
+  background-size: 300% 100%;
+  animation: pipelineFlow 2s linear infinite;
+  border-radius: 2px;
+}
+.ai-disclaimer {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: ${C.amberSoft};
+  border: 1px solid ${C.amberBord};
+  border-radius: 8px;
+  font-size: 11px;
+  color: ${C.inkMid};
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.feedback-card {
+  background: ${C.bgSurface};
+  border: 1px solid ${C.border};
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
 .pipe-flow {
   background: linear-gradient(90deg, ${C.border} 0%, ${C.blue} 50%, ${C.border} 100%);
   background-size: 200% 100%;
@@ -853,12 +910,11 @@ const AIFeedbackRow = ({ scanId, feedback, onFeedback, label = "Was this AI anal
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       style={{
-        marginTop: 12, paddingTop: 12,
-        borderTop: `1px solid ${C.border}`,
         display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
       }}
     >
-      <span style={{ fontSize: 11, color: C.inkLow, fontWeight: 500 }}>{label}</span>
+      <Brain size={13} style={{ color: C.violet, flexShrink: 0 }} />
+      <span style={{ fontSize: 12, color: C.ink, fontWeight: 600 }}>{label}</span>
       {["accept", "reject"].map(type => (
         <motion.button
           key={type}
@@ -945,6 +1001,8 @@ function RunningPipelineBanner({ scans }) {
 ───────────────────────────────────────────── */
 function PipelineMiniNodes({ pipeline, live = false }) {
   if (!pipeline?.length) return null;
+  const nodeSize = live ? 40 : 34;
+  const iconSize = live ? 17 : 15;
   return (
     <div style={{ display:"flex", alignItems:"center", gap:0, margin:"14px 0 4px", overflowX:"auto", paddingBottom:4 }}>
       {pipeline.map((stage, i) => {
@@ -954,39 +1012,42 @@ function PipelineMiniNodes({ pipeline, live = false }) {
           stage.status === "running" ? C.blue  :
           stage.status === "skipped" ? C.inkMid :
           C.inkLow;
+        const isActive = stage.status === "running";
         const { Icon } = stage;
         return (
           <React.Fragment key={stage.id}>
             {i > 0 && (
-              <div className={pipeline[i-1].status === "running" || stage.status === "running" ? "pipe-flow pipe-flow-active" : ""} style={{
-                flex:1, height:2, minWidth:8, maxWidth:28,
+              <div className={(live && (pipeline[i-1].status === "running" || isActive)) ? "pipe-flow pipe-flow-active" : (pipeline[i-1].status === "running" || isActive) ? "pipe-flow pipe-flow-active" : ""} style={{
+                flex:1, height: live && (pipeline[i-1].status === "running" || isActive) ? 3 : 2,
+                minWidth: live ? 12 : 8, maxWidth: live ? 36 : 28,
                 background: pipeline[i-1].status === "passed"
                   ? `linear-gradient(90deg,${C.teal}60,${color}60)`
-                  : (pipeline[i-1].status === "running" || stage.status === "running") ? undefined : C.border,
+                  : (pipeline[i-1].status === "running" || isActive) ? undefined : C.border,
+                borderRadius: 2,
               }} />
             )}
-            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, minWidth:52 }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, minWidth: live ? 58 : 52 }}>
               <motion.div
-                className={stage.status === "running" ? "node-running-3d" : ""}
-                animate={stage.status === "running" ? { scale: [1, 1.06, 1] } : {}}
-                transition={stage.status === "running" ? { duration: 1.6, repeat: Infinity } : {}}
+                className={isActive ? "node-running-3d" : ""}
+                animate={isActive ? { scale: live ? [1, 1.12, 1] : [1, 1.06, 1], rotateY: live ? [0, 8, 0] : 0 } : {}}
+                transition={isActive ? { duration: live ? 1.2 : 1.6, repeat: Infinity } : {}}
                 style={{
-                width:34, height:34, borderRadius:"50%",
+                width:nodeSize, height:nodeSize, borderRadius:"50%",
                 border:`2px solid ${color}`,
                 background: color+"12",
                 display:"flex", alignItems:"center", justifyContent:"center",
                 color,
-                boxShadow: stage.status === "running"
-                  ? `0 0 0 4px ${color}20, 0 0 16px ${color}40` : `0 0 8px ${color}20`,
+                boxShadow: isActive
+                  ? `0 0 0 ${live ? 6 : 4}px ${color}25, 0 0 ${live ? 24 : 16}px ${color}${live ? "55" : "40"}` : `0 0 8px ${color}20`,
                 transformStyle: "preserve-3d",
               }}>
-                {stage.status === "running" ? <Loader2 size={15} className="spin" /> :
-                 stage.status === "passed"  ? <CheckCircle size={15} /> :
-                 stage.status === "failed"  ? <XCircle size={15} /> :
+                {isActive ? <Loader2 size={iconSize} className="spin" /> :
+                 stage.status === "passed"  ? <CheckCircle size={iconSize} /> :
+                 stage.status === "failed"  ? <XCircle size={iconSize} /> :
                  stage.status === "skipped" ? <span style={{ fontSize:11 }}>—</span> :
-                 Icon ? <Icon size={13} /> : null}
+                 Icon ? <Icon size={iconSize - 2} /> : null}
               </motion.div>
-              <div style={{ fontSize:9, color:C.inkMid, textAlign:"center", whiteSpace:"nowrap" }}>
+              <div style={{ fontSize:9, color: isActive ? C.blue : C.inkMid, fontWeight: isActive ? 700 : 400, textAlign:"center", whiteSpace:"nowrap" }}>
                 {stage.name}
               </div>
             </div>
@@ -1061,12 +1122,20 @@ function PipelineFullView({ pipeline }) {
    of silently resetting to the "Show remedy" button.
 ───────────────────────────────────────────── */
 function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
+  const existingRemedy = scan.ai_remedy || scan.ai_fix || null;
   const [loadingRemedy, setLoadingRemedy] = useState(false);
-  const [remedy, setRemedy] = useState(scan.ai_remedy || null);
+  const [remedy, setRemedy] = useState(existingRemedy);
   const [remedyError, setRemedyError] = useState(null);
 
+  useEffect(() => {
+    setRemedy(scan.ai_remedy || scan.ai_fix || null);
+    setRemedyError(null);
+  }, [scan.id, scan.ai_remedy, scan.ai_fix]);
+
+  const displayedRemedy = remedy || existingRemedy;
+
   const fetchRemedy = async () => {
-    if (remedy || loadingRemedy) return;
+    if (displayedRemedy || loadingRemedy) return;
     setLoadingRemedy(true);
     setRemedyError(null);
     try {
@@ -1094,7 +1163,7 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
     }
   };
 
-  if (!scan.ai_explanation && !scan.ai_remedy) return null;
+  if (!scan.ai_explanation && !scan.ai_remedy && !scan.ai_fix && scan.action_taken !== "BLOCK") return null;
 
   return (
     <div style={{
@@ -1103,6 +1172,12 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
       border:`1px solid ${C.violetBord}`,
       fontSize:13, lineHeight:1.65,
     }}>
+      <div className="ai-disclaimer">
+        <AlertTriangle size={14} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
+        <span>
+          AI-generated guidance — verify against scanner output and your security policy before acting.
+        </span>
+      </div>
       {/* Header */}
       <div style={{
         display:"flex", gap:6, alignItems:"center",
@@ -1119,13 +1194,13 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
 
       {/* Explanation */}
       {scan.ai_explanation && (
-        <div style={{ color:C.ink, marginBottom: (remedy || !compact) ? 10 : 0 }}>
+        <div style={{ color:C.ink, marginBottom: (displayedRemedy || !compact) ? 10 : 0 }}>
           {scan.ai_explanation}
         </div>
       )}
 
       {/* Remedy */}
-      {(remedy || loadingRemedy) && (
+      {(displayedRemedy || loadingRemedy) && (
         <div className="remedy-block">
           <div style={{
             display:"flex", alignItems:"center", gap:6,
@@ -1139,7 +1214,7 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
               <Loader2 size={11} className="spin" /> Generating fix…
             </div>
           ) : (
-            <div style={{ fontSize:12, color:C.ink, lineHeight:1.65 }}>{remedy}</div>
+            <div style={{ fontSize:12, color:C.ink, lineHeight:1.65, whiteSpace:"pre-wrap" }}>{displayedRemedy}</div>
           )}
         </div>
       )}
@@ -1165,24 +1240,26 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
         </div>
       )}
 
-      {/* Fetch remedy button (if no remedy yet, and no error showing) */}
-      {!remedy && !loadingRemedy && !remedyError && scan.action_taken === "BLOCK" && (
+      {/* Fetch remedy only when none exists yet */}
+      {!displayedRemedy && !loadingRemedy && !remedyError && scan.action_taken === "BLOCK" && (
         <button onClick={fetchRemedy} style={{
           marginTop:8, display:"flex", alignItems:"center", gap:5,
           fontSize:11, color:C.teal, background:"none", border:`1px solid ${C.tealBord}`,
           borderRadius:6, padding:"4px 10px", fontWeight:600,
         }}>
-          <Wrench size={11} /> Show remedy
+          <Wrench size={11} /> Generate remedy
         </button>
       )}
 
-      {(scan.ai_explanation || remedy || scan.ai_remedy) && (
-        <AIFeedbackRow
-          scanId={scan.id}
-          feedback={feedback}
-          onFeedback={onFeedback}
-          label={remedy ? "Was this remedy helpful?" : "Was this AI analysis accurate?"}
-        />
+      {(scan.ai_explanation || displayedRemedy) && (
+        <div className="feedback-card">
+          <AIFeedbackRow
+            scanId={scan.id}
+            feedback={feedback}
+            onFeedback={onFeedback}
+            label={displayedRemedy ? "Was this remedy accurate?" : "Was this AI analysis accurate?"}
+          />
+        </div>
       )}
     </div>
   );
@@ -1252,11 +1329,10 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
   const isRunning = scan.status === "running";
   const isTimeout = scan.status === "timeout";
   const accent    = isRunning ? C.blue : isTimeout ? C.amber : blocked ? C.red : C.teal;
-  const myFb      = feedback?.[scan.id];
 
   return (
     <motion.div
-      className="glass-card fade-up"
+      className={`glass-card fade-up${isRunning ? " running-card-live" : ""}`}
       initial={{ opacity: 0, y: 18, rotateX: 6 }}
       animate={{ opacity: 1, y: 0, rotateX: 0 }}
       whileHover={{ y: -5, rotateX: 2, rotateY: -1, boxShadow: `0 16px 40px ${accent}18` }}
@@ -1312,17 +1388,37 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
         </div>
       </div>
 
-      <PipelineMiniNodes pipeline={scan.pipeline} />
+      <PipelineMiniNodes pipeline={scan.pipeline} live={isRunning} />
 
       {isRunning && (
-        <div style={{
-          marginTop:6, padding:"7px 12px",
-          background:C.blueSoft, borderRadius:8, border:`1px solid ${C.blueBord}`,
-          fontSize:12, color:C.blue, display:"flex", alignItems:"center", gap:6,
-        }}>
-          <Loader2 size={12} className="spin" />
-          Pipeline running — auto-refreshing live
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            marginTop:8, padding:"10px 14px",
+            background:`linear-gradient(135deg, ${C.blueSoft}, ${C.cyanSoft})`,
+            borderRadius:10, border:`1px solid ${C.blueBord}`,
+            fontSize:12, color:C.blue,
+            display:"flex", alignItems:"center", gap:8,
+            position:"relative", overflow:"hidden",
+          }}
+        >
+          <div aria-hidden style={{
+            position:"absolute", inset:0, opacity:.4,
+            background:`linear-gradient(105deg, transparent 35%, ${C.blue}33 50%, transparent 65%)`,
+            animation:"scanBeam 2s linear infinite",
+          }} />
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+            style={{ position:"relative", zIndex:1 }}
+          >
+            <Loader2 size={14} className="spin" />
+          </motion.div>
+          <span style={{ position:"relative", zIndex:1, fontWeight:600 }}>
+            Pipeline running live — stages update in real time
+          </span>
+        </motion.div>
       )}
 
       {expanded && (
@@ -1330,29 +1426,11 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
           <PipelineFullView pipeline={scan.pipeline} />
           {scan.vuln_breakdown && <VulnBreakdown breakdown={scan.vuln_breakdown} />}
           <AIAnalysisBlock scan={scan} feedback={feedback} onFeedback={onFeedback} />
-          {!isRunning && (
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:14 }}>
-              <span style={{ fontSize:11, color:C.inkLow }}>Overall scan assessment?</span>
-              {["accept","reject"].map(type => (
-                <button key={type} onClick={() => onFeedback?.(scan.id, type)} style={{
-                  display:"flex", alignItems:"center", gap:4,
-                  padding:"4px 10px", borderRadius:8,
-                  background: myFb===type ? (type==="accept"?C.greenSoft:C.redSoft) : C.bgSurface,
-                  border:`1px solid ${myFb===type ? (type==="accept"?C.green:C.red) : C.border}`,
-                  color: myFb===type ? (type==="accept"?C.green:C.red) : C.inkMid,
-                  fontSize:12,
-                }}>
-                  {type==="accept" ? <ThumbsUp size={12}/> : <ThumbsDown size={12}/>}
-                  {type==="accept" ? "Accurate" : "Incorrect"}
-                </button>
-              ))}
-              {onOpenDetail && (
-                <button onClick={() => onOpenDetail(scan)} style={{
-                  marginLeft:"auto", fontSize:12, color:C.inkMid,
-                  background:"none", border:"none", textDecoration:"underline",
-                }}>Full detail →</button>
-              )}
-            </div>
+          {onOpenDetail && !isRunning && (
+            <button onClick={() => onOpenDetail(scan)} style={{
+              marginTop:14, fontSize:12, color:C.inkMid,
+              background:"none", border:"none", textDecoration:"underline",
+            }}>Full detail →</button>
           )}
         </div>
       )}
@@ -1361,30 +1439,7 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
 };
 
        
-function WhyBlockedModal({ scan, onClose }) {
-  const [remedy, setRemedy]     = useState(null);
-  const [remedyState, setRS]    = useState("idle"); // idle | loading | success | empty | error
-  const [remedyErr, setRErr]    = useState("");
-
-  const fetchRemedy = useCallback(async () => {
-    if (!scan) return;
-    setRS("loading");
-    setRErr("");
-    try {
-      const res = await fetch(`${BACKEND}/api/scan-results/${scan.id}/reanalyze`, {
-        method: "POST",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const text = data?.ai_fix || data?.ai_remedy || "";
-      if (text.trim()) { setRemedy(text); setRS("success"); }
-      else             { setRS("empty"); }
-    } catch (e) {
-      setRErr(e.message);
-      setRS("error");
-    }
-  }, [scan]);
-
+function WhyBlockedModal({ scan, onClose, feedback, onFeedback }) {
   if (!scan) return null;
 
   const vulns = scan.vulnerabilities || [];
@@ -1518,75 +1573,7 @@ function WhyBlockedModal({ scan, onClose }) {
             </div>
           )}
 
-          {/* AI analysis from scan record */}
-          {(scan.ai_explanation || scan.ai_remedy) && (
-            <div>
-              <p style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, marginBottom: 8 }}>AI analysis</p>
-              {scan.ai_explanation && (
-                <div style={{
-                  padding: "12px 14px", background: C.violetSoft,
-                  borderRadius: 10, border: `1px solid ${C.violetBord}`,
-                  fontSize: 13, lineHeight: 1.65, color: C.ink,
-                }}>
-                  {scan.ai_explanation}
-                </div>
-              )}
-              {scan.ai_remedy && (
-                <div className="remedy-block" style={{ marginTop: 10 }}>
-                  <p style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{scan.ai_remedy}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Remedy */}
-          <div>
-            <p style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, marginBottom: 8 }}>AI Remedy</p>
-            {remedyState === "idle" && (
-              <button
-                onClick={fetchRemedy}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  background: C.tealSoft, color: C.teal,
-                  border: `1.5px solid ${C.tealBord}`, borderRadius: 10,
-                  padding: "10px 16px", fontSize: 13, fontWeight: 600,
-                  transition: "all .15s",
-                }}
-              >
-                <Sparkles size={14} /> Get AI Remedy
-              </button>
-            )}
-            {remedyState === "loading" && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkLow, fontSize: 13 }}>
-                <Spinner size={14} /> Generating remedy…
-              </div>
-            )}
-            {remedyState === "success" && remedy && (
-              <div className="remedy-block">
-                <p style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{remedy}</p>
-              </div>
-            )}
-            {remedyState === "empty" && (
-              <div className="remedy-error">
-                <p style={{ fontSize: 12, color: C.amber, fontWeight: 500 }}>
-                  The backend responded but didn't provide a remedy for this scan.
-                </p>
-                <button onClick={fetchRemedy} style={{ marginTop: 8, fontSize: 12, color: C.amber, background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>
-                  Try again
-                </button>
-              </div>
-            )}
-            {remedyState === "error" && (
-              <div className="remedy-error">
-                <p style={{ fontSize: 12, color: C.red, fontWeight: 500 }}>
-                  Failed to fetch remedy: {remedyErr}
-                </p>
-                <button onClick={fetchRemedy} style={{ marginTop: 8, fontSize: 12, color: C.red, background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>
-                  Retry
-                </button>
-              </div>
-            )}
-          </div>
+          <AIAnalysisBlock scan={scan} feedback={feedback} onFeedback={onFeedback} />
         </div>
 
         {/* Footer */}
@@ -2045,6 +2032,7 @@ function PipelineTab({ scans, feedback, onFeedback, onOpenWhyBlocked, onOpenDeta
 
   return (
     <div style={{ animation:"fadeInUp .4s ease" }}>
+      <RunningPipelineBanner scans={scans} />
       {running.length > 0 && (
         <div style={{ marginBottom:20 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
@@ -2607,7 +2595,16 @@ export default function App() {
       const data = await res.json();
       const rows = Array.isArray(data) ? data : (data.scans || []);
       setTotalScans(Array.isArray(data) ? rows.length : (data.total ?? rows.length));
-      setScans(rows.map(normaliseScan));
+      const normalized = rows.map(normaliseScan);
+      setScans(normalized);
+      const fbFromServer = {};
+      normalized.forEach(s => {
+        if (s.ai_feedback === "accurate") fbFromServer[s.id] = "accept";
+        else if (s.ai_feedback === "incorrect") fbFromServer[s.id] = "reject";
+      });
+      if (Object.keys(fbFromServer).length) {
+        setFeedback(prev => ({ ...prev, ...fbFromServer }));
+      }
       setLastUpdated(new Date());
     } catch (err) {
       console.error("Fetch error:", err);
@@ -2699,7 +2696,7 @@ export default function App() {
     <>
       <AnimatePresence>
         {whyBlockedScan && (
-          <WhyBlockedModal key="why-blocked" scan={whyBlockedScan} onClose={() => setWhyBlockedScan(null)} />
+          <WhyBlockedModal key="why-blocked" scan={whyBlockedScan} onClose={() => setWhyBlockedScan(null)} feedback={feedback} onFeedback={submitFeedback} />
         )}
       </AnimatePresence>
 
@@ -2811,6 +2808,9 @@ export default function App() {
             </button>
           </div>
         </header>
+        {running.length > 0 && (
+          <div className="live-pulse-bar" style={{ position:"sticky", top:56, zIndex:199 }} aria-label="Pipeline running" />
+        )}
 
         {/* MAIN */}
         <main style={{ padding:"24px", maxWidth:1280, margin:"0 auto", position:"relative", zIndex:1 }}>
