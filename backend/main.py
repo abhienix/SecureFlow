@@ -90,6 +90,15 @@ def get_db():
         db.close()
 
 
+def utc_iso(dt: datetime | None) -> str | None:
+    """Serialize naive UTC datetimes with a Z suffix so browsers parse them correctly."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    return dt.isoformat()
+
+
 def scan_to_broadcast_payload(scan: ScanResult, msg_type: str = "scan_complete") -> dict:
     return {
         "type": msg_type,
@@ -106,8 +115,8 @@ def scan_to_broadcast_payload(scan: ScanResult, msg_type: str = "scan_complete")
         "action_taken": scan.action_taken,
         "pipeline_steps": scan.pipeline_steps or {},
         "status": scan.status,
-        "started_at": scan.started_at.isoformat() if scan.started_at else None,
-        "created_at": scan.created_at.isoformat() if scan.created_at else None,
+        "started_at": utc_iso(scan.started_at),
+        "created_at": utc_iso(scan.created_at),
     }
 
 
@@ -207,7 +216,9 @@ async def start_scan_run(data: dict, db: Session = Depends(get_db)):
         ai_fix="",
         risk_score=None,
         action_taken=None,
-        pipeline_steps={},
+        pipeline_steps={
+            "checkout": {"result": "PASS", "detail": "code checked out"},
+        },
         status="running",
         started_at=datetime.utcnow(),
     )
@@ -222,11 +233,12 @@ async def start_scan_run(data: dict, db: Session = Depends(get_db)):
         "type": "scan_started",
         "run_id": scan.id,
         "commit_sha": scan.commit_sha,
+        "commit_message": scan.commit_message,
         "repo_name": scan.repo_name,
         "branch": scan.branch,
         "status": "running",
-        "pipeline_steps": {},
-        "started_at": scan.started_at.isoformat() if scan.started_at else None,
+        "pipeline_steps": scan.pipeline_steps or {},
+        "started_at": utc_iso(scan.started_at),
     })
 
     return {"status": "started", "run_id": scan.id}
@@ -321,6 +333,12 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     has_trivy = bool(normalized_findings["Results"])
 
     def _upsert(fields: dict) -> ScanResult:
+        nonlocal run_id
+        if run_id is not None:
+            try:
+                run_id = int(run_id)
+            except (TypeError, ValueError):
+                run_id = None
         if run_id:
             scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
             if scan:
@@ -540,13 +558,17 @@ async def copilot_ask(data: dict, db: Session = Depends(get_db)):
             "status": s.status,
             "risk_score": s.risk_score,
             "ai_explanation": (s.ai_explanation or "")[:400],
-            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "created_at": utc_iso(s.created_at),
         }
 
     context = {
         "recent_scans": [scan_summary(s) for s in recent],
         "focus_scan": scan_summary(focus_scan) if focus_scan else None,
     }
+    if data.get("context"):
+        context["client_context"] = data["context"]
+    if data.get("history"):
+        context["conversation"] = data["history"][-6:]
 
     try:
         answer = await asyncio.to_thread(answer_copilot_question, question, context)
@@ -634,8 +656,8 @@ def get_scan_results(db: Session = Depends(get_db), limit: int = SCAN_RESULTS_LI
             "findings": r.findings or {},
             "pipeline_steps": r.pipeline_steps or {},
             "status": r.status or "complete",
-            "started_at": r.started_at.isoformat() if r.started_at else None,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "started_at": utc_iso(r.started_at),
+            "created_at": utc_iso(r.created_at),
             "ai_confidence": min(99, max(60, int((r.risk_score or 0) * 10))) if r.risk_score is not None else None,
             "ai_feedback": r.ai_feedback,
         }

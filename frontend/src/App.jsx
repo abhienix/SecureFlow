@@ -172,7 +172,24 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(200%); }
 }
+@keyframes remedyGlow {
+  0%, 100% { box-shadow: 0 0 0 0 ${C.teal}22, 0 4px 20px ${C.teal}12; border-color: ${C.teal}; }
+  50%      { box-shadow: 0 0 0 6px ${C.teal}14, 0 8px 28px ${C.teal}22; border-color: ${C.tealLight}; }
+}
+@keyframes feedbackPulse {
+  0%, 100% { border-color: ${C.violet}55; }
+  50%      { border-color: ${C.teal}; }
+}
 @keyframes liveBorderPulse {
+  0%, 100% {
+    border-color: ${C.blue};
+    box-shadow: 0 0 0 0 ${C.blue}33, 0 8px 32px ${C.blue}12;
+  }
+  50% {
+    border-color: ${C.cyan};
+    box-shadow: 0 0 0 6px ${C.blue}18, 0 12px 40px ${C.cyan}22;
+  }
+}
   0%, 100% {
     border-color: ${C.blue};
     box-shadow: 0 0 0 0 ${C.blue}33, 0 8px 32px ${C.blue}12;
@@ -223,11 +240,23 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   margin-bottom: 10px;
 }
 .feedback-card {
-  background: ${C.bgSurface};
-  border: 1px solid ${C.border};
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-top: 12px;
+  background: linear-gradient(135deg, ${C.violetSoft} 0%, ${C.tealSoft} 100%);
+  border: 2px solid ${C.violetBord};
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-top: 14px;
+  animation: feedbackPulse 3s ease-in-out infinite;
+}
+.feedback-card .feedback-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: ${C.violet};
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .pipe-flow {
   background: linear-gradient(90deg, ${C.border} 0%, ${C.blue} 50%, ${C.border} 100%);
@@ -412,11 +441,23 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
 
 /* Remedy */
 .remedy-block {
-  background: ${C.greenSoft};
-  border: 1px solid ${C.greenBord};
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-top: 10px;
+  background: linear-gradient(135deg, ${C.greenSoft} 0%, ${C.tealSoft} 100%);
+  border: 2px solid ${C.teal};
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 12px;
+  animation: remedyGlow 2.8s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+.remedy-block::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, ${C.teal}, ${C.green}, ${C.teal});
+  background-size: 200% 100%;
+  animation: pipelineFlow 2s linear infinite;
 }
 .remedy-error {
   background: ${C.redSoft};
@@ -450,6 +491,34 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
 .delta-up   { color: ${C.green}; background: ${C.greenSoft}; }
 .delta-down { color: ${C.red};   background: ${C.redSoft};   }
 .delta-flat { color: ${C.inkLow}; background: ${C.bgSurface}; }
+
+/* Layout — mobile-first responsive */
+.sf-grid-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+.sf-grid-charts { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+.sf-grid-half { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.sf-grid-metrics { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; }
+.sf-header { display: flex; align-items: center; gap: 16px; height: 56px; padding: 0 24px; }
+.sf-nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.sf-nav::-webkit-scrollbar { display: none; }
+.sf-main { padding: 24px; max-width: 1280px; margin: 0 auto; }
+.sf-copilot-panel { width: 360px; max-width: calc(100vw - 32px); }
+.sf-copilot-fab { bottom: 24px; right: 24px; }
+
+@media (max-width: 900px) {
+  .sf-grid-charts, .sf-grid-half, .sf-grid-metrics { grid-template-columns: 1fr; }
+  .sf-header { flex-wrap: wrap; height: auto; min-height: 56px; padding: 10px 14px; gap: 10px; }
+  .sf-nav { width: 100%; order: 3; padding-bottom: 2px; }
+  .sf-main { padding: 16px 14px; }
+  .sf-copilot-panel { width: calc(100vw - 24px); right: 12px !important; bottom: 12px !important; }
+  .sf-copilot-fab { bottom: 16px; right: 16px; }
+  .sf-header-right { margin-left: 0 !important; width: 100%; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .sf-tab { font-size: 12px; padding: 6px 10px; white-space: nowrap; }
+  .sf-detail-drawer { width: 100vw !important; }
+}
+@media (max-width: 480px) {
+  .sf-grid-kpi { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .sf-tab span.tab-label { display: none; }
+}
 `;
 
 /* Inject CSS once */
@@ -470,19 +539,40 @@ function resultToStatus(stage, fallbackStatus) {
   if (["failed","fail","error","block","blocked"].includes(r))
     return "failed";
 
-  if (["running","in_progress","active"].includes(r))
+  if (["skipped","skip"].includes(r))
+    return "skipped";
+
+  if (["running","in_progress","active","scanned","scanning"].includes(r))
     return "running";
 
-  if (stage?.started_at && !["pending","skipped"].includes(r))
-    return "passed";
-
-  if (fallbackStatus === "passed")
+  if (stage?.started_at && !["pending"].includes(r))
     return "passed";
 
   if (fallbackStatus === "failed")
     return "skipped";
 
   return "pending";
+}
+
+/** Parse backend timestamps — naive ISO strings from Postgres are UTC. */
+function parseTimestamp(iso) {
+  if (!iso) return null;
+  if (iso instanceof Date) return iso;
+  const s = String(iso).trim();
+  if (!s || s === "—") return null;
+  if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(s)) return new Date(s);
+  return new Date(`${s}Z`);
+}
+
+function scanTimestamp(scan) {
+  if (!scan) return null;
+  if (scan.status === "running") return scan.started_at || scan.created_at;
+  return scan.started_at || scan.created_at;
+}
+
+function sameRunId(a, b) {
+  if (a == null || b == null) return false;
+  return Number(a) === Number(b);
 }
 
 
@@ -589,17 +679,41 @@ function normaliseScan(raw) {
     };
   });
 
+  /* Checkout completes before the backend receives scan_started — infer when missing */
+  const checkoutIdx = pipeline.findIndex(p => p.id === "checkout");
+  const hasLaterStep = PIPELINE_STAGES.slice(1).some(({ key }) => {
+    const s = steps[key];
+    return s && (s.result || s.status);
+  });
+  if (checkoutIdx >= 0) {
+    const checkoutPending = pipeline[checkoutIdx].status === "pending";
+    if (checkoutPending && (raw.status === "running" || hasLaterStep || overallOutcome)) {
+      pipeline[checkoutIdx] = {
+        ...pipeline[checkoutIdx],
+        status: "passed",
+        result: steps.checkout?.result || "PASS",
+        detail: steps.checkout?.detail || "Repository checked out",
+      };
+    }
+  }
+
   /* While scan is live, mark the active stage as running for UI animation */
   if (raw.status === "running") {
     const hasRunning = pipeline.some(p => p.status === "running");
     if (!hasRunning) {
       let lastDone = -1;
+      let stalledOnFailure = false;
       pipeline.forEach((p, i) => {
-        if (["passed", "failed", "skipped"].includes(p.status)) lastDone = i;
+        if (["passed", "failed", "skipped"].includes(p.status)) {
+          lastDone = i;
+          if (p.status === "failed") stalledOnFailure = true;
+        }
       });
-      const activeIdx = lastDone + 1 < pipeline.length ? lastDone + 1 : 0;
-      if (pipeline[activeIdx]?.status === "pending") {
-        pipeline[activeIdx] = { ...pipeline[activeIdx], status: "running", result: "running" };
+      if (!stalledOnFailure) {
+        const activeIdx = lastDone + 1 < pipeline.length ? lastDone + 1 : -1;
+        if (activeIdx >= 0 && pipeline[activeIdx]?.status === "pending") {
+          pipeline[activeIdx] = { ...pipeline[activeIdx], status: "running", result: "running" };
+        }
       }
     }
   }
@@ -670,18 +784,22 @@ function normaliseScan(raw) {
   };
 }
 
-const fmt     = iso => iso ? new Date(iso).toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : "—";
-const fmtFull = iso => iso ? new Date(iso).toLocaleString("en-IN",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "—";
+const fmt     = iso => { const d = parseTimestamp(iso); return d ? d.toLocaleDateString("en-IN",{day:"numeric",month:"short"}) : "—"; };
+const fmtFull = iso => { const d = parseTimestamp(iso); return d ? d.toLocaleString("en-IN",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "—"; };
 
 function relTime(iso) {
-  if (!iso) return "—";
-  const m = Math.floor((Date.now() - new Date(iso)) / 1000);
-  if (m < 5)   return "just now";
-  if (m < 60)  return `${m}s ago`;
-  const min = Math.floor(m/60);
+  const then = parseTimestamp(iso);
+  if (!then || Number.isNaN(then.getTime())) return "—";
+  const sec = Math.floor((Date.now() - then.getTime()) / 1000);
+  if (sec < 0) return "just now";
+  if (sec < 5) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
   if (min < 60) return `${min}m ago`;
-  const h = Math.floor(min/60);
-  return h < 24 ? `${h}h ago` : `${Math.floor(h/24)}d ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }
 
 const sevColor = s => ({
@@ -1042,7 +1160,11 @@ function PipelineMiniNodes({ pipeline, live = false }) {
                 transformStyle: "preserve-3d",
               }}>
                 {isActive ? <Loader2 size={iconSize} className="spin" /> :
-                 stage.status === "passed"  ? <CheckCircle size={iconSize} /> :
+                 stage.status === "passed"  ? (
+                   <motion.span key="ok" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 400, damping: 18 }}>
+                     <CheckCircle size={iconSize} />
+                   </motion.span>
+                 ) :
                  stage.status === "failed"  ? <XCircle size={iconSize} /> :
                  stage.status === "skipped" ? <span style={{ fontSize:11 }}>—</span> :
                  Icon ? <Icon size={iconSize - 2} /> : null}
@@ -1201,7 +1323,12 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
 
       {/* Remedy */}
       {(displayedRemedy || loadingRemedy) && (
-        <div className="remedy-block">
+        <motion.div
+          className="remedy-block"
+          initial={{ opacity: 0, y: 8, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: "spring", stiffness: 320, damping: 24 }}
+        >
           <div style={{
             display:"flex", alignItems:"center", gap:6,
             fontSize:10, fontWeight:800, color:C.teal,
@@ -1214,9 +1341,9 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
               <Loader2 size={11} className="spin" /> Generating fix…
             </div>
           ) : (
-            <div style={{ fontSize:12, color:C.ink, lineHeight:1.65, whiteSpace:"pre-wrap" }}>{displayedRemedy}</div>
+            <div style={{ fontSize:12, color:C.ink, lineHeight:1.65, whiteSpace:"pre-wrap", paddingTop:4 }}>{displayedRemedy}</div>
           )}
-        </div>
+        </motion.div>
       )}
 
       {/* Error state — visible, with retry */}
@@ -1252,14 +1379,23 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback }) {
       )}
 
       {(scan.ai_explanation || displayedRemedy) && (
-        <div className="feedback-card">
+        <motion.div
+          className="feedback-card"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: displayedRemedy ? 0.15 : 0 }}
+        >
+          <div className="feedback-label">
+            <Sparkles size={12} />
+            {displayedRemedy ? "Rate this AI remedy" : "Rate this AI analysis"}
+          </div>
           <AIFeedbackRow
             scanId={scan.id}
             feedback={feedback}
             onFeedback={onFeedback}
             label={displayedRemedy ? "Was this remedy accurate?" : "Was this AI analysis accurate?"}
           />
-        </div>
+        </motion.div>
       )}
     </div>
   );
@@ -1364,7 +1500,7 @@ const CommitCard = ({ scan, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail
             <span style={{ color:C.inkLow }}>·</span>
             {scan.branch}
             <span style={{ color:C.inkLow }}>·</span>
-            {relTime(scan.created_at || scan.started_at)}
+            <LiveRelTime iso={scanTimestamp(scan)} />
           </div>
         </div>
         <div style={{ display:"flex", gap:7, flexShrink:0 }}>
@@ -1605,6 +1741,7 @@ function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked }) {
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 480, opacity: 0 }}
       transition={{ type: "spring", stiffness: 280, damping: 30 }}
+      className="sf-detail-drawer"
       style={{
       position:"fixed", top:0, right:0,
       width:460, maxWidth:"100vw", height:"100vh",
@@ -1685,23 +1822,53 @@ function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked }) {
 function AICopilot({ scans, onClose }) {
   const [messages, setMessages] = useState([{
     role:"assistant",
-    text:"Hi! I'm your SecureFlow AI assistant. Ask me about blocked commits, CVEs, risk scores, or pipeline failures — I can also suggest remedies.",
+    text:"Hi! I'm your SecureFlow AI assistant. Ask about blocked commits, CVEs, policy decisions, or pipeline failures — I can suggest remedies and explain scan results.",
   }]);
-  const [input,     setInput]     = useState("");
-  const [sending,   setSending]   = useState(false);
-  const [minimised, setMinimised] = useState(false);
-  const [sendError, setSendError] = useState(false);
+  const [input,       setInput]       = useState("");
+  const [sending,     setSending]     = useState(false);
+  const [minimised,   setMinimised]   = useState(false);
+  const [sendError,   setSendError]   = useState(false);
+  const [selectedId,  setSelectedId]  = useState(null);
+  const [followUps,   setFollowUps]   = useState([]);
   const endRef   = useRef(null);
   const inputRef = useRef(null);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages]);
+  const blocked = scans.filter(s => s.action_taken === "BLOCK");
+  const running = scans.filter(s => s.status === "running");
+  const completed = scans.filter(s => s.status !== "running");
+
+  useEffect(() => {
+    if (!selectedId && blocked[0]?.id) setSelectedId(blocked[0].id);
+    else if (!selectedId && scans[0]?.id) setSelectedId(scans[0].id);
+  }, [blocked, scans, selectedId]);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages, followUps]);
+
+  const buildContext = useCallback(() => {
+    const recent = completed.slice(0, 8).map(s => ({
+      id: s.id,
+      sha: s.commit_sha?.slice(0, 8),
+      repo: s.repo_name,
+      action: s.action_taken,
+      severity: s.severity,
+      risk: s.risk_score,
+      status: s.status,
+      ai_snippet: s.ai_explanation?.slice(0, 120),
+    }));
+    return {
+      totals: { blocked: blocked.length, allowed: completed.filter(s => s.action_taken === "ALLOW").length, running: running.length },
+      recent_scans: recent,
+      selected_scan_id: selectedId,
+    };
+  }, [completed, blocked, running, selectedId]);
 
   const send = async (q) => {
     const question = q || input.trim();
     if (!question || sending) return;
     setInput("");
     setSendError(false);
-    const nextMessages = [...messages, { role:"user", text:question }];
+    setFollowUps([]);
+    const nextMessages = [...messages, { role:"user", text: question, at: Date.now() }];
     setMessages(nextMessages);
     setSending(true);
     try {
@@ -1710,21 +1877,26 @@ function AICopilot({ scans, onClose }) {
         headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({
           question,
-          scan_id: scans.find(s => s.action_taken === "BLOCK")?.id || scans[0]?.id || null,
+          scan_id: selectedId || blocked[0]?.id || scans[0]?.id || null,
+          context: buildContext(),
+          history: nextMessages.slice(-6).map(m => ({ role: m.role, text: m.text })),
         }),
       });
-      if (!res.ok) {
-        throw new Error(`Backend returned ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`Backend returned ${res.status}`);
       const data = await res.json();
       if (!data?.answer) {
-        setMessages(m => [...m, { role:"assistant", text:"The AI service responded but didn't include an answer. This usually means the backend's copilot endpoint has an issue — try rephrasing, or check backend logs." }]);
+        setMessages(m => [...m, { role:"assistant", text:"The AI service responded but didn't include an answer. Try rephrasing or check backend logs.", at: Date.now() }]);
         setSendError(true);
       } else {
-        setMessages(m => [...m, { role:"assistant", text:data.answer }]);
+        setMessages(m => [...m, { role:"assistant", text: data.answer, at: Date.now() }]);
+        setFollowUps(data.follow_ups || [
+          "What should I fix first?",
+          "Explain the policy decision",
+          "List fixable CVEs",
+        ].slice(0, 3));
       }
     } catch (err) {
-      setMessages(m => [...m, { role:"assistant", text:`Couldn't reach the AI service (${err.message || "network error"}). Try again in a moment, or check that the backend is running.` }]);
+      setMessages(m => [...m, { role:"assistant", text:`Couldn't reach the AI service (${err.message || "network error"}). Try again in a moment.`, at: Date.now() }]);
       setSendError(true);
     } finally {
       setSending(false);
@@ -1732,14 +1904,29 @@ function AICopilot({ scans, onClose }) {
     }
   };
 
-  const blocked = scans.filter(s=>s.action_taken==="BLOCK").length;
-  const running = scans.filter(s=>s.status==="running").length;
-  const QUICK   = ["Why was the last commit blocked?","What's the best remedy for top CVEs?","Show fixable vulnerabilities"];
+  const copyText = (text) => {
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  const clearChat = () => {
+    setMessages([{ role:"assistant", text:"Chat cleared. What would you like to know about your pipeline?", at: Date.now() }]);
+    setFollowUps([]);
+    setSendError(false);
+  };
+
+  const QUICK = [
+    "Why was the last commit blocked?",
+    "Summarize recent pipeline failures",
+    "What's the best remedy for top CVEs?",
+    "Explain the policy gate decision",
+    "Which stages fail most often?",
+    "Show fixable vulnerabilities",
+  ];
 
   return (
-    <div style={{
+    <div className="sf-copilot-fab" style={{
       position:"fixed", bottom:24, right:24,
-      width: minimised ? "auto" : 360,
+      width: minimised ? "auto" : undefined,
       zIndex:500, animation:"bounceIn .55s cubic-bezier(.22,.68,0,1.2)",
     }}>
       {minimised ? (
@@ -1754,14 +1941,14 @@ function AICopilot({ scans, onClose }) {
         }}>
           <Bot size={16} />
           AI Copilot
-          {(blocked>0||running>0) && (
+          {(blocked.length > 0 || running.length > 0) && (
             <span style={{ background:C.red, color:"#fff", borderRadius:999, fontSize:10, fontWeight:800, padding:"1px 6px" }}>
-              {blocked+running}
+              {blocked.length + running.length}
             </span>
           )}
         </button>
       ) : (
-        <div style={{
+        <div className="sf-copilot-panel" style={{
           background:`${C.bgCard}ee`, backdropFilter:"blur(20px)",
           border:`1px solid ${C.border}`, borderRadius:20, overflow:"hidden",
           boxShadow:`0 24px 64px rgba(0,0,0,.6), 0 0 40px ${C.teal}10`,
@@ -1770,7 +1957,7 @@ function AICopilot({ scans, onClose }) {
           <div style={{
             padding:"14px 16px", borderBottom:`1px solid ${C.border}`,
             display:"flex", alignItems:"center", gap:10,
-            background:`${C.bgSurface}80`,
+            background:`${C.bgSurface}80`, flexWrap:"wrap",
           }}>
             <div style={{
               width:32, height:32, borderRadius:"50%",
@@ -1781,45 +1968,85 @@ function AICopilot({ scans, onClose }) {
             }}>
               <Bot size={16} color={C.teal} />
             </div>
-            <div>
+            <div style={{ flex: 1, minWidth: 120 }}>
               <div style={{ fontSize:13, fontWeight:700, color:C.ink }}>AI Copilot</div>
               <div style={{ fontSize:10, color: sendError ? C.amber : C.teal, display:"flex", alignItems:"center", gap:4 }}>
                 <span style={{ width:6, height:6, borderRadius:"50%", background: sendError ? C.amber : C.teal, display:"inline-block", animation:"pulseRing 2s infinite" }} />
-                {sendError ? "having trouble reaching backend" : "online · remedies enabled"}
+                {sendError ? "connection issue" : "online · context-aware"}
               </div>
             </div>
-            {running>0 && <Badge color={C.blue} small>{running} running</Badge>}
-            {blocked>0 && <Badge color={C.red} small>{blocked} blocked</Badge>}
+            {running.length > 0 && <Badge color={C.blue} small>{running.length} live</Badge>}
+            {blocked.length > 0 && <Badge color={C.red} small>{blocked.length} blocked</Badge>}
             <div style={{ marginLeft:"auto", display:"flex", gap:4 }}>
+              <button onClick={clearChat} title="Clear chat" style={{ background:"none", border:"none", color:C.inkMid, padding:4, borderRadius:6, fontSize:10, fontWeight:600 }}>Clear</button>
               <button onClick={() => setMinimised(true)} style={{ background:"none", border:"none", color:C.inkMid, padding:4, borderRadius:6 }}><Minimize2 size={15} /></button>
               <button onClick={onClose} style={{ background:"none", border:"none", color:C.inkMid, padding:4, borderRadius:6 }}><X size={15} /></button>
             </div>
           </div>
 
+          {scans.length > 0 && (
+            <div style={{ padding:"8px 14px", borderBottom:`1px solid ${C.border}`, background:C.bgSurface }}>
+              <label style={{ fontSize:10, color:C.inkLow, fontWeight:700, letterSpacing:"0.06em", display:"block", marginBottom:4 }}>FOCUS SCAN</label>
+              <select
+                value={selectedId || ""}
+                onChange={e => setSelectedId(Number(e.target.value) || null)}
+                style={{
+                  width:"100%", padding:"6px 10px", borderRadius:8,
+                  border:`1px solid ${C.border}`, background:C.bgCard,
+                  fontSize:12, color:C.ink, fontFamily:C.mono,
+                }}
+              >
+                {scans.slice(0, 20).map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.commit_sha?.slice(0, 8)} · {s.action_taken || s.status} · {s.repo_name?.split("/").pop()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div style={{ flex:1, overflowY:"auto", padding:"14px 14px 0", display:"flex", flexDirection:"column", gap:10, minHeight:200, maxHeight:"45vh" }}>
-            {messages.map((m,i) => (
-              <div key={i} className={m.role==="user"?"sf-msg-user":"sf-msg-bot"} style={{
-                maxWidth:"88%", padding:"9px 13px",
-                borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",
-                fontSize:13, lineHeight:1.6, color:C.ink, animation:"fadeInUp .25s ease",
-              }}>
-                {m.text}
+            {messages.map((m, i) => (
+              <div key={i} style={{ display:"flex", flexDirection:"column", alignItems: m.role === "user" ? "flex-end" : "flex-start", gap:4 }}>
+                <div className={m.role==="user"?"sf-msg-user":"sf-msg-bot"} style={{
+                  maxWidth:"88%", padding:"9px 13px",
+                  fontSize:13, lineHeight:1.6, color:C.ink, animation:"fadeInUp .25s ease",
+                  whiteSpace:"pre-wrap",
+                }}>
+                  {m.text}
+                </div>
+                {m.role === "assistant" && m.text.length > 40 && (
+                  <button onClick={() => copyText(m.text)} style={{
+                    fontSize:10, color:C.inkLow, background:"none", border:"none", padding:"0 4px",
+                  }}>Copy</button>
+                )}
               </div>
             ))}
             {sending && (
-              <div className="sf-msg-bot" style={{ maxWidth:"60%", padding:"9px 13px", borderRadius:"14px 14px 14px 4px", fontSize:13, color:C.inkMid, display:"flex", alignItems:"center", gap:6 }}>
-                <Loader2 size={12} className="spin" /> Thinking…
+              <div className="sf-msg-bot" style={{ maxWidth:"60%", padding:"9px 13px", fontSize:13, color:C.inkMid, display:"flex", alignItems:"center", gap:6 }}>
+                <Loader2 size={12} className="spin" /> Analyzing pipeline context…
+              </div>
+            )}
+            {followUps.length > 0 && !sending && (
+              <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:4 }}>
+                {followUps.map(q => (
+                  <button key={q} onClick={() => send(q)} style={{
+                    fontSize:10, padding:"4px 9px", borderRadius:999,
+                    background:C.violetSoft, border:`1px solid ${C.violetBord}`,
+                    color:C.violet, fontWeight:600,
+                  }}>{q}</button>
+                ))}
               </div>
             )}
             <div ref={endRef} />
           </div>
 
-          <div style={{ padding:"10px 14px 0", display:"flex", gap:5, flexWrap:"wrap" }}>
+          <div style={{ padding:"10px 14px 0", display:"flex", gap:5, flexWrap:"wrap", maxHeight:72, overflowY:"auto" }}>
             {QUICK.map(q => (
-              <button key={q} onClick={() => send(q)} style={{
+              <button key={q} onClick={() => send(q)} disabled={sending} style={{
                 fontSize:10, padding:"4px 9px", borderRadius:999,
                 background:C.tealSoft, border:`1px solid ${C.tealBord}`,
-                color:C.teal, fontWeight:600, whiteSpace:"nowrap",
+                color:C.teal, fontWeight:600, whiteSpace:"nowrap", opacity: sending ? 0.6 : 1,
               }}>{q}</button>
             ))}
           </div>
@@ -1827,8 +2054,8 @@ function AICopilot({ scans, onClose }) {
           <div style={{ padding:"12px 14px 14px", display:"flex", gap:8 }}>
             <input ref={inputRef} className="sf-chat-input" value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key==="Enter" && send()}
-              placeholder="Ask about your pipeline…"
+              onKeyDown={e => e.key==="Enter" && !e.shiftKey && send()}
+              placeholder="Ask about CVEs, policy, remedies…"
             />
             <button onClick={() => send()} disabled={!input.trim()||sending} style={{
               padding:"0 14px", borderRadius:12,
@@ -1877,7 +2104,7 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
         s.risk_score !== undefined
     )
     .sort(
-      (a, b) => new Date(a.created_at) - new Date(b.created_at)
+      (a, b) => (parseTimestamp(a.created_at)?.getTime() || 0) - (parseTimestamp(b.created_at)?.getTime() || 0)
     )
     .slice(-20)
     .map(s => ({
@@ -1886,6 +2113,39 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
       score: Number(s.ai_confidence || 0),
     }));
 }, [scans]);
+
+  const dailyActivity = useMemo(() => {
+    const by = {};
+    completed.forEach(s => {
+      const d = fmt(s.started_at || s.created_at);
+      if (!by[d]) by[d] = { day: d, scans: 0, blocked: 0, allowed: 0 };
+      by[d].scans++;
+      if (s.action_taken === "BLOCK") by[d].blocked++;
+      else by[d].allowed++;
+    });
+    return Object.values(by).slice(-10);
+  }, [completed]);
+
+  const blockTrend = useMemo(() => {
+    let total = 0, blockedN = 0;
+    return [...completed]
+      .sort((a, b) => (parseTimestamp(a.created_at)?.getTime() || 0) - (parseTimestamp(b.created_at)?.getTime() || 0))
+      .slice(-15)
+      .map(s => {
+        total++;
+        if (s.action_taken === "BLOCK") blockedN++;
+        return { name: s.commit_sha?.slice(0, 6) || "—", rate: total ? +((blockedN / total) * 100).toFixed(1) : 0 };
+      });
+  }, [completed]);
+
+  const vulnSeverityTrend = useMemo(() => {
+    return completed.slice(0, 12).reverse().map(s => ({
+      name: s.commit_sha?.slice(0, 6) || "—",
+      critical: s.severity_counts?.CRITICAL || 0,
+      high: s.severity_counts?.HIGH || 0,
+      medium: s.severity_counts?.MEDIUM || 0,
+    }));
+  }, [completed]);
 
   const sevDist = useMemo(() => {
     const counts = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0, CLEAN:0 };
@@ -1915,20 +2175,21 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
     <div style={{ animation:"fadeInUp .4s ease" }}>
       <RunningPipelineBanner scans={scans} />
       {/* KPI row */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:14, marginBottom:16 }}>
+      <div className="sf-grid-kpi" style={{ marginBottom:16 }}>
         {[
           { label:"Pipeline health", value:healthScore, color:healthScore>=75?C.teal:healthScore>=50?C.amber:C.red, sub:"block rate + risk", icon:Activity },
           { label:"Average risk",    value:avgRisk,     color:riskColor(parseFloat(avgRisk)), sub:"out of 10.0", icon:AlertTriangle },
           { label:"Scans completed", value:totalScans ?? completed.length, color:C.blue,  sub: totalScans > completed.length ? `showing latest ${completed.length}` : "all time", icon:BarChart2 },
           { label:"Blocked",         value:blocked.length,   color:C.red,   sub:`${((blocked.length/(completed.length||1))*100).toFixed(0)}% block rate`, icon:XCircle },
           { label:"Currently live",  value:running.length,   color:C.cyan,  sub:"pipelines running", icon:GitPullRequest },
+          { label:"AI analysed",     value:completed.filter(s=>s.ai_explanation).length, color:C.violet, sub:"with explanations", icon:Brain },
         ].map((k,i) => (
           <StatCard3D key={k.label} {...k} delay={i * 0.05} />
         ))}
       </div>
 
       {/* Charts row */}
-      <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:14, marginBottom:16 }}>
+      <div className="sf-grid-charts" style={{ marginBottom:16 }}>
         <Card glow>
           <SectionTitle accent={C.violet} right={
             <div style={{ display:"flex", gap:5 }}>
@@ -1985,8 +2246,8 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
         </Card>
       </div>
 
-      {/* Severity + Radar */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:16 }}>
+      {/* Severity + Radar + activity */}
+      <div className="sf-grid-half" style={{ marginBottom:16 }}>
         <Card>
           <SectionTitle accent={C.amber}>Severity distribution</SectionTitle>
           <ResponsiveContainer width="100%" height={180}>
@@ -2013,6 +2274,55 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
           </ResponsiveContainer>
         </Card>
       </div>
+
+      <div className="sf-grid-charts" style={{ marginBottom:16 }}>
+        <Card>
+          <SectionTitle accent={C.blue}>Daily scan activity</SectionTitle>
+          <ResponsiveContainer width="100%" height={190}>
+            <BarChart data={dailyActivity} barSize={16}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+              <XAxis dataKey="day" stroke="transparent" tick={{ fill:C.inkMid, fontSize:9 }} />
+              <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} allowDecimals={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="allowed" name="Allowed" fill={C.teal} stackId="d" radius={[0,0,0,0]} />
+              <Bar dataKey="blocked" name="Blocked" fill={C.red} stackId="d" radius={[4,4,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card>
+          <SectionTitle accent={C.red}>Block rate trend</SectionTitle>
+          <ResponsiveContainer width="100%" height={190}>
+            <LineChart data={blockTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+              <XAxis dataKey="name" stroke="transparent" tick={{ fill:C.inkMid, fontSize:9 }} />
+              <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} domain={[0, 100]} unit="%" />
+              <Tooltip content={<CustomTooltip />} />
+              <Line type="monotone" dataKey="rate" name="Block rate %" stroke={C.red} strokeWidth={2} dot={{ r: 3, fill: C.red }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+
+      {vulnSeverityTrend.some(v => v.critical + v.high + v.medium > 0) && (
+        <Card style={{ marginBottom:16 }}>
+          <SectionTitle accent={C.amber}>Vulnerability severity trend</SectionTitle>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={vulnSeverityTrend}>
+              <defs>
+                <linearGradient id="critG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.red} stopOpacity={0.4}/><stop offset="100%" stopColor={C.red} stopOpacity={0}/></linearGradient>
+                <linearGradient id="highG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.amber} stopOpacity={0.35}/><stop offset="100%" stopColor={C.amber} stopOpacity={0}/></linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+              <XAxis dataKey="name" stroke="transparent" tick={{ fill:C.inkMid, fontSize:9 }} />
+              <YAxis stroke="transparent" tick={{ fill:C.inkMid, fontSize:10 }} allowDecimals={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Area type="monotone" dataKey="critical" name="Critical" stackId="v" stroke={C.red} fill="url(#critG)" />
+              <Area type="monotone" dataKey="high" name="High" stackId="v" stroke={C.amber} fill="url(#highG)" />
+              <Area type="monotone" dataKey="medium" name="Medium" stackId="v" stroke={C.blue} fill={C.blueSoft} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
 
       <SectionTitle accent={C.teal}>Latest activity</SectionTitle>
       {scans.slice(0,5).map((scan,i) => (
@@ -2246,7 +2556,7 @@ function AIInsightsTab({ scans, feedback, onFeedback, onOpenWhyBlocked }) {
               </div>
               <div style={{ fontSize:11, color:C.inkMid, marginTop:3, display:"flex", gap:5, alignItems:"center" }}>
                 <GitBranch size={10} />
-                {scan.repo_name} · {scan.branch} · {relTime(scan.created_at)}
+                {scan.repo_name} · {scan.branch} · <LiveRelTime iso={scanTimestamp(scan)} />
               </div>
             </div>
             <button onClick={() => onOpenWhyBlocked?.(scan)} style={{
@@ -2329,7 +2639,7 @@ function AIInsightsTab({ scans, feedback, onFeedback, onOpenWhyBlocked }) {
                 <span style={{ fontFamily:C.mono, color:C.blue, fontSize:11 }}>{scan.commit_sha?.slice(0,8)}</span>
                 <Badge color={C.teal} small>ALLOWED</Badge>
                 {scan.risk_score!=null && <Badge color={riskColor(scan.risk_score)} small>Risk {scan.risk_score}</Badge>}
-                <span style={{ fontSize:11, color:C.inkMid, marginLeft:"auto" }}>{relTime(scan.created_at)}</span>
+                <span style={{ fontSize:11, color:C.inkMid, marginLeft:"auto" }}><LiveRelTime iso={scanTimestamp(scan)} /></span>
               </div>
               <div style={{ fontSize:13, color:C.ink, marginBottom:4 }}>{scan.commit_message||scan.repo_name}</div>
               {scan.ai_explanation && (
@@ -2428,7 +2738,7 @@ function MetricsTab({ scans, totalScans }) {
         ))}
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"3fr 2fr", gap:14, marginBottom:14 }}>
+      <div className="sf-grid-metrics" style={{ marginBottom:14 }}>
         <Card>
           <SectionTitle accent={C.blue}>Daily scan volume</SectionTitle>
           <ResponsiveContainer width="100%" height={200}>
@@ -2512,14 +2822,15 @@ function MetricsTab({ scans, totalScans }) {
 /* ─────────────────────────────────────────────
    LIVE CLOCK  (ticks every second)
 ───────────────────────────────────────────── */
-function LiveRelTime({ date }) {
+function LiveRelTime({ iso, date }) {
   const [, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick(n=>n+1), 1000);
+    const t = setInterval(() => setTick(n => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
-  if (!date) return null;
-  return <span>{relTime(date.toISOString())}</span>;
+  const ts = iso || (date instanceof Date ? date.toISOString() : date);
+  if (!ts) return null;
+  return <span>{relTime(ts)}</span>;
 }
 
 /* ─────────────────────────────────────────────
@@ -2613,6 +2924,53 @@ export default function App() {
     }
   }, []);
 
+  const mergeWsMessage = useCallback((msg) => {
+    if (!msg?.type || msg.type === "ping") return true;
+
+    if (msg.type === "scan_started" && msg.run_id != null) {
+      setScans(prev => {
+        const row = normaliseScan({
+          id: Number(msg.run_id),
+          commit_sha: msg.commit_sha,
+          commit_message: msg.commit_message || "",
+          repo_name: msg.repo_name,
+          branch: msg.branch,
+          status: "running",
+          pipeline_steps: msg.pipeline_steps || { checkout: { result: "PASS", detail: "code checked out" } },
+          started_at: msg.started_at,
+          created_at: msg.started_at,
+        });
+        return [row, ...prev.filter(s => !sameRunId(s.id, msg.run_id))];
+      });
+      setLastUpdated(new Date());
+      return true;
+    }
+
+    if (msg.type === "scan_progress" && msg.run_id != null) {
+      setScans(prev => prev.map(s => {
+        if (!sameRunId(s.id, msg.run_id)) return s;
+        return normaliseScan({
+          ...s,
+          status: "running",
+          pipeline_steps: msg.pipeline_steps ?? s.pipeline_steps,
+        });
+      }));
+      setLastUpdated(new Date());
+      return true;
+    }
+
+    if (["scan_complete", "scan_timeout"].includes(msg.type) && msg.id != null) {
+      setScans(prev => prev.map(s => {
+        if (!sameRunId(s.id, msg.id)) return s;
+        return normaliseScan({ ...s, ...msg, status: msg.status || "complete" });
+      }));
+      setLastUpdated(new Date());
+      return false;
+    }
+
+    return false;
+  }, []);
+
   useEffect(() => {
     let reconnectTimer;
     let reconnectDelay = 4000;
@@ -2630,8 +2988,12 @@ export default function App() {
           console.log("WS connected");
         };
         ws.onmessage = (e) => {
-          try { const m = JSON.parse(e.data); if (m.type==="ping") return; } catch {}
-          fetchScans();
+          try {
+            const m = JSON.parse(e.data);
+            if (!mergeWsMessage(m)) fetchScans();
+          } catch {
+            fetchScans();
+          }
         };
         ws.onclose = () => {
           setWsStatus("reconnecting");
@@ -2656,7 +3018,21 @@ export default function App() {
       clearTimeout(reconnectTimer);
       wsRef.current?.close();
     };
-  }, [fetchScans]);
+  }, [fetchScans, mergeWsMessage]);
+
+  useEffect(() => {
+    if (selectedScan?.id) {
+      const fresh = scans.find(s => sameRunId(s.id, selectedScan.id));
+      if (fresh) setSelectedScan(fresh);
+    }
+  }, [scans, selectedScan?.id]);
+
+  useEffect(() => {
+    if (whyBlockedScan?.id) {
+      const fresh = scans.find(s => sameRunId(s.id, whyBlockedScan.id));
+      if (fresh) setWhyBlockedScan(fresh);
+    }
+  }, [scans, whyBlockedScan?.id]);
 
   const submitFeedback = useCallback(async (scanId, type) => {
     setFeedback(prev => ({ ...prev, [scanId]: type }));
@@ -2730,13 +3106,11 @@ export default function App() {
         </div>
 
         {/* HEADER */}
-        <header style={{
+        <header className="sf-header" style={{
           position:"sticky", top:0, zIndex:200,
           background:`${C.bg}e8`,
           backdropFilter:"blur(16px) saturate(180%)",
           borderBottom:`1px solid ${C.border}`,
-          padding:"0 24px",
-          display:"flex", alignItems:"center", gap:16, height:56,
         }}>
           {/* Logo */}
           <div style={{ display:"flex", alignItems:"center", gap:9, flexShrink:0 }}>
@@ -2756,17 +3130,17 @@ export default function App() {
           <div style={{ width:1, height:20, background:C.border, flexShrink:0 }} />
 
           {/* Tabs */}
-          <nav style={{ display:"flex", gap:4 }}>
+          <nav className="sf-nav">
             {TABS.map(({ id, label, Icon }) => (
               <button key={id} className={`sf-tab ${activeTab===id?"active":""}`}
                 onClick={() => setActiveTab(id)}>
-                <Icon size={14} /> {label}
+                <Icon size={14} /> <span className="tab-label">{label}</span>
               </button>
             ))}
           </nav>
 
           {/* Right side */}
-          <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:12 }}>
+          <div className="sf-header-right" style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:12 }}>
             {/* WS indicator */}
             <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:wsColor }}>
               {wsStatus==="connected"
@@ -2788,7 +3162,7 @@ export default function App() {
             {lastUpdated && (
               <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:C.inkLow }}>
                 <Clock size={12} />
-                <LiveRelTime date={lastUpdated} />
+                Updated <LiveRelTime date={lastUpdated} />
               </div>
             )}
 
@@ -2813,7 +3187,7 @@ export default function App() {
         )}
 
         {/* MAIN */}
-        <main style={{ padding:"24px", maxWidth:1280, margin:"0 auto", position:"relative", zIndex:1 }}>
+        <main className="sf-main" style={{ position:"relative", zIndex:1 }}>
           {loading ? (
             <motion.div
               initial={{ opacity: 0, scale: 0.96 }}
