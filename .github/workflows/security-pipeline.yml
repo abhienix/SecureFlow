@@ -79,6 +79,12 @@ jobs:
           RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id // empty')
           echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
 
+          if [ -n "$RUN_ID" ]; then
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Content-Type: application/json" \
+              -d '{ "pipeline_steps": { "checkout": { "result": "PASS", "detail": "code checked out" } } }' || true
+          fi
+
       # ── Step 2: Install Gitleaks ────────────────────────────────────────────
       # Pin to a specific version (v8.24.3) rather than "latest" so the pipeline
       # doesn't break silently when a new Gitleaks release changes CLI flags or output format
