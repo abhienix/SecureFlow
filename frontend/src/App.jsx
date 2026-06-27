@@ -2342,7 +2342,7 @@ function PipelineTab({ scans, feedback, onFeedback, onOpenWhyBlocked, onOpenDeta
 
   return (
     <div style={{ animation:"fadeInUp .4s ease" }}>
-      <RunningPipelineBanner scans={scans} />
+      {/* No RunningPipelineBanner here — the LIVE CommitCards below are the content */}
       {running.length > 0 && (
         <div style={{ marginBottom:20 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
@@ -2946,11 +2946,15 @@ export default function App() {
       return true;
     }
 
+    // AFTER
     if (msg.type === "scan_progress" && msg.run_id != null) {
       setScans(prev => prev.map(s => {
         if (!sameRunId(s.id, msg.run_id)) return s;
+        // Spread the full WS payload so severity/risk/etc. aren't lost
+        const { run_id, type, ...rest } = msg;
         return normaliseScan({
           ...s,
+          ...rest,
           status: "running",
           pipeline_steps: msg.pipeline_steps ?? s.pipeline_steps,
         });
@@ -2973,7 +2977,7 @@ export default function App() {
 
   useEffect(() => {
     let reconnectTimer;
-    let reconnectDelay = 4000;
+    let reconnectDelay = 1500;
 
     const connectWS = () => {
       setWsStatus("connecting");
@@ -3010,7 +3014,7 @@ export default function App() {
     };
 
     connectWS();
-    const poll = setInterval(fetchScans, 12000);
+    const poll = setInterval(fetchScans, 6000);
     fetchScans();
 
     return () => {
