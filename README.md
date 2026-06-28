@@ -8,62 +8,101 @@
 ![GCP](https://img.shields.io/badge/Cloud_Run-4285F4?style=flat-square&logo=google-cloud&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white)
 
+**Live demo → https://secureflow-frontend-1083585992526.us-central1.run.app/**
+
 ---
 
-## How It Works
-
-Every push to `main` runs through three security gates before anything reaches production:
+## Architecture
 
 ```mermaid
-flowchart LR
-    PUSH([git push]) --> GL[Gitleaks\nSecret Scan]
-    GL -->|found| BLOCK1([🚫 BLOCK])
-    GL -->|clean| SG[Semgrep\nSAST]
-    SG -->|found| BLOCK2([🚫 BLOCK])
-    SG -->|clean| CHK{Files\nchanged?}
-    CHK -->|no backend\nchanges| ALLOW1([✅ ALLOW\nno build needed])
-    CHK -->|yes| TV[Docker Build\n+ Trivy CVE Scan]
-    TV --> PG[Policy Gate\npolicy.yaml]
-    PG -->|violations| BLOCK3([🚫 BLOCK])
-    PG -->|clear| DEPLOY([✅ Deploy to\nCloud Run])
+graph TB
+    DEV([👨‍💻 git push]) --> GHA
 
-    style BLOCK1 fill:#e03131,color:#fff
-    style BLOCK2 fill:#e03131,color:#fff
-    style BLOCK3 fill:#e03131,color:#fff
-    style ALLOW1 fill:#2f9e44,color:#fff
-    style DEPLOY fill:#2f9e44,color:#fff
+    subgraph GHA["⚙️ GitHub Actions Pipeline"]
+        GL[🔑 Gitleaks\nSecret Scan]
+        SG[🔍 Semgrep\nSAST · OWASP Top 10]
+        DB[🐳 Docker Build\n& Push to Artifact Registry]
+        TV[📦 Trivy\nCVE Scan]
+    end
+
+    GL -->|secrets found| BLK1([🚫 BLOCK])
+    GL -->|clean| SG
+    SG -->|patterns found| BLK2([🚫 BLOCK])
+    SG -->|clean| DB
+    DB --> TV
+    TV --> PG
+
+    subgraph PG["🛡️ Policy Gate — policy.yaml"]
+        PE[Severity check\nblock_on · warn_on]
+        CV[CVSS threshold\nblock if score ≥ 7.0]
+        AL[Allowlist check\nper-CVE expiry dates]
+    end
+
+    PG -->|BLOCK| BLK3([🚫 Deploy Blocked])
+    PG -->|ALLOW| CR([✅ Cloud Run\nBlue-Green Deploy])
+
+    subgraph AI["🤖 AI Engine"]
+        GR[Groq\nllama-3.3-70b\nPrimary]
+        GM[Gemini\nflash-lite\nFallback]
+        OL[Ollama\nqwen2.5:7b\nLocal last resort]
+        GR -->|fail| GM --> |fail| OL
+    end
+
+    BLK1 & BLK2 & BLK3 --> AI
+    AI -->|explanation + fix\n+ risk score| WS
+
+    subgraph BACKEND["🐍 FastAPI Backend"]
+        WS[WebSocket\nBroadcaster]
+        WD[Stale Run\nWatchdog · 20 min]
+        DB2[(PostgreSQL\nScan History)]
+    end
+
+    WS -->|real-time| DASH
+
+    subgraph DASH["⚛️ React Dashboard"]
+        OV[Overview\nStats & Timeline]
+        PL[Pipeline\nLive Step Status]
+        INS[AI Insights\nRisk · CVE Trends]
+        COP[🤖 AI Copilot\nChat Q&A on scan history]
+    end
+
+    style BLK1 fill:#e03131,color:#fff
+    style BLK2 fill:#e03131,color:#fff
+    style BLK3 fill:#e03131,color:#fff
+    style CR fill:#2f9e44,color:#fff
+    style GR fill:#4dabf7,color:#fff
+    style GM fill:#74c0fc,color:#333
+    style OL fill:#a5d8ff,color:#333
+    style COP fill:#845ef7,color:#fff
 ```
-
-When anything is blocked, an AI explains what was found, why it matters, and exactly how to fix it — shown directly on the dashboard.
 
 ---
 
 ## Key Features
 
-**Three-layer scanning** — Gitleaks scans git history (not just current files) for secrets. Semgrep checks OWASP Top 10 patterns. Trivy scans the built Docker image for CVEs across all severity levels.
+**Three-layer scanning** — Gitleaks scans full git history for secrets (not just the working tree). Semgrep checks OWASP Top 10 patterns. Trivy scans the built Docker image for CVEs. Each is a hard gate — one finding stops the pipeline.
 
-**Policy gate** — A `policy.yaml` file controls what blocks vs warns per repo, with per-CVE allowlisting and expiry dates. The policy reloads on every request so changes take effect without restarting the server.
+**Policy gate** — `policy.yaml` controls block/warn thresholds per repo with per-CVE allowlisting and expiry dates. Reloads on every request, no server restart needed.
 
-**AI analysis** — Every block triggers an AI explanation with specific CVE names, exploit paths, and numbered remediation steps. Uses a Groq → Gemini → Ollama fallback chain so the pipeline never fails due to an AI outage.
+**AI analysis** — Every block triggers a Groq → Gemini → Ollama fallback chain that generates a specific explanation (CVE IDs, exploit paths) and numbered fix steps. Never fails silently — falls back to a static message if all providers are down.
 
-**AI Copilot** — Chat panel on the dashboard for asking free-form questions about scan history ("why did my last 3 pushes get blocked?"). Read-only by design — cannot retrigger scans or change decisions.
+**AI Copilot** — Chat panel on the dashboard. Ask anything about your scan history: *"why did my last 3 pushes get blocked?"*, *"what's my highest risk CVE this week?"*. Read-only by design — cannot retrigger scans or flip decisions.
 
-**Real-time dashboard** — Single React page with WebSocket updates. Pipeline step status updates live as GitHub Actions progresses. A watchdog closes any run stuck at "running" after 20 minutes.
+**Real-time WebSocket dashboard** — Single React page. Pipeline step indicators update live as GitHub Actions runs. A watchdog automatically closes any run stuck at "running" after 20 minutes.
 
-**Smart change detection** — Diffs `BEFORE_SHA..AFTER_SHA` on every push. Only rebuilds the Docker image if backend files changed. Frontend-only changes skip the image build entirely. Add `[deploy]` to a commit message to force a full deploy regardless.
+**Smart change detection** — Only rebuilds Docker if backend files changed. Frontend-only pushes skip the image build. Add `[deploy]` to a commit message to force a full deploy.
 
-**Blue-green deployment** — New Cloud Run revisions are deployed with zero traffic, verified, then promoted. Previous revision stays live until promotion succeeds — automatic rollback on health check failure.
+**Blue-green deployment** — New Cloud Run revision deploys at 0% traffic, gets health-checked, then promoted. Previous revision stays live until promotion succeeds.
 
 ---
 
 ## Policy Gate
 
 ```yaml
-# policy.yaml — reloads on every scan, no restart needed
 default:
   block_on: [CRITICAL, HIGH]
   warn_on: [MEDIUM]
-  cvss_threshold: 7.0        # blocks MEDIUM CVEs with high CVSS scores too
+  cvss_threshold: 7.0        # blocks MEDIUM CVEs with CVSS ≥ 7.0 too
 
 repos:
   SecureFlow:
@@ -74,18 +113,6 @@ repos:
         expires: 2026-12-01
         reason: "tar, no upstream fix, Debian ships it unfixed by design"
 ```
-
-Allowlisted CVEs have expiry dates — nothing is silently ignored forever.
-
----
-
-## AI Fallback Chain
-
-```
-Groq (llama-3.3-70b) → Gemini (flash-lite) → Ollama (qwen2.5:7b, local)
-```
-
-Each provider is only tried if its API key is configured. Ollama runs locally so scans never fully fail even without internet access.
 
 ---
 
@@ -117,14 +144,9 @@ docker compose up -d
 |---|---|
 | Dashboard | http://localhost:3000 |
 | Backend API | http://localhost:8000 |
-| Grafana | http://localhost:3001 (admin/admin) |
+| Grafana | http://localhost:3001 (admin / admin) |
 
-### Required GitHub Secrets
-
-| Secret | Value |
-|---|---|
-| `BACKEND_URL` | Deployed backend URL |
-| `GCP_SA_KEY` | GCP service account JSON |
+**Required GitHub Secrets:** `BACKEND_URL` · `GCP_SA_KEY`
 
 ---
 
@@ -134,10 +156,10 @@ docker compose up -d
 SecureFlow/
 ├── .github/workflows/secureflow.yml   # 16-step CI/CD pipeline
 ├── backend/
-│   ├── main.py                        # FastAPI — REST + WebSocket
+│   ├── main.py                        # FastAPI — REST + WebSocket + Copilot
 │   ├── policy_engine.py               # Evaluates policy.yaml
 │   └── ai_analysis.py                 # Groq → Gemini → Ollama chain
-├── frontend/                          # React dashboard
+├── frontend/                          # React dashboard (4 tabs + AI Copilot)
 ├── policy.yaml                        # Security thresholds + allowlist
 └── docker-compose.yml                 # Local dev stack
 ```
