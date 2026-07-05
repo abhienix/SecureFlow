@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   RadarChart, PolarGrid, PolarAngleAxis, Radar,
 } from "recharts";
@@ -2134,6 +2134,78 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2 Matrix Graphs: Compliance Radar + Scanner Engine Volume + Risk Density Area */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 24 }}>
+        {/* Compliance Framework Radar Chart */}
+        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 280, display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <SectionTitle accent={C.teal} C={C}>Compliance Framework Readiness Scorecard</SectionTitle>
+          <div style={{ width: "100%", height: 210 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={[
+                { subject: "SOC 2", score: 94 },
+                { subject: "ISO 27001", score: 88 },
+                { subject: "NIST 800-53", score: 92 },
+                { subject: "OWASP ASVS", score: 85 },
+                { subject: "PCI-DSS 4.0", score: 90 },
+                { subject: "CIS Benchmarks", score: 96 },
+              ]}>
+                <PolarGrid stroke={C.border} />
+                <PolarAngleAxis dataKey="subject" stroke={C.inkMid} fontSize={10} />
+                <Radar name="Compliance" dataKey="score" stroke={C.teal} fill={`${C.teal}33`} fillOpacity={0.6} />
+                <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Scanner Engine Detection Volume Bar Chart */}
+        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 280, display: "flex", flexDirection: "column" }}>
+          <SectionTitle accent={C.amber} C={C}>Detection Volume by Security Engine</SectionTitle>
+          <div style={{ width: "100%", height: 210, marginTop: 4 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[
+                { engine: "Trivy CVEs", count: 24, fill: C.teal },
+                { engine: "Gitleaks Secrets", count: 18, fill: C.red },
+                { engine: "Semgrep SAST", count: 12, fill: C.violet },
+                { engine: "ZAP DAST", count: 6, fill: C.cyan },
+              ]}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                <XAxis dataKey="engine" stroke={C.inkMid} fontSize={10} />
+                <YAxis stroke={C.inkMid} fontSize={10} />
+                <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
+                <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                  {[
+                    { fill: C.teal },
+                    { fill: C.red },
+                    { fill: C.violet },
+                    { fill: C.cyan }
+                  ].map((entry, idx) => (
+                    <Cell key={idx} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* CVSS Risk Score Density Area Chart */}
+        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 280, display: "flex", flexDirection: "column" }}>
+          <SectionTitle accent={C.blue} C={C}>Risk Exposure Trajectory & Gate Score</SectionTitle>
+          <div style={{ width: "100%", height: 210, marginTop: 4 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={severityTrendData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                <XAxis dataKey="name" stroke={C.inkMid} fontSize={10} />
+                <YAxis stroke={C.inkMid} fontSize={10} />
+                <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
+                <Area type="monotone" dataKey="High" stroke={C.amber} fill={`${C.amber}25`} />
+                <Area type="monotone" dataKey="Critical" stroke={C.red} fill={`${C.red}35`} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
