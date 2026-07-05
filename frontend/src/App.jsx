@@ -1661,11 +1661,30 @@ function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked, C }) {
   );
 }
 
-function renderFormattedInline(str, C) {
-  const parts = str.split(/(\*\*.*?\*\*|`.*?`)/g);
+function renderFormattedInline(str, C, onCveClick) {
+  const parts = str.split(/(\bCVE-\d{4}-\d+\b|\*\*.*?\*\*|`.*?`)/gi);
   return parts.map((part, idx) => {
+    if (/^CVE-\d{4}-\d+$/i.test(part)) {
+      return (
+        <span
+          key={idx}
+          onClick={() => onCveClick?.(`How to fix ${part} in code?`)}
+          title={`Click to ask Copilot how to fix ${part}`}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 3,
+            background: C.isDark ? "rgba(239, 68, 68, 0.2)" : "#FEE2E2",
+            color: C.isDark ? "#F87171" : "#DC2626",
+            border: `1px solid ${C.isDark ? "rgba(239, 68, 68, 0.4)" : "#FCA5A5"}`,
+            padding: "1px 6px", borderRadius: 6, fontSize: 11, fontWeight: 800,
+            fontFamily: C.mono, cursor: "pointer", margin: "0 2px"
+          }}
+        >
+          🚨 {part}
+        </span>
+      );
+    }
     if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={idx} style={{ color: C.ink, fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
+      return <strong key={idx} style={{ color: C.isDark ? "#F8FAFC" : "#0F172A", fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
     }
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
@@ -1681,7 +1700,7 @@ function renderFormattedInline(str, C) {
   });
 }
 
-function FormattedCopilotMessage({ text, C }) {
+function FormattedCopilotMessage({ text, C, onCveClick }) {
   if (!text) return null;
   const lines = text.split("\n");
   return (
@@ -1699,17 +1718,20 @@ function FormattedCopilotMessage({ text, C }) {
           );
         }
 
-        if (trimmed.startsWith("* ") || trimmed.startsWith("- ") || /^\d+\.\s/.test(trimmed)) {
-          const content = trimmed.replace(/^(\*|-|\d+\.)\s*/, "");
+        if (trimmed.startsWith("* ") || trimmed.startsWith("- ") || trimmed.startsWith("+ ") || /^\d+\.\s/.test(trimmed)) {
+          const isPlus = trimmed.startsWith("+ ");
+          const content = trimmed.replace(/^(\*|-|\+|\d+\.)\s*/, "");
           return (
             <div key={i} style={{ display: "flex", gap: 6, alignItems: "flex-start", paddingLeft: 4 }}>
-              <span style={{ color: C.teal, fontWeight: 800, fontSize: 12 }}>•</span>
-              <span style={{ flex: 1 }}>{renderFormattedInline(content, C)}</span>
+              <span style={{ color: isPlus ? C.amber : C.teal, fontWeight: 800, fontSize: 12 }}>
+                {isPlus ? "⚡" : "•"}
+              </span>
+              <span style={{ flex: 1 }}>{renderFormattedInline(content, C, onCveClick)}</span>
             </div>
           );
         }
 
-        return <div key={i}>{renderFormattedInline(trimmed, C)}</div>;
+        return <div key={i}>{renderFormattedInline(trimmed, C, onCveClick)}</div>;
       })}
     </div>
   );
@@ -1832,17 +1854,49 @@ function AICopilot({ scans, onClose, C }) {
           </div>
 
           {/* Messages Body */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
             {messages.map((m, idx) => (
               <div key={idx} style={{
                 alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-                maxWidth: "88%", padding: "10px 14px", borderRadius: 12,
-                background: m.role === "user" ? "linear-gradient(135deg, #0077B6 0%, #0096C7 100%)" : C.bgSurface,
-                border: `1px solid ${m.role === "user" ? "#00B4D8" : C.border}`,
-                color: m.role === "user" ? "#FFFFFF" : C.ink, fontSize: 12, lineHeight: 1.5,
-                boxShadow: m.role === "user" ? "0 4px 12px rgba(0,180,216,0.2)" : "none"
+                maxWidth: "88%", display: "flex", flexDirection: "column", gap: 4
               }}>
-                {m.role === "user" ? m.text : <FormattedCopilotMessage text={m.text} C={C} />}
+                <div style={{
+                  padding: "10px 14px", borderRadius: 12,
+                  background: m.role === "user" ? "linear-gradient(135deg, #0077B6 0%, #0096C7 100%)" : C.bgSurface,
+                  border: `1px solid ${m.role === "user" ? "#00B4D8" : C.border}`,
+                  color: m.role === "user" ? "#FFFFFF" : C.ink, fontSize: 12, lineHeight: 1.5,
+                  boxShadow: m.role === "user" ? "0 4px 12px rgba(0,180,216,0.2)" : "none"
+                }}>
+                  {m.role === "user" ? m.text : <FormattedCopilotMessage text={m.text} C={C} onCveClick={(prompt) => send(prompt)} />}
+                </div>
+
+                {/* Per-message Interactive Quick Action Buttons */}
+                {m.role === "assistant" && idx > 0 && (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", paddingLeft: 4 }}>
+                    <button
+                      onClick={() => send("How to fix top CVEs in code step-by-step?")}
+                      style={{
+                        padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700,
+                        background: C.tealSoft, border: `1px solid ${C.tealBord}`, color: C.teal,
+                        cursor: "pointer", display: "flex", alignItems: "center", gap: 3
+                      }}
+                    >
+                      <Wrench size={10} /> How to Fix
+                    </button>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard?.writeText(m.text);
+                      }}
+                      style={{
+                        padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 600,
+                        background: C.bgCard, border: `1px solid ${C.border}`, color: C.inkMid,
+                        cursor: "pointer", display: "flex", alignItems: "center", gap: 3
+                      }}
+                    >
+                      <Copy size={10} /> Copy
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
             {sending && (
