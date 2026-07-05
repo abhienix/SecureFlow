@@ -300,9 +300,14 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   font-weight: 700;
 }
 .tab-label { display: inline; }
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .tab-label { display: none; }
-  .sf-header { padding: 0 12px; }
+  .sf-header { padding: 0 12px; gap: 8px; }
+  .sf-main { padding: 16px 12px 60px; }
+  .hide-mobile { display: none !important; }
+}
+@media (max-width: 480px) {
+  .sf-main { padding: 12px 8px 60px; }
 }
 
 .sf-main {
@@ -315,16 +320,19 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
 
 /* ─── Helpers ─────────────────────────────────────────────────────────── */
 function resultToStatus(stage, fallbackStatus) {
-  if (!stage) return "skipped";
+  const isRunning = (fallbackStatus || "").toLowerCase() === "running";
+  if (!stage) return isRunning ? "pending" : "skipped";
+  
   const result = (stage?.result || "").toUpperCase();
   if (result === "PASS" || result === "PASSED" || result === "ALLOW" || result === "SUCCESS") return "passed";
   if (result === "FAIL" || result === "FAILED" || result === "BLOCK" || result === "FAILURE") return "failed";
   if (result === "RUNNING" || result === "IN_PROGRESS") return "running";
-  if (result === "SKIPPED" || result === "PENDING" || result === "QUEUED") return "skipped";
+  if (result === "SKIPPED") return "skipped";
+  if (result === "PENDING" || result === "QUEUED") return "pending";
 
   const st = (fallbackStatus || "").toLowerCase();
   if (st === "complete") return "passed";
-  if (st === "running") return "skipped";
+  if (st === "running") return "pending";
   if (st === "timeout" || st === "cancelled") return "failed";
   return "passed";
 }
@@ -442,7 +450,7 @@ function normaliseScan(raw) {
       name: def.label,
       Icon: def.Icon,
       status: isSkippedAfterBlock ? "skipped" : st,
-      result: isSkippedAfterBlock ? "SKIPPED" : (step?.result || (st === "passed" ? "PASS" : st === "failed" ? "FAIL" : st === "running" ? "RUNNING" : "SKIPPED")),
+      result: isSkippedAfterBlock ? "SKIPPED" : (step?.result || (st === "passed" ? "PASS" : st === "failed" ? "FAIL" : st === "running" ? "RUNNING" : st === "pending" ? "PENDING" : "SKIPPED")),
       detail: isSkippedAfterBlock ? `pipeline stopped at ${blockedStageName.toLowerCase()}` : (step?.detail || null),
     };
   });
@@ -684,12 +692,13 @@ function PipelineMiniNodes({ pipeline, live = false, C }) {
     <div style={{ display: "flex", alignItems: "center", gap: 0, margin: "10px 0 4px", overflowX: "auto", paddingBottom: 4 }}>
       {pipeline.map((stage, i) => {
         const isSkipped = stage.status === "skipped";
+        const isPending = stage.status === "pending";
         const isActive  = stage.status === "running";
         const color =
           stage.status === "passed"  ? C.teal  :
           stage.status === "failed"  ? C.red   :
           stage.status === "running" ? C.blue  :
-          isSkipped                  ? C.amber  :   // amber = deliberately skipped
+          isSkipped                  ? C.amber :
           C.inkLow;
         const { Icon } = stage;
         return (
@@ -716,21 +725,22 @@ function PipelineMiniNodes({ pipeline, live = false, C }) {
                 style={{
                   width: nodeSize, height: nodeSize, borderRadius: "50%",
                   border: `2px ${isSkipped ? "dashed" : "solid"} ${color}`,
-                  background: isSkipped ? `${C.amber}14` : `${color}18`,
+                  background: isSkipped ? `${C.amber}14` : isPending ? "transparent" : `${color}18`,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   color,
                   boxShadow: isActive
                     ? `0 0 0 ${live ? 6 : 4}px ${color}25, 0 0 ${live ? 24 : 16}px ${color}55`
                     : isSkipped ? `0 0 6px ${C.amber}20` : `0 0 8px ${color}20`,
-                  opacity: isSkipped ? 0.75 : 1,
+                  opacity: isSkipped || isPending ? 0.75 : 1,
                 }}>
                 {isActive  ? <Loader2 size={iconSize} className="spin" /> :
                  stage.status === "passed"  ? <CheckCircle size={iconSize} /> :
                  stage.status === "failed"  ? <XCircle size={iconSize} /> :
                  isSkipped ? <span style={{ fontSize: live ? 13 : 11, fontWeight: 700 }}>⊘</span> :
+                 isPending ? <div style={{ width: 6, height: 6, borderRadius: "50%", background: color }} /> :
                  Icon ? <Icon size={iconSize - 2} /> : null}
               </motion.div>
-              <div style={{ fontSize: 9, color: isSkipped ? C.amber : isActive ? C.blue : C.inkMid, fontWeight: isSkipped || isActive ? 700 : 500, textAlign: "center", whiteSpace: "nowrap" }}>
+              <div style={{ fontSize: 9, color: isSkipped ? C.amber : isActive ? C.blue : isPending ? C.inkLow : C.inkMid, fontWeight: isSkipped || isActive ? 700 : 500, textAlign: "center", whiteSpace: "nowrap" }}>
                 {stage.name}
               </div>
               {isSkipped && (
@@ -1987,6 +1997,7 @@ function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }) {
         <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto", paddingBottom: 6 }}>
           {scan.pipeline.map((stage, i) => {
             const isSkipped = stage.status === "skipped";
+            const isPending = stage.status === "pending";
             const isActive  = stage.status === "running";
             const isSelected = expandedStage === stage.key;
             const color =
@@ -2039,6 +2050,7 @@ function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }) {
                      stage.status === "passed"  ? <CheckCircle size={18} /> :
                      stage.status === "failed"  ? <XCircle size={18} /> :
                      isSkipped ? <span style={{ fontSize: 14, fontWeight: 700 }}>⊘</span> :
+                     isPending ? <span style={{ fontSize: 14, fontWeight: 700 }}>—</span> :
                      Icon ? <Icon size={16} /> : null}
                   </div>
                   <div style={{
