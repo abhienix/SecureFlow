@@ -214,11 +214,27 @@ async def websocket_scans(ws: WebSocket):
 
 @app.post("/api/scan-results/start")
 async def start_scan_run(data: dict, db: Session = Depends(get_db)):
+    repo_name = data.get("repo_name", "unknown")
+    branch = data.get("branch", "main")
+
+    # Supersede older active runs on the same branch (concurrency cancellation)
+    prev_running = (
+        db.query(ScanResult)
+        .filter(ScanResult.repo_name == repo_name)
+        .filter(ScanResult.branch == branch)
+        .filter(ScanResult.status == "running")
+        .all()
+    )
+    for prev in prev_running:
+        prev.status = "superseded"
+        prev.action_taken = prev.action_taken or "SKIPPED"
+        prev.ai_explanation = prev.ai_explanation or "Superseded by newer commit build push."
+
     scan = ScanResult(
         commit_sha=data.get("commit_sha", "unknown"),
         commit_message=data.get("commit_message", ""),
-        repo_name=data.get("repo_name", "unknown"),
-        branch=data.get("branch", "main"),
+        repo_name=repo_name,
+        branch=branch,
         scan_type=data.get("scan_type", "full-pipeline"),
         severity=None,
         findings={},

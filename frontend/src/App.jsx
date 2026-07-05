@@ -639,7 +639,18 @@ const SectionTitle = ({ children, accent, right, C }) => (
 
 
 function RunningPipelineBanner({ scans, C }) {
-  const running = scans.filter(s => s.status === "running");
+  const running = useMemo(() => {
+    const runningScans = scans.filter(s => s.status === "running");
+    const latestPerBranch = new Map();
+    runningScans.forEach(s => {
+      const key = `${s.repo_name || "default"}:${s.branch || "main"}`;
+      if (!latestPerBranch.has(key) || s.id > latestPerBranch.get(key).id) {
+        latestPerBranch.set(key, s);
+      }
+    });
+    return Array.from(latestPerBranch.values());
+  }, [scans]);
+
   if (!running.length) return null;
   return (
     <motion.div
@@ -2044,8 +2055,6 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
 
   return (
     <div>
-      <RunningPipelineBanner scans={scans} C={C} />
-
       {/* Top Stat Cards */}
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
         <KpiCard title="Security Posture" value={`${healthScore}%`} sub="Overall Gate Score" Icon={Activity} color={healthScore >= 75 ? C.teal : C.amber} C={C} />
@@ -2497,6 +2506,7 @@ function PipelineTab({ scans, onOpenWhyBlocked, onOpenDetail, C }) {
 
   return (
     <div>
+      <RunningPipelineBanner scans={scans} C={C} />
       <SectionTitle accent={C.blue} C={C}>CI/CD Pipeline Stage Pass / Fail Rates & Deep Execution Logs</SectionTitle>
 
       <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 260, marginBottom: 24 }}>
@@ -2987,7 +2997,18 @@ export default function App() {
     } catch {}
   }, []);
 
-  const running   = useMemo(() => scans.filter(s => s.status === "running"), [scans]);
+  const running = useMemo(() => {
+    const runningScans = scans.filter(s => s.status === "running");
+    const latestPerBranch = new Map();
+    runningScans.forEach(s => {
+      const key = `${s.repo_name || "default"}:${s.branch || "main"}`;
+      if (!latestPerBranch.has(key) || s.id > latestPerBranch.get(key).id) {
+        latestPerBranch.set(key, s);
+      }
+    });
+    return Array.from(latestPerBranch.values());
+  }, [scans]);
+
   const completed = useMemo(() => scans.filter(s => s.status !== "running"), [scans]);
   const blocked   = useMemo(() => completed.filter(s => s.action_taken === "BLOCK"), [completed]);
   const allowed   = useMemo(() => completed.filter(s => s.action_taken === "ALLOW"), [completed]);
@@ -3000,11 +3021,10 @@ export default function App() {
   ));
 
   const TABS = [
-    { id: "overview",   label: "Overview",     Icon: Activity      },
-    { id: "pipeline",   label: "Pipeline",     Icon: GitPullRequest },
-    { id: "ai-insights",label: "AI Insights",  Icon: Brain         },
-    { id: "metrics",    label: "Metrics & Policy", Icon: BarChart2  },
-    { id: "aws-hub",    label: "AWS Security Hub", Icon: ShieldAlert },
+    { id: "overview",   label: "Security Command Center", Icon: ShieldCheck  },
+    { id: "pipeline",   label: "Pipeline Execution",      Icon: GitPullRequest },
+    { id: "ai-insights",label: "AI Insights",             Icon: Brain         },
+    { id: "metrics",    label: "Metrics & Policy",        Icon: BarChart2     },
   ];
 
   return (
