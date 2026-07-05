@@ -1718,7 +1718,7 @@ function FormattedCopilotMessage({ text, C }) {
 function AICopilot({ scans, onClose, C }) {
   const [messages, setMessages] = useState([{
     role: "assistant",
-    text: "DevSecOps AI Copilot online. Engineered by Abhimanyu. Ask me about live pipeline scans, policy rules, OWASP Top 10 vulnerabilities, or CVE remediation.",
+    text: "DevSecOps AI Copilot online. Ask me about live pipeline scans, policy rules, OWASP Top 10 vulnerabilities, or CVE remediation.",
   }]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -1758,7 +1758,7 @@ function AICopilot({ scans, onClose, C }) {
     "⚡ How to remediate active CVEs?",
     "🔒 Explain Policy Gate rules",
     "🐳 Docker Container Hardening Tips",
-    "👤 Who created you?",
+    "🔑 How to fix Gitleaks secrets?",
   ];
 
   return (
@@ -1808,7 +1808,7 @@ function AICopilot({ scans, onClose, C }) {
                     ACTIVE
                   </span>
                 </div>
-                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Engineered by Abhimanyu • DevSecOps Intelligence Engine</div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Autonomous DevSecOps Intelligence Engine</div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 4 }}>
