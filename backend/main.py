@@ -7,6 +7,7 @@ WebSocket streaming to dashboard, and AI remediation routing.
 
 import os
 import json
+import yaml
 import asyncio
 from datetime import datetime, timedelta
 from typing import Set
@@ -583,7 +584,7 @@ def update_policy(data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update policy.yaml: {e}")
 
-    logger.info(f"AUDIT LOG: Production policy.yaml modified — CVSS threshold set to {val} by SecOps Admin")
+    print(f"[AUDIT LOG] Production policy.yaml modified — CVSS threshold set to {val} by SecOps Admin")
     return {"status": "policy updated", "cvss_threshold": val, "authorized_by": "SecOps Admin"}
 
 
