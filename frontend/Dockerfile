@@ -1,7 +1,7 @@
-﻿FROM node:18-alpine as build
+FROM node:18-alpine as build
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm config set fetch-retries 5 && npm config set fetch-retry-mintimeout 20000 && npm config set fetch-retry-maxtimeout 120000 && (npm ci --legacy-peer-deps || npm install --legacy-peer-deps)
 COPY . .
 ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
