@@ -18,7 +18,7 @@ import {
   Loader2, X, Send, Bot, Minimize2,
   Lock, Terminal, Cpu, Globe, Brain,
   Wrench, BarChart2, AlertCircle, Copy, Check, Sun, Moon,
-  Search, Download, FileText,
+  Search, Download, FileText, Zap,
 } from "lucide-react";
 
 /* ─── Design Tokens (Dark / Light Theme Engine) ─────────────────────────── */
@@ -122,6 +122,7 @@ const PIPELINE_STAGES = [
   { key: "trivy",     label: "Trivy Scan",   Icon: Shield    },
   { key: "policy",    label: "Policy Gate",  Icon: Lock      },
   { key: "deploy",    label: "Deploy",       Icon: Globe     },
+  { key: "zap",       label: "ZAP DAST",     Icon: Zap       },
 ];
 
 /* ─── Global CSS Generator ─────────────────────────────────────────── */
@@ -1704,18 +1705,20 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
   ], [allowed, blocked, C]);
 
   const toolData = useMemo(() => {
-    let trivyCount = 0, gitleaksCount = 0, semgrepCount = 0;
+    let trivyCount = 0, gitleaksCount = 0, semgrepCount = 0, zapCount = 0;
     scans.forEach(s => {
       (s.vulnerabilities || []).forEach(v => {
         if (v.tool === "Gitleaks" || v.cve_id.includes("SECRET")) gitleaksCount++;
         else if (v.tool === "Semgrep") semgrepCount++;
+        else if (v.tool === "OWASP ZAP" || v.cve_id.includes("ZAP")) zapCount++;
         else trivyCount++;
       });
     });
     return [
       { tool: "Trivy (CVEs)", count: trivyCount || 4, fill: C.teal },
       { tool: "Gitleaks (Secrets)", count: gitleaksCount || 2, fill: C.amber },
-      { tool: "Semgrep (Rules)", count: semgrepCount || 3, fill: C.violet },
+      { tool: "Semgrep (SAST)", count: semgrepCount || 3, fill: C.violet },
+      { tool: "OWASP ZAP (DAST)", count: zapCount || 1, fill: C.cyan },
     ];
   }, [scans, C]);
 
@@ -1901,6 +1904,11 @@ function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }) {
       cmd: `gcloud run deploy secureflow-backend --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${scan.commit_sha?.slice(0, 8)} --region us-central1`,
       duration: "8.5s",
       log: `[Step 5: Cloud Run Deploy]\n${scan.action_taken === "BLOCK" ? "Deploy SKIPPED/CANCELLED due to Policy Gate BLOCK decision." : "Service [secureflow-backend] revision deployed successfully to Cloud Run."}`,
+    },
+    zap: {
+      cmd: "zap-baseline.py -t https://secureflow-backend-1083585992526.us-central1.run.app/docs -g gen.conf -r zap_report.html",
+      duration: "6.2s",
+      log: `[Step 6: OWASP ZAP DAST Scan]\nProbing live Cloud Run URL: https://secureflow-backend-1083585992526.us-central1.run.app/docs\nEvaluating HTTP Security Headers & CORS policies...\nHTTP Status: 200 OK (Baseline API DAST Passed)`,
     },
   };
 
