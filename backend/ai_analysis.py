@@ -128,20 +128,26 @@ def _sanitize(value, max_len=None):
 
 
 def _parse_json(raw):
-    # LLMs sometimes wrap JSON in markdown code fences even when told not to —
-    # strip those before parsing so we don't crash on valid responses
     raw = raw.strip()
     if raw.startswith("```json"):
         raw = raw[7:]
     elif raw.startswith("```"):
         raw = raw[3:]
     raw = raw.rstrip("`").strip()
-    # Remove any stray control characters the model may have hallucinated
     raw = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', raw)
-    # Collapse newlines inside the JSON string so json.loads doesn't fail
-    # on multi-line string values
-    raw = re.sub(r'\n', ' ', raw)
-    return json.loads(raw)
+    
+    try:
+        # Try direct parse after collapsing newlines
+        clean = re.sub(r'\n', ' ', raw)
+        return json.loads(clean)
+    except Exception:
+        # Fallback: find the first { and last }
+        match = re.search(r'(\{[\s\S]*\})', raw)
+        if match:
+            json_str = match.group(1)
+            json_str = re.sub(r'\n', ' ', json_str)
+            return json.loads(json_str)
+        raise
 
 
 def analyze_scan(vulnerabilities):
