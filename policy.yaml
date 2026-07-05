@@ -24,10 +24,11 @@ repos:
   # so we drop HIGH to warn_on and only hard-block on CRITICAL.
   # Each unfixable HIGH CVE is individually allowlisted below with an expiry
   # date so nothing is silently ignored forever.
+  # tightened temporarily to block on HIGH too — Trivy gate verification test
   SecureFlow:
-    block_on: [CRITICAL]
-    warn_on: [HIGH, MEDIUM]
-    cvss_threshold: 7.0
+    block_on: [CRITICAL, HIGH]
+    warn_on: [MEDIUM]
+    cvss_threshold: 5.0
     allowlist:
       # ── Placeholder / example entry ──────────────────────────────────────
       - cve: CVE-2024-1234
