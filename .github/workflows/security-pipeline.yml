@@ -635,12 +635,14 @@ jobs:
             --slurpfile findings trivy-results.json \
             '{
               repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
-              scan_type: $scan_type, run_id: $run_id, findings: $findings[0],
+              scan_type: $scan_type, run_id: $run_id, status: "running", findings: $findings[0],
               pipeline_steps: {
                 checkout:  { result: "PASS",    detail: "code checked out" },
                 code_scan: { result: "PASS",    detail: "no secrets or bad patterns found" },
                 docker:    { result: "PASS",    detail: "image built and pushed" },
-                trivy:     { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" }
+                trivy:     { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" },
+                policy:    { result: "PASS",    detail: "policy gate allowed deployment" },
+                deploy:    { result: "RUNNING", detail: "Policy passed — initializing Cloud Run deployment..." }
               }
             }')
 
@@ -659,6 +661,16 @@ jobs:
           fi
 
       # ── Step 13: Deploy backend ──────────────────────────────────────────────
+      - name: Notify Deploying Backend to Cloud Run
+        if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+        run: |
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d '{ "status": "running", "pipeline_steps": { "deploy": { "result": "RUNNING", "detail": "Deploying secureflow-backend to Cloud Run..." } } }' || true
+
       - name: Deploy Backend to Cloud Run
         if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
         run: |
@@ -667,7 +679,7 @@ jobs:
             --region us-central1 \
             --allow-unauthenticated
 
-      - name: Notify Deploy Success
+      - name: Notify Deploy Backend Success
         if: steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
@@ -675,7 +687,7 @@ jobs:
         run: |
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Content-Type: application/json" \
-            -d '{ "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" }, "deploy": { "result": "PASS", "detail": "deployed to Cloud Run" } } }' || true
+            -d '{ "status": "running", "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" }, "deploy": { "result": "RUNNING", "detail": "secureflow-backend deployed to Cloud Run" } } }' || true
 
       - name: Notify Deploy Failure
         if: failure() && steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
@@ -685,7 +697,7 @@ jobs:
         run: |
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Content-Type: application/json" \
-            -d '{ "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" }, "deploy": { "result": "FAILED", "detail": "gcloud run deploy command failed" } } }' || true
+            -d '{ "status": "complete", "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" }, "deploy": { "result": "FAILED", "detail": "gcloud run deploy command failed" } } }' || true
 
       # ── Step 14: Build and push frontend image ──────────────────────────────
       - name: Build and Push Frontend
@@ -700,6 +712,18 @@ jobs:
           docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}
 
       # ── Step 15: Deploy frontend ─────────────────────────────────────────────
+      - name: Notify Deploying Frontend to Cloud Run
+        if: >
+          steps.changes.outputs.frontend_changed == 'true' &&
+          (steps.changes.outputs.image_changed == 'false' || steps.gate.outputs.action == 'ALLOW')
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+        run: |
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d '{ "status": "running", "pipeline_steps": { "deploy": { "result": "RUNNING", "detail": "Deploying secureflow-frontend to Cloud Run..." } } }' || true
+
       - name: Deploy Frontend to Cloud Run
         if: >
           steps.changes.outputs.frontend_changed == 'true' &&
@@ -711,17 +735,15 @@ jobs:
             --allow-unauthenticated \
             --port 8080
 
-      - name: Notify Frontend Deploy Success
-        if: >
-          steps.changes.outputs.frontend_changed == 'true' &&
-          (steps.changes.outputs.image_changed == 'false' || steps.gate.outputs.action == 'ALLOW')
+      - name: Notify Pipeline Complete
+        if: always() && steps.changes.outputs.image_changed != ''
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
         run: |
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Content-Type: application/json" \
-            -d '{ "pipeline_steps": { "deploy": { "result": "PASS", "detail": "frontend deployed to Cloud Run" } } }' || true
+            -d '{ "status": "complete", "pipeline_steps": { "deploy": { "result": "PASS", "detail": "Cloud Run deployment finished successfully" } } }' || true
 
       - name: Deploy Summary
         if: always() && steps.changes.outcome == 'success'
