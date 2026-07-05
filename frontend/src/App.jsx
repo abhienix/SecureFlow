@@ -808,6 +808,9 @@ function PipelineFullView({ pipeline, C }) {
               {isSkipped && blockedAt && (
                 <div style={{
                   fontSize: 11, color: C.amber, fontFamily: C.mono,
+                  background: `${C.amber}12`, padding: "5px 10px",
+                  borderRadius: 6, border: `1px dashed ${C.amber}50`, marginTop: 2,
+                }}>
                   ⊘ Skipped — pipeline was blocked at {blockedAt.name}
                 </div>
               )}
