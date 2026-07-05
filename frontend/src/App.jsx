@@ -19,7 +19,7 @@ import {
   Loader2, X, Send, Bot, Minimize2,
   Lock, Terminal, Cpu, Globe, Brain,
   Wrench, BarChart2, AlertCircle, Copy, Check, Sun, Moon,
-  Search, Download, FileText, Zap, CircleDashed, ShieldCheck, ShieldAlert
+  Search, Download, FileText, Zap, CircleDashed, ShieldCheck
 } from "lucide-react";
 
 /* ─── Design Tokens (Dark / Light Theme Engine) ─────────────────────────── */
