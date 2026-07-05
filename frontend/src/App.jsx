@@ -985,11 +985,51 @@ function PolicySandbox({ scans, C }) {
     };
   }, [scans, cvssThreshold, strictSecrets]);
 
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null);
+
+  const saveToProductionPolicy = async () => {
+    setSavingPolicy(true);
+    setSaveStatus(null);
+    try {
+      const res = await fetch(`${BACKEND}/api/policy/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cvss_threshold: cvssThreshold }),
+      });
+      if (res.ok) {
+        setSaveStatus("Saved to policy.yaml!");
+        setTimeout(() => setSaveStatus(null), 3000);
+      } else {
+        setSaveStatus("Failed to update policy.yaml");
+      }
+    } catch {
+      setSaveStatus("Backend error");
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
   return (
     <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, marginBottom: 24 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <SectionTitle accent={C.amber} C={C}>Interactive Policy Engine Sandbox ("What-If" Simulator)</SectionTitle>
-        <Badge color={C.amber} C={C}>Policy Sandbox</Badge>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            onClick={saveToProductionPolicy}
+            disabled={savingPolicy}
+            style={{
+              padding: "5px 12px", borderRadius: 8,
+              background: C.amberSoft, border: `1px solid ${C.amberBord}`,
+              color: C.amber, fontSize: 11, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 5,
+            }}
+          >
+            {savingPolicy ? <Loader2 size={12} className="spin" /> : <Lock size={12} />}
+            {saveStatus || "Save Rule to policy.yaml"}
+          </button>
+          <Badge color={C.amber} C={C}>Policy Sandbox</Badge>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center" }}>

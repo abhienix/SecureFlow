@@ -527,6 +527,32 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
     return {"status": "feedback saved", "scan_id": scan_id}
 
 
+@app.post("/api/policy/update")
+def update_policy(data: dict):
+    cvss_threshold = data.get("cvss_threshold")
+    if cvss_threshold is None:
+        raise HTTPException(status_code=400, detail="cvss_threshold is required")
+    try:
+        val = float(cvss_threshold)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="cvss_threshold must be a float")
+
+    policy_path = os.path.join(os.path.dirname(__file__), '..', 'policy.yaml')
+    try:
+        with open(policy_path, 'r') as f:
+            policy = yaml.safe_load(f) or {}
+        if "default" in policy:
+            policy["default"]["cvss_threshold"] = val
+        if "repos" in policy and "SecureFlow" in policy["repos"]:
+            policy["repos"]["SecureFlow"]["cvss_threshold"] = val
+        with open(policy_path, 'w') as f:
+            yaml.safe_dump(policy, f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update policy.yaml: {e}")
+
+    return {"status": "policy updated", "cvss_threshold": val}
+
+
 # ---------------------------------------------------------------------------
 # AI Copilot — chat Q&A endpoint (read-only)
 # ---------------------------------------------------------------------------
