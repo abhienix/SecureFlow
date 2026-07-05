@@ -1,4 +1,4 @@
-# SecureFlow Policy Configuration - Deploy Trigger 2026-07-05
+# SecureFlow Policy Configuration — Full End-to-End Test
 # ---------------------------------
 # This file controls what the policy engine blocks, warns on, and ignores.
 # The policy engine reads this on every scan request — no server restart needed
