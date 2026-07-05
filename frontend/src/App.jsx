@@ -1905,68 +1905,114 @@ function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }) {
   };
 
   return (
-    <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 16, fontWeight: 800, color: C.ink }}>{scan.repo_name}</span>
+    <div style={{ padding: "20px 24px", background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 16, boxShadow: "0 4px 20px rgba(0,0,0,.04)" }}>
+      {/* Top Header Row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
+        <div style={{ flex: 1, minWidth: 280 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: C.ink, letterSpacing: "-0.01em" }}>{scan.repo_name}</span>
             <Badge color={C.blue} C={C}>{scan.branch}</Badge>
             <Badge color={scan.action_taken === "BLOCK" ? C.red : C.teal} C={C}>{scan.action_taken}</Badge>
           </div>
-          <div style={{ fontSize: 13, color: C.inkMid, fontWeight: 600, marginBottom: 4 }}>
+          <div style={{ fontSize: 13, color: C.inkMid, fontWeight: 600, marginBottom: 8, lineHeight: 1.4 }}>
             "{scan.commit_message}"
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: C.inkLow, fontFamily: C.mono, flexWrap: "wrap" }}>
-            <span>Full Commit SHA: {scan.commit_sha}</span>
-            <button onClick={copySha} style={{ background: "none", border: "none", color: C.teal, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700 }}>
-              {copiedSha ? <Check size={11} /> : <Copy size={11} />}
-              {copiedSha ? "Copied" : "Copy Full SHA"}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: C.inkLow, fontFamily: C.mono, flexWrap: "wrap" }}>
+            <span style={{ background: C.bgSurface, padding: "2px 8px", borderRadius: 6, border: `1px solid ${C.border}` }}>
+              SHA: {scan.commit_sha?.slice(0, 12)}…
+            </span>
+            <button onClick={copySha} style={{ background: "none", border: "none", color: C.teal, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700 }}>
+              {copiedSha ? <Check size={12} /> : <Copy size={12} />}
+              {copiedSha ? "Copied Full SHA" : "Copy SHA"}
             </button>
-            <span>· {relTime(scan.created_at)} ({fmtFull(scan.created_at)})</span>
+            <span>· {relTime(scan.created_at)}</span>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {scan.action_taken === "BLOCK" && (
-            <button onClick={() => onOpenWhyBlocked(scan)} style={{ padding: "6px 12px", borderRadius: 8, background: C.redSoft, border: `1px solid ${C.redBord}`, color: C.red, fontSize: 12, fontWeight: 700 }}>
+            <button onClick={() => onOpenWhyBlocked(scan)} style={{ padding: "7px 14px", borderRadius: 8, background: C.redSoft, border: `1px solid ${C.redBord}`, color: C.red, fontSize: 12, fontWeight: 700 }}>
               Why Blocked?
             </button>
           )}
-          <button onClick={() => onOpenDetail(scan)} style={{ padding: "6px 12px", borderRadius: 8, background: C.bgSurface, border: `1px solid ${C.border}`, color: C.ink, fontSize: 12, fontWeight: 600 }}>
-            Inspect Run
+          <button onClick={() => onOpenDetail(scan)} style={{ padding: "7px 14px", borderRadius: 8, background: C.bgSurface, border: `1px solid ${C.border}`, color: C.ink, fontSize: 12, fontWeight: 600 }}>
+            Inspect Details
           </button>
         </div>
       </div>
 
-      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 800, color: C.inkLow, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>
-          Interactive Stage Step Execution Breakdown (Click stage to view step logs & commands)
+      {/* Visual Pipeline Stage Node Diagram */}
+      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.inkLow, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>
+          Pipeline Stage Flow (Click stage node to inspect command & logs)
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {scan.pipeline.map(stage => {
-            const color = stage.status === "passed" ? C.teal : stage.status === "failed" ? C.red : stage.status === "running" ? C.blue : C.inkMuted;
+
+        <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto", paddingBottom: 6 }}>
+          {scan.pipeline.map((stage, i) => {
+            const color =
+              stage.status === "passed"  ? C.teal  :
+              stage.status === "failed"  ? C.red   :
+              stage.status === "running" ? C.blue  :
+              stage.status === "skipped" ? C.inkMuted : C.inkLow;
+            const isActive = stage.status === "running";
             const isSelected = expandedStage === stage.key;
+            const { Icon } = stage;
+
             return (
-              <button
-                key={stage.key}
-                onClick={() => setExpandedStage(isSelected ? null : stage.key)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "6px 12px", borderRadius: 8,
-                  background: isSelected ? `${color}25` : C.bgSurface,
-                  border: `1px solid ${isSelected ? color : C.border}`,
-                  color: isSelected ? color : C.inkMid,
-                  fontSize: 11, fontWeight: 700,
-                }}
-              >
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: color }} />
-                {stage.name} ({stage.result || stage.status})
-              </button>
+              <React.Fragment key={stage.id}>
+                {i > 0 && (
+                  <div className={(scan.pipeline[i-1].status === "running" || isActive) ? "pipe-flow pipe-flow-active" : ""} style={{
+                    flex: 1, height: (scan.pipeline[i-1].status === "running" || isActive) ? 3 : 2,
+                    minWidth: 16, maxWidth: 42,
+                    background: scan.pipeline[i-1].status === "passed"
+                      ? `linear-gradient(90deg, ${C.teal}80, ${color}80)`
+                      : (scan.pipeline[i-1].status === "running" || isActive) ? undefined : C.border,
+                    borderRadius: 2,
+                  }} />
+                )}
+
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setExpandedStage(isSelected ? null : stage.key)}
+                  style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                    background: "none", border: "none", cursor: "pointer", outline: "none",
+                    minWidth: 70,
+                  }}
+                >
+                  <div style={{
+                    width: 40, height: 40, borderRadius: "50%",
+                    border: `2px solid ${isSelected ? C.teal : color}`,
+                    background: isSelected ? `${C.teal}25` : `${color}18`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: isSelected ? C.teal : color,
+                    boxShadow: isSelected
+                      ? `0 0 0 4px ${C.teal}35, 0 0 16px ${C.teal}60`
+                      : isActive ? `0 0 0 4px ${color}25, 0 0 16px ${color}55` : "none",
+                    transition: "all 0.2s ease",
+                  }}>
+                    {isActive ? <Loader2 size={18} className="spin" /> :
+                     stage.status === "passed"  ? <CheckCircle size={18} /> :
+                     stage.status === "failed"  ? <XCircle size={18} /> :
+                     stage.status === "skipped" ? <span style={{ fontSize: 12, fontWeight: 700 }}>—</span> :
+                     Icon ? <Icon size={16} /> : null}
+                  </div>
+                  <div style={{
+                    fontSize: 10, fontWeight: isSelected || isActive ? 800 : 600,
+                    color: isSelected ? C.teal : isActive ? C.blue : C.inkMid,
+                    textAlign: "center", whiteSpace: "nowrap",
+                  }}>
+                    {stage.name}
+                  </div>
+                </motion.button>
+              </React.Fragment>
             );
           })}
         </div>
       </div>
 
+      {/* Terminal Inspector Output Drawer */}
       <AnimatePresence>
         {expandedStage && (
           <motion.div
@@ -1980,22 +2026,39 @@ function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }) {
               const st = scan.pipeline.find(s => s.key === expandedStage);
               const color = st?.status === "passed" ? C.teal : st?.status === "failed" ? C.red : st?.status === "running" ? C.blue : C.inkMid;
               return (
-                <div style={{ padding: 14, background: C.bgSurface, borderRadius: 10, border: `1px solid ${color}40`, marginTop: 4 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 11 }}>
-                    <span style={{ fontWeight: 800, color: color, textTransform: "uppercase" }}>Stage Inspector: {st?.name}</span>
-                    <span style={{ fontFamily: C.mono, color: C.inkLow }}>Est Duration: {details.duration || "1.0s"}</span>
+                <div style={{
+                  padding: 16, background: C.bgSurface, borderRadius: 12,
+                  border: `1px solid ${color}50`, marginTop: 6,
+                  boxShadow: `0 8px 24px ${color}10`,
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Terminal size={15} color={color} />
+                      <span style={{ fontSize: 12, fontWeight: 800, color: color, textTransform: "uppercase" }}>Stage Inspector: {st?.name}</span>
+                      <Badge color={color} small C={C}>{st?.result || st?.status}</Badge>
+                    </div>
+                    <span style={{ fontFamily: C.mono, fontSize: 11, color: C.inkLow }}>Execution Time: {details.duration || "1.2s"}</span>
                   </div>
 
-                  <div style={{ marginBottom: 8 }}>
-                    <label style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 2 }}>Execution Command</label>
-                    <div style={{ fontFamily: C.mono, fontSize: 11, color: C.teal, background: C.bgCard, padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}` }}>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 3 }}>
+                      Execution Command
+                    </label>
+                    <div style={{ fontFamily: C.mono, fontSize: 11, color: C.teal, background: C.bgCard, padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}` }}>
                       $ {details.cmd}
                     </div>
                   </div>
 
                   <div>
-                    <label style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 2 }}>Stage Output Console Log</label>
-                    <pre style={{ fontFamily: C.mono, fontSize: 11, color: C.ink, background: C.bgCard, padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, whiteSpace: "pre-wrap", maxHeight: 140, overflowY: "auto" }}>
+                    <label style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 3 }}>
+                      Stage Console Log Output
+                    </label>
+                    <pre style={{
+                      fontFamily: C.mono, fontSize: 11, color: C.ink,
+                      background: C.bgCard, padding: 12, borderRadius: 8,
+                      border: `1px solid ${C.border}`, whiteSpace: "pre-wrap",
+                      maxHeight: 160, overflowY: "auto", lineHeight: 1.6,
+                    }}>
                       {details.log}
                     </pre>
                   </div>
