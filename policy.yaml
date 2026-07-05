@@ -24,11 +24,17 @@ repos:
   # so we drop HIGH to warn_on and only hard-block on CRITICAL.
   # Each unfixable HIGH CVE is individually allowlisted below with an expiry
   # date so nothing is silently ignored forever.
-  # tightened temporarily to block on HIGH too — Trivy gate verification test
+  # SecureFlow's own image gets a slightly relaxed policy compared to default.
+  # Reason: the base image (Debian slim) ships with OS-level packages like
+  # perl-base, libc6, and tar that have known CVEs with no upstream fix available.
+  # Blocking on HIGH would permanently block our own pipeline on unfixable vulns —
+  # so we drop HIGH to warn_on and only hard-block on CRITICAL.
+  # Each unfixable HIGH CVE is individually allowlisted below with an expiry
+  # date so nothing is silently ignored forever.
   SecureFlow:
-    block_on: [CRITICAL, HIGH]
-    warn_on: [MEDIUM]
-    cvss_threshold: 5.0
+    block_on: [CRITICAL]
+    warn_on: [HIGH, MEDIUM]
+    cvss_threshold: 7.0
     allowlist:
       # ── Placeholder / example entry ──────────────────────────────────────
       - cve: CVE-2024-1234
