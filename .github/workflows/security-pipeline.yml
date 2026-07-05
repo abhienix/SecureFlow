@@ -655,14 +655,20 @@ jobs:
           echo "Backend response: $RESPONSE"
 
           ACTION=$(echo "$RESPONSE" | jq -r '.action // "BLOCK"')
-          REASON=$(echo "$RESPONSE" | jq -r '.reason // "policy engine decision"')
-          echo "Backend returned ACTION: $ACTION, REASON: $REASON"
+          REASON=$(echo "$RESPONSE" | jq -r '.reason // "policy engine rejected deployment"')
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
 
-          # Allow deployment so Cloud Run gets updated with the new backend & policy code
-          echo "action=ALLOW" >> "$GITHUB_OUTPUT"
-          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
-            -H "Content-Type: application/json" \
-            -d '{ "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment — deploying updated backend code" } } }' || true
+          if [ "$ACTION" = "BLOCK" ]; then
+            echo "Policy gate says BLOCK — not deploying."
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Content-Type: application/json" \
+              -d '{ "pipeline_steps": { "policy": { "result": "BLOCK", "detail": "'"$REASON"'" } } }' || true
+            exit 1
+          else
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Content-Type: application/json" \
+              -d '{ "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" } } }' || true
+          fi
 
       # ── Step 13: Deploy backend ──────────────────────────────────────────────
       - name: Notify Deploying Backend to Cloud Run
