@@ -582,7 +582,7 @@ jobs:
           steps.changes.outputs.image_changed == 'true' &&
           steps.docker_build.outcome == 'success' &&
           steps.docker_push.outcome == 'success'
-        uses: aquasecurity/trivy-action@0.29.0 # nosemgrep
+        uses: aquasecurity/trivy-action@master # nosemgrep
         with:
           image-ref: us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
           format: json
