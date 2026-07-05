@@ -25,6 +25,7 @@ import {
 /* ─── Design Tokens (Dark / Light Theme Engine) ─────────────────────────── */
 const THEMES = {
   dark: {
+    isDark:       true,
     bg:           "#080c14",
     bgCard:       "#0f172a",
     bgSurface:    "#1e293b",
@@ -69,6 +70,7 @@ const THEMES = {
     sans: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
   },
   light: {
+    isDark:       false,
     bg:           "#f8fafc",
     bgCard:       "#ffffff",
     bgSurface:    "#f1f5f9",
@@ -195,16 +197,17 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
 }
 .ai-disclaimer {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  background: ${C.amberSoft};
-  border: 1px solid ${C.amberBord};
+  padding: 8px 12px;
+  background: ${C.isDark ? "rgba(245, 158, 11, 0.12)" : "#FEF3C7"};
+  border: 1px solid ${C.isDark ? "rgba(245, 158, 11, 0.35)" : "#FCD34D"};
   border-radius: 8px;
   font-size: 11px;
-  color: ${C.inkMid};
+  color: ${C.isDark ? "#FBBF24" : "#92400E"};
   line-height: 1.5;
   margin-bottom: 10px;
+  font-weight: 600;
 }
 .pipe-flow {
   background: linear-gradient(90deg, ${C.border} 0%, ${C.blue} 50%, ${C.border} 100%);
@@ -834,35 +837,35 @@ function PipelineFullView({ pipeline, C }) {
 function FormattedRemedyView({ text, C }) {
   if (!text) return null;
 
-  // Check if text contains step-by-step numbers like "1. ... 2. ... 3. ..."
   const stepRegex = /(\d+\.\s+[^\d]+(?=\d+\.|$))/g;
   const steps = text.match(stepRegex);
 
   if (steps && steps.length > 1) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
         {steps.map((st, idx) => {
           const cleanText = st.replace(/^\d+\.\s*/, "").trim();
           return (
             <div
               key={idx}
               style={{
-                display: "flex", gap: 10, alignItems: "flex-start",
-                padding: "10px 12px", borderRadius: 10,
-                background: C.isDark ? "rgba(0, 242, 254, 0.05)" : "#F0FDFA",
-                border: `1px solid ${C.isDark ? "rgba(0, 242, 254, 0.15)" : "#CCFBF1"}`,
+                display: "flex", gap: 12, alignItems: "flex-start",
+                padding: "12px 14px", borderRadius: 10,
+                background: C.isDark ? "#1E293B" : "#F8FAFC",
+                border: `1px solid ${C.isDark ? "#334155" : "#E2E8F0"}`,
+                boxShadow: "0 2px 6px rgba(0,0,0,0.06)"
               }}
             >
               <div style={{
-                width: 22, height: 22, borderRadius: 6,
-                background: C.tealSoft, border: `1px solid ${C.tealBord}`,
-                color: C.teal, fontSize: 11, fontWeight: 800,
+                width: 24, height: 24, borderRadius: 8,
+                background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
+                color: "#FFFFFF", fontSize: 12, fontWeight: 900,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0
+                flexShrink: 0, boxShadow: "0 2px 6px rgba(0,242,254,0.3)"
               }}>
                 {idx + 1}
               </div>
-              <div style={{ flex: 1, fontSize: 12, color: C.ink, lineHeight: 1.5 }}>
+              <div style={{ flex: 1, fontSize: 12, color: C.isDark ? "#F8FAFC" : "#0F172A", lineHeight: 1.6, fontWeight: 500 }}>
                 {cleanText}
               </div>
             </div>
@@ -872,9 +875,13 @@ function FormattedRemedyView({ text, C }) {
     );
   }
 
-  // Fallback pre-wrap formatted block
   return (
-    <div style={{ fontSize: 12, color: C.ink, fontFamily: C.mono, whiteSpace: "pre-wrap", lineHeight: 1.6, marginTop: 6 }}>
+    <div style={{
+      fontSize: 12, color: C.isDark ? "#F8FAFC" : "#0F172A",
+      fontFamily: C.mono, whiteSpace: "pre-wrap", lineHeight: 1.6, marginTop: 8,
+      background: C.isDark ? "#1E293B" : "#F8FAFC",
+      padding: 12, borderRadius: 10, border: `1px solid ${C.isDark ? "#334155" : "#E2E8F0"}`
+    }}>
       {text}
     </div>
   );
@@ -926,42 +933,48 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback, onAskCopil
 
   if (!scan.ai_explanation && !scan.ai_remedy && !scan.ai_fix && scan.action_taken !== "BLOCK") return null;
 
-  const userFeedback = feedback?.[scan.id];
-
   return (
     <div style={{
-      marginTop: 12, padding: compact ? 12 : 16,
-      background: C.isDark ? "rgba(121, 40, 202, 0.08)" : "#F9F5FF",
-      borderRadius: 14,
-      border: `1px solid ${C.isDark ? "rgba(121, 40, 202, 0.25)" : "#E9D8FD"}`,
+      marginTop: 12, padding: compact ? 14 : 18,
+      background: C.isDark ? "#0F172A" : "#FFFFFF",
+      borderRadius: 16,
+      border: `1px solid ${C.isDark ? "#1E293B" : "#E2E8F0"}`,
       fontSize: 13, lineHeight: 1.65,
+      boxShadow: "0 4px 20px rgba(0,0,0,0.1)"
     }}>
       {/* Banner Disclaimer */}
-      <div className="ai-disclaimer" style={{ marginBottom: 12 }}>
-        <AlertTriangle size={14} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
-        <span style={{ fontSize: 11, fontWeight: 600 }}>AI DevSecOps Guidance — verified with policy engine rules and CVSS risk metrics.</span>
-        <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: C.tealSoft, color: C.teal, border: `1px solid ${C.tealBord}` }}>
+      <div className="ai-disclaimer" style={{ marginBottom: 14 }}>
+        <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+        <span style={{ fontSize: 11, fontWeight: 700 }}>AI DevSecOps Guidance — verified with policy engine rules and CVSS risk metrics.</span>
+        <span style={{
+          marginLeft: "auto", fontSize: 10, fontWeight: 800, padding: "3px 10px", borderRadius: 12,
+          background: C.isDark ? "rgba(0, 242, 254, 0.15)" : "#E0F2FE",
+          color: C.isDark ? "#00F2FE" : "#0284C7",
+          border: `1px solid ${C.isDark ? "rgba(0, 242, 254, 0.4)" : "#38BDF8"}`
+        }}>
           98% Verified
         </span>
       </div>
 
-      {/* Title */}
+      {/* Header */}
       <div style={{
         display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between",
-        color: C.violet, fontWeight: 800, marginBottom: 10,
+        color: C.isDark ? "#C084FC" : "#7C3AED", fontWeight: 800, marginBottom: 12,
         fontSize: 12, letterSpacing: "0.06em",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Brain size={15} color={C.violet} /> AI SECURITY GATE DIAGNOSIS & REMEDIATION
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Brain size={16} color={C.isDark ? "#C084FC" : "#7C3AED"} />
+          <span>AI SECURITY GATE DIAGNOSIS & REMEDIATION</span>
         </div>
         {onAskCopilot && (
           <button
             onClick={() => onAskCopilot(scan)}
             style={{
-              padding: "4px 10px", borderRadius: 8,
-              background: C.violetSoft, border: `1px solid ${C.violetBord}`,
-              color: C.violet, fontSize: 11, fontWeight: 700, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 4
+              padding: "5px 12px", borderRadius: 8,
+              background: "linear-gradient(135deg, #7928CA 0%, #00DFD8 100%)",
+              border: "none", color: "#FFFFFF", fontSize: 11, fontWeight: 800, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+              boxShadow: "0 2px 10px rgba(121,40,202,0.3)"
             }}
           >
             <Bot size={13} /> Discuss in Copilot
@@ -972,9 +985,9 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback, onAskCopil
       {/* Explanation text */}
       {scan.ai_explanation && (
         <div style={{
-          color: C.ink, marginBottom: (displayedRemedy || !compact) ? 12 : 0,
-          background: C.bgCard, padding: "12px 14px", borderRadius: 10,
-          border: `1px solid ${C.border}`, fontSize: 12, lineHeight: 1.6
+          color: C.isDark ? "#F8FAFC" : "#0F172A", marginBottom: (displayedRemedy || !compact) ? 14 : 0,
+          background: C.isDark ? "#1E293B" : "#F8FAFC", padding: "14px 16px", borderRadius: 12,
+          border: `1px solid ${C.isDark ? "#334155" : "#E2E8F0"}`, fontSize: 12, lineHeight: 1.65, fontWeight: 500
         }}>
           {scan.ai_explanation}
         </div>
@@ -986,38 +999,40 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback, onAskCopil
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           style={{
-            background: C.bgCard, border: `1px solid ${C.tealBord}`,
-            borderRadius: 12, padding: 14, marginTop: 10,
-            boxShadow: `0 4px 16px ${C.teal}14`,
+            background: C.isDark ? "#0B1120" : "#F0FDFA",
+            border: `1px solid ${C.isDark ? "#0284C7" : "#99F6E4"}`,
+            borderRadius: 14, padding: 16, marginTop: 12,
+            boxShadow: `0 4px 20px ${C.teal}14`,
           }}
         >
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
-            fontSize: 11, fontWeight: 800, color: C.teal,
-            letterSpacing: "0.08em", marginBottom: 8,
+            fontSize: 11, fontWeight: 800, color: C.isDark ? "#38BDF8" : "#0D9488",
+            letterSpacing: "0.08em", marginBottom: 10,
           }}>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Wrench size={13} /> RECOMMENDED REMEDIATION PLAN & CODE FIX
+              <Wrench size={14} /> RECOMMENDED REMEDIATION PLAN & CODE FIX
             </span>
             {displayedRemedy && (
               <button
                 onClick={handleCopyRemedy}
                 style={{
-                  display: "flex", alignItems: "center", gap: 4,
-                  padding: "4px 10px", borderRadius: 6,
-                  background: C.tealSoft, border: `1px solid ${C.tealBord}`,
-                  color: C.teal, fontSize: 10, fontWeight: 700, cursor: "pointer"
+                  display: "flex", alignItems: "center", gap: 5,
+                  padding: "5px 12px", borderRadius: 6,
+                  background: C.isDark ? "#0284C7" : "#0D9488",
+                  border: "none", color: "#FFFFFF", fontSize: 11, fontWeight: 800, cursor: "pointer",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.2)"
                 }}
               >
                 {copied ? <Check size={12} /> : <Copy size={12} />}
-                {copied ? "Copied" : "Copy Remediation"}
+                {copied ? "Copied!" : "Copy Remediation"}
               </button>
             )}
           </div>
 
           {loadingRemedy ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkMid, fontSize: 12, padding: 8 }}>
-              <Loader2 size={14} className="spin" color={C.teal} /> Generating step-by-step AI remediation plan…
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.isDark ? "#38BDF8" : "#0D9488", fontSize: 12, padding: 10 }}>
+              <Loader2 size={15} className="spin" /> Generating step-by-step AI remediation plan…
             </div>
           ) : (
             <FormattedRemedyView text={displayedRemedy} C={C} />
@@ -1026,21 +1041,22 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback, onAskCopil
       )}
 
       {remedyError && !loadingRemedy && (
-        <div style={{ fontSize: 12, color: C.red, marginTop: 8, fontWeight: 600 }}>{remedyError}</div>
+        <div style={{ fontSize: 12, color: C.red, marginTop: 10, fontWeight: 700 }}>{remedyError}</div>
       )}
 
       {!displayedRemedy && !loadingRemedy && scan.action_taken === "BLOCK" && (
         <button onClick={fetchRemedy} style={{
-          marginTop: 10, display: "flex", alignItems: "center", gap: 6,
-          fontSize: 11, color: C.teal, background: C.tealSoft, border: `1px solid ${C.tealBord}`,
-          borderRadius: 6, padding: "5px 12px", fontWeight: 700,
+          marginTop: 12, display: "flex", alignItems: "center", gap: 6,
+          fontSize: 12, color: "#FFFFFF", background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
+          border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 800, cursor: "pointer",
+          boxShadow: "0 4px 12px rgba(0,242,254,0.3)"
         }}>
-          <Wrench size={12} /> Generate Remediation Code
+          <Wrench size={14} /> Generate AI Remediation Code Fix
         </button>
       )}
 
       {(scan.ai_explanation || displayedRemedy) && (
-        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.violetBord}` }}>
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.isDark ? "#1E293B" : "#E2E8F0"}` }}>
           <AIFeedbackRow scanId={scan.id} feedback={feedback} onFeedback={onFeedback} C={C} />
         </div>
       )}
