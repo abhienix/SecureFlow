@@ -561,6 +561,35 @@ def update_policy(data: dict):
     return {"status": "policy updated", "cvss_threshold": val, "authorized_by": "SecOps Admin"}
 
 
+@app.get("/api/slack/status")
+def slack_status():
+    webhook_url = os.getenv("SLACK_WEBHOOK_URL")
+    return {
+        "configured": bool(webhook_url),
+        "channel": "#devsecops-alerts",
+        "webhook_preview": f"{webhook_url[:20]}..." if webhook_url else "Not set (Set SLACK_WEBHOOK_URL env var)",
+    }
+
+
+@app.post("/api/slack/test")
+def test_slack_alert():
+    webhook_url = os.getenv("SLACK_WEBHOOK_URL")
+    test_payload = {
+        "repo_name": "abhienix/SecureFlow",
+        "branch": "main",
+        "commit_sha": "7ddbbe8f1a23",
+        "ai_explanation": "Test Security Alert: Policy Gate evaluated Critical vulnerability policy rules.",
+        "ai_fix": "No fix required — live Slack Webhook integration test."
+    }
+    if webhook_url:
+        send_slack_alert(test_payload, [], "BLOCK", "Test Slack Notification from SecureFlow Dashboard")
+        return {"status": "sent", "message": "Live Slack notification posted to #devsecops-alerts!"}
+    return {
+        "status": "simulated",
+        "message": "Slack Webhook alert simulated (Set SLACK_WEBHOOK_URL env var to send live messages to Slack)."
+    }
+
+
 # ---------------------------------------------------------------------------
 # AI Copilot — chat Q&A endpoint (read-only)
 # ---------------------------------------------------------------------------

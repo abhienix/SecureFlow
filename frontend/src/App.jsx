@@ -1922,6 +1922,79 @@ function AIInsightsTab({ scans, feedback, onFeedback, C }) {
   );
 }
 
+function SlackIntegrationCard({ C }) {
+  const [testingSlack, setTestingSlack] = useState(false);
+  const [slackResult, setSlackResult] = useState(null);
+
+  const triggerSlackTest = async () => {
+    setTestingSlack(true);
+    setSlackResult(null);
+    try {
+      const res = await fetch(`${BACKEND}/api/slack/test`, { method: "POST" });
+      const data = await res.json();
+      setSlackResult(data.message || "Slack test trigger completed.");
+    } catch {
+      setSlackResult("Failed to trigger Slack test alert.");
+    } finally {
+      setTestingSlack(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, marginTop: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8,
+            background: C.violetSoft, border: `1px solid ${C.violetBord}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Send size={16} color={C.violet} />
+          </div>
+          <div>
+            <h4 style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>Slack Security Webhook Alert Dispatcher</h4>
+            <p style={{ fontSize: 11, color: C.inkLow }}>Real-time security notifications sent to <code style={{ color: C.teal }}>#devsecops-alerts</code> on pipeline BLOCK or ALLOW</p>
+          </div>
+        </div>
+
+        <button
+          onClick={triggerSlackTest}
+          disabled={testingSlack}
+          style={{
+            padding: "7px 14px", borderRadius: 8,
+            background: C.violetSoft, border: `1px solid ${C.violetBord}`,
+            color: C.violet, fontSize: 12, fontWeight: 700,
+            display: "flex", alignItems: "center", gap: 6,
+          }}
+        >
+          {testingSlack ? <Loader2 size={13} className="spin" /> : <Send size={13} />}
+          Test Slack Alert Payload
+        </button>
+      </div>
+
+      {slackResult && (
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{
+          padding: "8px 12px", background: C.tealSoft, border: `1px solid ${C.tealBord}`,
+          borderRadius: 8, color: C.teal, fontSize: 12, fontWeight: 600, marginBottom: 12,
+        }}>
+          ✓ {slackResult}
+        </motion.div>
+      )}
+
+      <div style={{
+        background: C.bgSurface, padding: 14, borderRadius: 10,
+        border: `1px solid ${C.border}`, fontFamily: C.mono, fontSize: 11, color: C.inkMid,
+      }}>
+        <div style={{ color: C.amber, fontWeight: 700, marginBottom: 4 }}>🚨 [SLACK WEBHOOK PAYLOAD PREVIEW]</div>
+        <div>🚨 <strong style={{ color: C.red }}>Deployment BLOCKED</strong></div>
+        <div>Repo: <span style={{ color: C.teal }}>abhienix/SecureFlow</span> | Branch: <span style={{ color: C.teal }}>main</span> | Commit: <span style={{ color: C.teal }}>7ddbbe8f</span></div>
+        <div>Reason: Security gate policy blocked deployment due to rule violation (github-actions-mutable-action-tag).</div>
+        <div style={{ marginTop: 6, color: C.inkLow }}>Fix: Pin GitHub Action step tags to 40-character commit SHAs or annotate with # nosemgrep</div>
+      </div>
+    </div>
+  );
+}
+
 function MetricsTab({ scans, totalScans, C }) {
   const owaspData = useMemo(() => mapToOwaspTop10(scans), [scans]);
 
@@ -1962,6 +2035,8 @@ function MetricsTab({ scans, totalScans, C }) {
           </div>
         </div>
       </div>
+
+      <SlackIntegrationCard C={C} />
     </div>
   );
 }
