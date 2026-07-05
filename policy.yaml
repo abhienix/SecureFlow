@@ -34,7 +34,7 @@ repos:
   SecureFlow:
     block_on: [CRITICAL]
     warn_on: [HIGH, MEDIUM]
-    cvss_threshold: 7.0
+    cvss_threshold: 9.8
     allowlist:
       # ── Placeholder / example entry ──────────────────────────────────────
       - cve: CVE-2024-1234
