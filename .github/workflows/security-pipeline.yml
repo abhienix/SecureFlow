@@ -642,7 +642,8 @@ jobs:
                 docker:    { result: "PASS",    detail: "image built and pushed" },
                 trivy:     { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" },
                 policy:    { result: "PASS",    detail: "policy gate allowed deployment" },
-                deploy:    { result: "RUNNING", detail: "Policy passed — initializing Cloud Run deployment..." }
+                deploy:    { result: "RUNNING", detail: "Policy passed — initializing Cloud Run deployment..." },
+                zap:       { result: "PENDING", detail: "Awaiting Cloud Run deployment..." }
               }
             }')
 
