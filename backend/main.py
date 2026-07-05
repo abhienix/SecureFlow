@@ -262,13 +262,17 @@ async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(ge
     existing_steps = dict(scan.pipeline_steps or {})
     existing_steps.update(data.get("pipeline_steps", {}))
     scan.pipeline_steps = existing_steps
+    
+    if "status" in data:
+        scan.status = data["status"]
+        
     db.commit()
 
     await manager.broadcast({
         "type": "scan_progress",
         "run_id": run_id,
         "pipeline_steps": existing_steps,
-        "status": "running",
+        "status": scan.status,
     })
 
     return {"status": "progress updated", "run_id": run_id}
