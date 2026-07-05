@@ -1718,16 +1718,13 @@ function FormattedCopilotMessage({ text, C }) {
 function AICopilot({ scans, onClose, C }) {
   const [messages, setMessages] = useState([{
     role: "assistant",
-    text: "Hello! I am your DevSecOps AI Copilot — your humble security mentor. Ask me about OWASP Top 10 risks, CVE remedies, Docker hardening, or your live pipeline scan history!",
+    text: "DevSecOps AI Copilot online. Engineered by Abhimanyu. Ask me about live pipeline scans, policy rules, OWASP Top 10 vulnerabilities, or CVE remediation.",
   }]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [minimised, setMinimised] = useState(false);
   const [focusScanId, setFocusScanId] = useState(scans[0]?.id || null);
   const endRef = useRef(null);
-
-  const blocked = scans.filter(s => s.action_taken === "BLOCK");
-  const running = scans.filter(s => s.status === "running");
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1761,7 +1758,7 @@ function AICopilot({ scans, onClose, C }) {
     "⚡ How to remediate active CVEs?",
     "🔒 Explain Policy Gate rules",
     "🐳 Docker Container Hardening Tips",
-    "🔑 How to fix Gitleaks secrets?",
+    "👤 Who created you?",
   ];
 
   return (
@@ -1779,7 +1776,7 @@ function AICopilot({ scans, onClose, C }) {
             boxShadow: "0 8px 32px rgba(0, 223, 216, 0.4)",
           }}
         >
-          <Bot size={18} /> AI Copilot
+          <Bot size={18} /> AI Security Copilot
         </button>
       ) : (
         <div style={{
@@ -1806,12 +1803,12 @@ function AICopilot({ scans, onClose, C }) {
               </div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: "#FFFFFF" }}>AI Security Mentor</span>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "#FFFFFF" }}>AI Security Copilot</span>
                   <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 8, background: "rgba(0,223,216,0.2)", color: "#00DFD8", border: "1px solid rgba(0,223,216,0.4)" }}>
-                    ONLINE
+                    ACTIVE
                   </span>
                 </div>
-                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Powered by Groq / Gemini DevSecOps LLM</div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Engineered by Abhimanyu • DevSecOps Intelligence Engine</div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 4 }}>
@@ -2973,13 +2970,7 @@ export default function App() {
                   boxShadow: "0 0 6px #00FF66"
                 }} className="pulse-dot" />
               </div>
-              <span>AI Security Copilot</span>
-              <span style={{
-                fontSize: 9, fontWeight: 800, background: "rgba(255,255,255,0.25)",
-                padding: "2px 6px", borderRadius: 8, textTransform: "uppercase"
-              }}>
-                PRO
-              </span>
+              <span>AI Copilot</span>
             </button>
           </div>
         </header>
