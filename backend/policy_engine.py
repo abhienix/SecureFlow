@@ -23,7 +23,7 @@ def load_policy_file():
         return yaml.safe_load(file)
 
 
-def get_policy_for_repo(repo_name):
+def get_policy_for_repo(repo_name, custom_policy=None):
     """
     Find the right policy block for this repo.
 
@@ -33,7 +33,7 @@ def get_policy_for_repo(repo_name):
 
     If there's no specific rule for this repo, fall back to "default".
     """
-    policy = load_policy_file()
+    policy = custom_policy if (custom_policy and isinstance(custom_policy, dict)) else load_policy_file()
     repo_rules = policy.get('repos', {})
     default_rules = policy.get('default', {})
 
@@ -46,6 +46,7 @@ def get_policy_for_repo(repo_name):
         return {**default_rules, **repo_rules[short_repo_name]}
 
     return default_rules
+
 
 
 def check_allowlist(cve_id, policy):
@@ -124,7 +125,7 @@ def get_highest_severity_label(scan_findings):
     return highest_seen if highest_seen else "CLEAN"
 
 
-def evaluate_policy(scan_findings, repo_name):
+def evaluate_policy(scan_findings, repo_name, custom_policy=None):
     """
     Main entry point. Takes Trivy's scan output and decides ALLOW or BLOCK.
     """
@@ -178,7 +179,7 @@ def evaluate_policy(scan_findings, repo_name):
             "allowlisted": [],
         }
 
-    policy = get_policy_for_repo(repo_name)
+    policy = get_policy_for_repo(repo_name, custom_policy=custom_policy)
 
     # Pull thresholds from policy — these can differ per repo.
     # CRITICAL and HIGH block by default; MEDIUM only warns; LOW is ignored.
