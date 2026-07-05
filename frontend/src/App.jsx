@@ -1,6 +1,7 @@
 /**
- * SecureFlow — App.jsx (v5.0 — Enterprise DevSecOps Security Gate & Intelligence Platform)
- * Real-time CI/CD Security Dashboard, Policy Gate Sandbox, OWASP Radar & AI Copilot
+ * SecureFlow — DevSecOps Enterprise Dashboard
+ * Single-page React application with 7-stage pipeline inspector,
+ * interactive policy simulator, AI remediation copilot, and audit exporter.
  */
 
 import React, {

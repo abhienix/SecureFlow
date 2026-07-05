@@ -1,3 +1,10 @@
+"""
+SecureFlow — DevSecOps Backend API & Telemetry Service
+
+FastAPI service handling scan ingestion, policy enforcement,
+WebSocket streaming to dashboard, and AI remediation routing.
+"""
+
 import os
 import json
 import asyncio
@@ -17,7 +24,7 @@ from ai_analysis import analyze_scan, analyze_code_scan_failure, answer_copilot_
 from slack_notifier import send_slack_alert
 
 # ---------------------------------------------------------------------------
-# Environment & database setup
+# Environment & database configuration
 # ---------------------------------------------------------------------------
 
 load_dotenv()

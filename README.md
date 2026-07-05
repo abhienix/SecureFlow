@@ -1,6 +1,6 @@
 # 🛡️ SecureFlow — Enterprise DevSecOps Security Gate & Intelligence Platform
 
-> **Full-Spectrum DevSecOps CI/CD Pipeline** — Scans every push for exposed secrets (**Gitleaks**), SAST code rules (**Semgrep**), container CVEs (**Trivy**), and live API runtime vulnerabilities (**OWASP ZAP DAST**). Enforces a dynamic policy gate (`policy.yaml`) and streams real-time telemetry to an interactive React dashboard with an AI Copilot security assistant.
+> **Full-Spectrum DevSecOps CI/CD Pipeline & Security Platform** — Scans every commit for exposed secrets (**Gitleaks**), SAST patterns (**Semgrep**), container vulnerabilities (**Trivy**), and live API runtime flaws (**OWASP ZAP DAST**). Enforces dynamic security policies (`policy.yaml`) and streams real-time telemetry to an interactive React dashboard with an AI Copilot.
 
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=github-actions&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)

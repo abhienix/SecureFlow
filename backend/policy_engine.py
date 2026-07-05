@@ -1,15 +1,8 @@
 """
-Policy engine for SecureFlow.
+Policy evaluation engine for SecureFlow.
 
-This file decides whether a Docker image scan should be ALLOWED or BLOCKED,
-based on rules written in policy.yaml.
-
-How it works, in plain steps:
-1. Load policy.yaml (rules per repo, plus a fallback "default" rule).
-2. Look at every vulnerability Trivy found.
-3. Check each one against the rules: is it allowlisted? does its severity
-   block? does its CVSS score cross the threshold?
-4. If anything is blocked, the final action is BLOCK. Otherwise ALLOW.
+Evaluates scan findings (Gitleaks, Semgrep, Trivy, OWASP ZAP) against policy.yaml
+rules to enforce security gates and CVSS risk thresholds before deployment.
 """
 
 import os
