@@ -1181,10 +1181,18 @@ function ExportReportModal({ scans, healthScore, avgRisk, onClose, C }) {
   };
 
   const reportJSON = useMemo(() => {
+    if (!isAuthorized) {
+      return JSON.stringify({
+        security_classification: "CONFIDENTIAL — FOR AUTHORIZED AUDITORS ONLY",
+        status: "LOCKED_PAYLOAD",
+        message: "Audit payload is locked. Enter your Auditor PIN (e.g. SEC-AUDIT-2026) and click 'Verify Role' to unlock confidential scan data.",
+      }, null, 2);
+    }
+
     return JSON.stringify({
       security_classification: "CONFIDENTIAL — FOR AUTHORIZED AUDITORS ONLY",
       auditor_role: role,
-      authorization_status: isAuthorized ? "VERIFIED_AUDIT_SESSION" : "UNVERIFIED",
+      authorization_status: "VERIFIED_AUDIT_SESSION",
       generated_at: new Date().toISOString(),
       security_health_score: `${healthScore}%`,
       average_risk_score: avgRisk,
