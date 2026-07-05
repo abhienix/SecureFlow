@@ -325,7 +325,7 @@ function resultToStatus(stage, fallbackStatus) {
   if (!stage) return isRunning ? "pending" : "skipped";
   
   const result = (stage?.result || "").toUpperCase();
-  if (result === "PASS" || result === "PASSED" || result === "ALLOW" || result === "SUCCESS") return "passed";
+  if (result === "PASS" || result === "PASSED" || result === "ALLOW" || result === "SUCCESS" || result === "SCANNED") return "passed";
   if (result === "FAIL" || result === "FAILED" || result === "BLOCK" || result === "FAILURE") return "failed";
   if (result === "RUNNING" || result === "IN_PROGRESS") return "running";
   if (result === "SKIPPED") return "skipped";

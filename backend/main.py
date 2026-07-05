@@ -356,6 +356,14 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
             if scan:
                 for key, value in fields.items():
+                    if key == "findings" and scan.findings:
+                        existing_res = scan.findings.get("Results") or []
+                        incoming_res = (value or {}).get("Results") or []
+                        if existing_res and not incoming_res:
+                            continue
+                    if key in ("ai_explanation", "ai_fix") and getattr(scan, key):
+                        if not value:
+                            continue
                     setattr(scan, key, value)
                 scan.status = "complete"
                 merged_steps = dict(scan.pipeline_steps or {})
