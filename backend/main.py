@@ -529,6 +529,13 @@ def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db))
 
 @app.post("/api/policy/update")
 def update_policy(data: dict):
+    admin_key = (data.get("admin_key") or "").strip()
+    if admin_key not in ["ADMIN-POLICY-KEY-2026", "SEC-ADMIN-2026"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: SecOps Admin Authorization Key required to modify production policy.yaml."
+        )
+
     cvss_threshold = data.get("cvss_threshold")
     if cvss_threshold is None:
         raise HTTPException(status_code=400, detail="cvss_threshold is required")
@@ -550,7 +557,8 @@ def update_policy(data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update policy.yaml: {e}")
 
-    return {"status": "policy updated", "cvss_threshold": val}
+    logger.info(f"AUDIT LOG: Production policy.yaml modified — CVSS threshold set to {val} by SecOps Admin")
+    return {"status": "policy updated", "cvss_threshold": val, "authorized_by": "SecOps Admin"}
 
 
 # ---------------------------------------------------------------------------
