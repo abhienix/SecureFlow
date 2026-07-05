@@ -641,8 +641,8 @@ jobs:
                 code_scan: { result: "PASS",    detail: "no secrets or bad patterns found" },
                 docker:    { result: "PASS",    detail: "image built and pushed" },
                 trivy:     { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" },
-                policy:    { result: "PASS",    detail: "policy gate allowed deployment" },
-                deploy:    { result: "RUNNING", detail: "Policy passed — initializing Cloud Run deployment..." },
+                policy:    { result: "RUNNING", detail: "evaluating policy rules..." },
+                deploy:    { result: "PENDING", detail: "Awaiting policy gate decision..." },
                 zap:       { result: "PENDING", detail: "Awaiting Cloud Run deployment..." }
               }
             }')
@@ -658,7 +658,14 @@ jobs:
 
           if [ "$ACTION" = "BLOCK" ]; then
             echo "Policy gate says BLOCK — not deploying."
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Content-Type: application/json" \
+              -d '{ "pipeline_steps": { "policy": { "result": "BLOCK", "detail": "policy engine rejected deployment" } } }' || true
             exit 1
+          else
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Content-Type: application/json" \
+              -d '{ "pipeline_steps": { "policy": { "result": "PASS", "detail": "policy gate allowed deployment" } } }' || true
           fi
 
       # ── Step 13: Deploy backend ──────────────────────────────────────────────
@@ -811,10 +818,7 @@ jobs:
             '{
               repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
               scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
-              run_id: $run_id, findings: {},
-              pipeline_steps: {
-                deploy: { result: "FAILED", detail: "job ended unexpectedly — see Actions logs" }
-              }
+              run_id: $run_id, findings: {}
             }')
           curl -sS -X POST "$BACKEND_URL/api/scan-results" \
             -H "Content-Type: application/json" -d "$PAYLOAD" || true
