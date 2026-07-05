@@ -1,4 +1,5 @@
-FROM python:3.11-alpine3.22
+# trivy test - EOL image with CRITICAL CVEs to verify Trivy gate blocks
+FROM python:3.6-slim
 WORKDIR /app
 RUN apk add --no-cache gcc musl-dev libffi-dev && \
     apk upgrade --no-cache
