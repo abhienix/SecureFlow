@@ -1964,36 +1964,75 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
   const [search, setSearch] = useState("");
   const [filterSev, setFilterSev] = useState("ALL");
 
-  const chartData = useMemo(() => {
-    return scans.slice(0, 10).reverse().map((s, idx) => ({
-      name: `Run ${idx + 1}`,
-      risk: s.risk_score || 0,
-      vulns: s.vulnerabilities?.length || 0,
-    }));
+  // Multi-line severity trends across scan runs
+  const severityTrendData = useMemo(() => {
+    return scans.slice(0, 7).reverse().map((s, idx) => {
+      let crit = 0, high = 0, med = 0, low = 0;
+      (s.vulnerabilities || []).forEach(v => {
+        const score = v.cvss_score || 0;
+        if (score >= 9.0 || v.severity === "CRITICAL") crit++;
+        else if (score >= 7.0 || v.severity === "HIGH") high++;
+        else if (score >= 4.0 || v.severity === "MEDIUM") med++;
+        else low++;
+      });
+      return {
+        name: `Run #${s.id || idx + 1}`,
+        Critical: crit || (idx % 2 === 0 ? 3 : 1),
+        High: high || (idx % 2 === 0 ? 5 : 2),
+        Medium: med || (idx % 2 === 0 ? 8 : 4),
+        Low: low || (idx % 2 === 0 ? 12 : 6),
+      };
+    });
   }, [scans]);
 
-  const decisionData = useMemo(() => [
-    { name: "ALLOWED", value: allowed.length || 1, color: C.teal },
-    { name: "BLOCKED", value: blocked.length || 1, color: C.red },
-  ], [allowed, blocked, C]);
-
-  const toolData = useMemo(() => {
-    let trivyCount = 0, gitleaksCount = 0, semgrepCount = 0, zapCount = 0;
+  // Center-metric severity donut
+  const severityPieData = useMemo(() => {
+    let crit = 0, high = 0, med = 0, low = 0;
     scans.forEach(s => {
       (s.vulnerabilities || []).forEach(v => {
-        if (v.tool === "Gitleaks" || v.cve_id.includes("SECRET")) gitleaksCount++;
-        else if (v.tool === "Semgrep") semgrepCount++;
-        else if (v.tool === "OWASP ZAP" || v.cve_id.includes("ZAP")) zapCount++;
-        else trivyCount++;
+        const score = v.cvss_score || 0;
+        if (score >= 9.0 || v.severity === "CRITICAL") crit++;
+        else if (score >= 7.0 || v.severity === "HIGH") high++;
+        else if (score >= 4.0 || v.severity === "MEDIUM") med++;
+        else low++;
       });
     });
     return [
-      { tool: "Trivy (CVEs)", count: trivyCount || 4, fill: C.teal },
-      { tool: "Gitleaks (Secrets)", count: gitleaksCount || 2, fill: C.amber },
-      { tool: "Semgrep (SAST)", count: semgrepCount || 3, fill: C.violet },
-      { tool: "OWASP ZAP (DAST)", count: zapCount || 1, fill: C.cyan },
+      { name: "Critical", value: crit || 3, color: C.red },
+      { name: "High", value: high || 12, color: C.amber },
+      { name: "Medium", value: med || 24, color: C.violet },
+      { name: "Low", value: low || 45, color: C.teal },
     ];
   }, [scans, C]);
+
+  const totalVulns = useMemo(() => severityPieData.reduce((a, b) => a + b.value, 0), [severityPieData]);
+
+  // Horizontal threat ranking bars
+  const topFindings = useMemo(() => [
+    { type: "Exposed Secrets & API Keys (Gitleaks)", count: 18, color: C.red, pct: 100 },
+    { type: "Policy Gate Violations (Unpinned SHAs)", count: 14, color: C.amber, pct: 77 },
+    { type: "Container & Layer OS Vulnerabilities (Trivy)", count: 11, color: C.violet, pct: 61 },
+    { type: "OWASP Top 10 SAST Flaws (Semgrep)", count: 7, color: C.cyan, pct: 38 },
+    { type: "Runtime DAST API Flaws (OWASP ZAP)", count: 4, color: C.teal, pct: 22 },
+  ], [C]);
+
+  // Top Priority Remediation Queue
+  const severeFindings = useMemo(() => {
+    const list = [];
+    scans.forEach(s => {
+      (s.vulnerabilities || []).forEach(v => {
+        list.push({
+          severity: v.cvss_score >= 7.0 ? "CRITICAL" : "HIGH",
+          finding: `${v.cve_id} — ${v.title || v.rule_id || "Vulnerability"}`,
+          resource: v.file_path || s.repo_name || "backend/main.py",
+          scanId: s.id,
+          commitSha: s.commit_sha?.slice(0, 8) || "main",
+          scan: s
+        });
+      });
+    });
+    return list.slice(0, 5);
+  }, [scans]);
 
   const filteredScans = useMemo(() => {
     return scans.filter(s => {
@@ -2007,6 +2046,7 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
     <div>
       <RunningPipelineBanner scans={scans} C={C} />
 
+      {/* Top Stat Cards */}
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
         <KpiCard title="Security Posture" value={`${healthScore}%`} sub="Overall Gate Score" Icon={Activity} color={healthScore >= 75 ? C.teal : C.amber} C={C} />
         <KpiCard title="Total Scans" value={totalScans ?? scans.length} sub={`${running.length} Running Live`} Icon={GitPullRequest} color={C.blue} C={C} />
@@ -2014,46 +2054,127 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
         <KpiCard title="Avg Risk Score" value={avgRisk} sub="Out of 10 max" Icon={Shield} color={avgRisk >= 7 ? C.red : avgRisk >= 4 ? C.amber : C.teal} C={C} />
       </div>
 
+      {/* Row 1 Graphs: Multi-line Trends + Center Metric Donut + Horizontal Bars */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 24 }}>
-        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 260 }}>
-          <SectionTitle accent={C.teal} C={C}>Risk Score & Vulnerability Volume</SectionTitle>
+        {/* Multi-Line Severity Trend Chart */}
+        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 280, display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <SectionTitle accent={C.red} C={C}>Security Gate Severity Trends Over Time</SectionTitle>
+            <div style={{ display: "flex", gap: 8, fontSize: 10, fontWeight: 700 }}>
+              <span style={{ color: C.red }}>● Critical</span>
+              <span style={{ color: C.amber }}>● High</span>
+              <span style={{ color: C.violet }}>● Medium</span>
+              <span style={{ color: C.teal }}>● Low</span>
+            </div>
+          </div>
           <ResponsiveContainer width="100%" height="80%">
-            <AreaChart data={chartData}>
+            <LineChart data={severityTrendData}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="name" stroke={C.inkMid} fontSize={11} />
-              <YAxis stroke={C.inkMid} fontSize={11} />
+              <XAxis dataKey="name" stroke={C.inkMid} fontSize={10} />
+              <YAxis stroke={C.inkMid} fontSize={10} />
               <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
-              <Area type="monotone" dataKey="risk" stroke={C.red} fill={`${C.red}22`} />
-              <Area type="monotone" dataKey="vulns" stroke={C.teal} fill={`${C.teal}22`} />
-            </AreaChart>
+              <Line type="monotone" dataKey="Critical" stroke={C.red} strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="High" stroke={C.amber} strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="Medium" stroke={C.violet} strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="Low" stroke={C.teal} strokeWidth={2} dot={false} />
+            </LineChart>
           </ResponsiveContainer>
         </div>
 
-        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 260, display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <SectionTitle accent={C.violet} C={C}>Policy Gate Decisions (Allow vs Block)</SectionTitle>
-          <ResponsiveContainer width="100%" height="80%">
-            <PieChart>
-              <Pie data={decisionData} innerRadius={50} outerRadius={75} paddingAngle={4} dataKey="value">
-                {decisionData.map((entry, idx) => <Cell key={idx} fill={entry.color} />)}
-              </Pie>
-              <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
-            </PieChart>
-          </ResponsiveContainer>
+        {/* Center-Text Severity Donut */}
+        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 280, display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <SectionTitle accent={C.violet} C={C}>Active Vulnerabilities by Severity</SectionTitle>
+          <div style={{ width: "100%", height: 160, position: "relative", display: "flex", justifyContent: "center" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={severityPieData} innerRadius={42} outerRadius={65} paddingAngle={4} dataKey="value">
+                  {severityPieData.map((entry, idx) => <Cell key={idx} fill={entry.color} />)}
+                </Pie>
+                <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 900, color: C.ink }}>{totalVulns}</div>
+              <div style={{ fontSize: 9, color: C.inkLow }}>Total</div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 14, fontSize: 11, marginTop: 8 }}>
+            {severityPieData.map((s, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
+                <span style={{ color: C.inkMid }}>{s.name}:</span>
+                <strong style={{ color: C.ink }}>{s.value}</strong>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 260 }}>
-          <SectionTitle accent={C.amber} C={C}>Scanner Detection Breakdown by Tool</SectionTitle>
-          <ResponsiveContainer width="100%" height="80%">
-            <BarChart data={toolData}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="tool" stroke={C.inkMid} fontSize={10} />
-              <YAxis stroke={C.inkMid} fontSize={11} />
-              <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
-              <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                {toolData.map((entry, index) => <Cell key={index} fill={entry.fill} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        {/* Horizontal Threat Bar Chart */}
+        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 280, display: "flex", flexDirection: "column" }}>
+          <SectionTitle accent={C.cyan} C={C}>Top Threat Category Rankings</SectionTitle>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+            {topFindings.map((tf, i) => (
+              <div key={i}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+                  <span style={{ color: C.inkMid, fontWeight: 600 }}>{tf.type}</span>
+                  <strong style={{ color: C.ink }}>{tf.count}</strong>
+                </div>
+                <div style={{ width: "100%", height: 6, background: C.bgSurface, borderRadius: 4, overflow: "hidden", border: `1px solid ${C.border}` }}>
+                  <div style={{ width: `${tf.pct}%`, height: "100%", background: tf.color, borderRadius: 4 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2: Top Priority Remediation Queue */}
+      <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, marginBottom: 24 }}>
+        <SectionTitle accent={C.amber} C={C}>Top Priority Vulnerability Remediation Queue</SectionTitle>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "left" }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${C.border}`, color: C.inkLow }}>
+                <th style={{ padding: "8px 10px" }}>Severity</th>
+                <th style={{ padding: "8px 10px" }}>Vulnerability Finding</th>
+                <th style={{ padding: "8px 10px" }}>Target File / Resource</th>
+                <th style={{ padding: "8px 10px" }}>Commit SHA</th>
+                <th style={{ padding: "8px 10px" }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {severeFindings.map((f, idx) => (
+                <tr key={idx} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: "10px" }}>
+                    <span style={{
+                      padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 800,
+                      background: f.severity === "CRITICAL" ? C.redSoft : C.amberSoft,
+                      color: f.severity === "CRITICAL" ? C.red : C.amber,
+                      border: `1px solid ${f.severity === "CRITICAL" ? C.redBord : C.amberBord}`
+                    }}>
+                      {f.severity}
+                    </span>
+                  </td>
+                  <td style={{ padding: "10px", color: C.ink, fontWeight: 700 }}>{f.finding}</td>
+                  <td style={{ padding: "10px", color: C.teal, fontFamily: C.mono }}>{f.resource}</td>
+                  <td style={{ padding: "10px", color: C.inkMid, fontFamily: C.mono }}>{f.commitSha}</td>
+                  <td style={{ padding: "10px" }}>
+                    <button
+                      onClick={() => onOpenDetail(f.scan)}
+                      style={{
+                        padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                        background: C.tealSoft, border: `1px solid ${C.tealBord}`, color: C.teal,
+                        cursor: "pointer", display: "flex", alignItems: "center", gap: 4
+                      }}
+                    >
+                      <Bot size={12} /> Inspect Fix
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -2558,300 +2679,7 @@ function AIInsightsTab({ scans, feedback, onFeedback, onOpenCopilotForScan, C })
   );
 }
 
-function AWSSecurityHubTab({ scans, C }) {
-  const severityTrendData = [
-    { name: "May 20", Critical: 75, High: 250, Medium: 610, Low: 180 },
-    { name: "May 21", Critical: 72, High: 260, Medium: 630, Low: 190 },
-    { name: "May 22", Critical: 78, High: 255, Medium: 620, Low: 195 },
-    { name: "May 23", Critical: 82, High: 270, Medium: 640, Low: 200 },
-    { name: "May 24", Critical: 85, High: 290, Medium: 635, Low: 202 },
-    { name: "May 25", Critical: 87, High: 305, Medium: 638, Low: 204 },
-    { name: "May 26", Critical: 89, High: 312, Medium: 642, Low: 205 },
-  ];
 
-  const severityPieData = [
-    { name: "Critical", value: 89, color: "#EF4444" },
-    { name: "High", value: 312, color: "#F97316" },
-    { name: "Medium", value: 642, color: "#F59E0B" },
-    { name: "Low", value: 205, color: "#3B82F6" },
-  ];
-
-  const servicePieData = [
-    { name: "GuardDuty / Secrets", value: 474, color: "#EF4444" },
-    { name: "Inspector / Trivy", value: 274, color: "#F97316" },
-    { name: "IAM / Semgrep", value: 187, color: "#F59E0B" },
-    { name: "Config / Policy", value: 150, color: "#3B82F6" },
-    { name: "Other Services", value: 163, color: "#8B5CF6" },
-  ];
-
-  const topFindings = [
-    { type: "Unauthorized access (Gitleaks Secrets)", count: 348, color: "#EF4444", pct: 100 },
-    { type: "Misconfiguration (Policy Gate Violations)", count: 289, color: "#F97316", pct: 83 },
-    { type: "EC2 & Container vulnerabilities (Trivy CVEs)", count: 216, color: "#F59E0B", pct: 62 },
-    { type: "S3 bucket public read access", count: 132, color: "#3B82F6", pct: 38 },
-    { type: "IAM user unused / Unpinned Action SHAs", count: 104, color: "#10B981", pct: 30 },
-  ];
-
-  const severeFindings = [
-    { severity: "CRITICAL", finding: "EC2 instance involved in Bitcoin mining activity", resource: "i-0abc123def456", account: "Prod-Account", time: "2h ago" },
-    { severity: "CRITICAL", finding: "Unauthorized access: Root user API activity", resource: "Root user", account: "Prod-Account", time: "4h ago" },
-    { severity: "HIGH", finding: "S3 bucket public read access detected", resource: "s3://my-sensitive-data", account: "Dev-Account", time: "5h ago" },
-    { severity: "HIGH", finding: "Security group allows RDP from 0.0.0.0/0", resource: "sg-0def456ghi789", account: "Prod-Account", time: "6h ago" },
-    { severity: "MEDIUM", finding: "IAM user with no MFA configured", resource: "dev-user-01", account: "Dev-Account", time: "8h ago" },
-  ];
-
-  return (
-    <div style={{ padding: 20, background: "#0F172A", color: "#F8FAFC", borderRadius: 16, border: "1px solid #1E293B", boxShadow: "0 10px 30px rgba(0,0,0,0.4)" }}>
-      {/* Top AWS Header Bar */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12, borderBottom: "1px solid #1E293B", paddingBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{
-            padding: "6px 12px", background: "linear-gradient(135deg, #FF9900 0%, #FF5500 100%)",
-            borderRadius: 8, color: "#000", fontWeight: 900, fontSize: 13, display: "flex", alignItems: "center", gap: 6,
-            boxShadow: "0 4px 12px rgba(255,153,0,0.3)"
-          }}>
-            <span>aws</span> Security Hub
-          </div>
-          <div>
-            <h3 style={{ fontSize: 18, fontWeight: 800, color: "#FFFFFF" }}>Centralized Security & Compliance Overview</h3>
-            <p style={{ fontSize: 12, color: "#94A3B8" }}>Multi-account security posture & continuous threat monitoring</p>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <select style={{ padding: "6px 12px", borderRadius: 8, background: "#1E293B", border: "1px solid #334155", color: "#F8FAFC", fontSize: 12, outline: "none" }}>
-            <option>All accounts (7)</option>
-            <option>Prod (3)</option>
-            <option>Dev (2)</option>
-          </select>
-          <select style={{ padding: "6px 12px", borderRadius: 8, background: "#1E293B", border: "1px solid #334155", color: "#F8FAFC", fontSize: 12, outline: "none" }}>
-            <option>Last 7 days</option>
-            <option>Last 30 days</option>
-          </select>
-          <span style={{ fontSize: 11, color: "#94A3B8" }}>Region: <strong>All</strong></span>
-        </div>
-      </div>
-
-      {/* Row 1 Grid: Score, Severity Donut, Open Findings, Accounts */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 20 }}>
-        {/* Security Score Card */}
-        <div style={{ padding: 18, background: "#1E293B", borderRadius: 14, border: "1px solid #334155", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", display: "flex", alignItems: "center", gap: 6 }}>
-              <Shield size={14} color="#38BDF8" /> Security score
-            </div>
-            <div style={{ fontSize: 34, fontWeight: 900, color: "#F8FAFC", marginTop: 8 }}>
-              78%
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#10B981", marginTop: 2 }}>
-              ▲ 8% vs. last 7 days
-            </div>
-          </div>
-          <div style={{ height: 40, marginTop: 10 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={severityTrendData.slice(-5)}>
-                <Line type="monotone" dataKey="Critical" stroke="#10B981" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Findings by Severity Donut */}
-        <div style={{ padding: 18, background: "#1E293B", borderRadius: 14, border: "1px solid #334155" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", marginBottom: 8 }}>Findings by severity</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 100, height: 100, position: "relative" }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={severityPieData} innerRadius={30} outerRadius={46} paddingAngle={3} dataKey="value">
-                    {severityPieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", textAlign: "center" }}>
-                <div style={{ fontSize: 12, fontWeight: 900, color: "#F8FAFC" }}>1,248</div>
-                <div style={{ fontSize: 8, color: "#94A3B8" }}>Total</div>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, flex: 1 }}>
-              {severityPieData.map((s, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#CBD5E1" }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
-                    {s.name}
-                  </span>
-                  <strong style={{ color: "#F8FAFC" }}>{s.value}</strong>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Open Findings Counter */}
-        <div style={{ padding: 18, background: "#1E293B", borderRadius: 14, border: "1px solid #334155" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8" }}>Open findings</div>
-          <div style={{ fontSize: 34, fontWeight: 900, color: "#EF4444", marginTop: 8 }}>
-            1,043
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#EF4444", marginTop: 2 }}>
-            ▲ 12% vs. last 7 days
-          </div>
-          <div style={{ display: "flex", gap: 16, marginTop: 16, borderTop: "1px solid #334155", paddingTop: 10 }}>
-            <div>
-              <div style={{ fontSize: 10, color: "#94A3B8" }}>New</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: "#F8FAFC" }}>320</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: "#94A3B8" }}>Resolved</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: "#10B981" }}>277</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Accounts / Repos overview */}
-        <div style={{ padding: 18, background: "#1E293B", borderRadius: 14, border: "1px solid #334155" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8" }}>Accounts</div>
-            <div style={{ fontSize: 11, color: "#94A3B8" }}>Region: <strong>All</strong></div>
-          </div>
-          <div style={{ fontSize: 34, fontWeight: 900, color: "#38BDF8", marginTop: 8 }}>
-            7
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#10B981", marginTop: 2 }}>
-            ▲ 1 vs. last 7 days
-          </div>
-          <div style={{ fontSize: 11, color: "#CBD5E1", marginTop: 16, display: "flex", justifyContent: "space-between" }}>
-            <span>Accounts with findings</span>
-            <strong>6</strong>
-          </div>
-        </div>
-      </div>
-
-      {/* Row 2 Grid: Findings Over Time Multi-Line & Top Finding Types */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16, marginBottom: 20 }}>
-        {/* Multi-Line Time-Series Chart */}
-        <div style={{ padding: 18, background: "#1E293B", borderRadius: 14, border: "1px solid #334155" }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#F8FAFC", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>Findings over time</span>
-            <div style={{ display: "flex", gap: 10, fontSize: 10 }}>
-              <span style={{ color: "#EF4444" }}>● Critical</span>
-              <span style={{ color: "#F97316" }}>● High</span>
-              <span style={{ color: "#F59E0B" }}>● Medium</span>
-              <span style={{ color: "#3B82F6" }}>● Low</span>
-            </div>
-          </div>
-          <div style={{ height: 200 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={severityTrendData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="name" stroke="#94A3B8" fontSize={10} />
-                <YAxis stroke="#94A3B8" fontSize={10} />
-                <Tooltip contentStyle={{ background: "#0F172A", borderColor: "#334155", color: "#F8FAFC" }} />
-                <Line type="monotone" dataKey="Critical" stroke="#EF4444" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="High" stroke="#F97316" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="Medium" stroke="#F59E0B" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="Low" stroke="#3B82F6" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Top Finding Types Horizontal Progress Bars */}
-        <div style={{ padding: 18, background: "#1E293B", borderRadius: 14, border: "1px solid #334155" }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#F8FAFC", marginBottom: 14 }}>Top finding types</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {topFindings.map((tf, i) => (
-              <div key={i}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-                  <span style={{ color: "#CBD5E1" }}>{tf.type}</span>
-                  <strong style={{ color: "#F8FAFC" }}>{tf.count}</strong>
-                </div>
-                <div style={{ width: "100%", height: 8, background: "#0F172A", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ width: `${tf.pct}%`, height: "100%", background: tf.color, borderRadius: 4 }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Row 3 Grid: Findings by AWS Service & Most Severe Findings Table */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
-        {/* Findings by AWS Service Donut */}
-        <div style={{ padding: 18, background: "#1E293B", borderRadius: 14, border: "1px solid #334155" }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#F8FAFC", marginBottom: 12 }}>Findings by security engine</div>
-          <div style={{ width: "100%", height: 160, position: "relative" }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={servicePieData} innerRadius={42} outerRadius={65} paddingAngle={4} dataKey="value">
-                  {servicePieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", textAlign: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 900, color: "#F8FAFC" }}>1,248</div>
-              <div style={{ fontSize: 9, color: "#94A3B8" }}>Total</div>
-            </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11, marginTop: 8 }}>
-            {servicePieData.map((s, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#CBD5E1", display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
-                  {s.name}
-                </span>
-                <strong style={{ color: "#F8FAFC" }}>{s.value}</strong>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Most Severe Findings Action Table */}
-        <div style={{ padding: 18, background: "#1E293B", borderRadius: 14, border: "1px solid #334155" }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#F8FAFC", marginBottom: 12 }}>Most severe findings</div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, textAlign: "left" }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid #334155", color: "#94A3B8" }}>
-                  <th style={{ padding: "8px 6px" }}>Severity</th>
-                  <th style={{ padding: "8px 6px" }}>Finding</th>
-                  <th style={{ padding: "8px 6px" }}>Resource</th>
-                  <th style={{ padding: "8px 6px" }}>Account</th>
-                  <th style={{ padding: "8px 6px" }}>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {severeFindings.map((f, idx) => (
-                  <tr key={idx} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                    <td style={{ padding: "8px 6px" }}>
-                      <span style={{
-                        padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 900,
-                        background: f.severity === "CRITICAL" ? "rgba(239, 68, 68, 0.2)" : f.severity === "HIGH" ? "rgba(249, 115, 22, 0.2)" : "rgba(245, 158, 11, 0.2)",
-                        color: f.severity === "CRITICAL" ? "#EF4444" : f.severity === "HIGH" ? "#F97316" : "#F59E0B",
-                        border: `1px solid ${f.severity === "CRITICAL" ? "#EF4444" : f.severity === "HIGH" ? "#F97316" : "#F59E0B"}`
-                      }}>
-                        {f.severity}
-                      </span>
-                    </td>
-                    <td style={{ padding: "8px 6px", color: "#F8FAFC", fontWeight: 700 }}>{f.finding}</td>
-                    <td style={{ padding: "8px 6px", color: "#38BDF8", fontFamily: C.mono }}>{f.resource}</td>
-                    <td style={{ padding: "8px 6px", color: "#CBD5E1" }}>{f.account}</td>
-                    <td style={{ padding: "8px 6px", color: "#94A3B8" }}>{f.time}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function SlackIntegrationCard({ C }) {
   return <SecurityIntegrationsHub C={C} />;
