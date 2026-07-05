@@ -1,4 +1,5 @@
-FROM python:3.11-alpine3.22
+# trivy test - using old base image to check CVE scanning gate
+FROM python:3.8-slim
 WORKDIR /app
 RUN apk add --no-cache gcc musl-dev libffi-dev && \
     apk upgrade --no-cache
