@@ -315,15 +315,16 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
 
 /* ─── Helpers ─────────────────────────────────────────────────────────── */
 function resultToStatus(stage, fallbackStatus) {
+  if (!stage) return "skipped";
   const result = (stage?.result || "").toUpperCase();
   if (result === "PASS" || result === "PASSED" || result === "ALLOW" || result === "SUCCESS") return "passed";
   if (result === "FAIL" || result === "FAILED" || result === "BLOCK" || result === "FAILURE") return "failed";
   if (result === "RUNNING" || result === "IN_PROGRESS") return "running";
-  if (result === "SKIPPED") return "skipped";
+  if (result === "SKIPPED" || result === "PENDING" || result === "QUEUED") return "skipped";
 
   const st = (fallbackStatus || "").toLowerCase();
   if (st === "complete") return "passed";
-  if (st === "running") return "running";
+  if (st === "running") return "skipped";
   if (st === "timeout" || st === "cancelled") return "failed";
   return "passed";
 }
