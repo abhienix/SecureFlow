@@ -1,199 +1,163 @@
-# 🛡️ SecureFlow
+# 🛡️ SecureFlow — Enterprise DevSecOps Security Gate & Intelligence Platform
 
-> Automated DevSecOps pipeline — scans every push for secrets, vulnerable code, and container CVEs, then deploys or blocks based on policy. Every result streams to a live React dashboard in real time.
+> **Full-Spectrum DevSecOps CI/CD Pipeline** — Scans every push for exposed secrets (**Gitleaks**), SAST code rules (**Semgrep**), container CVEs (**Trivy**), and live API runtime vulnerabilities (**OWASP ZAP DAST**). Enforces a dynamic policy gate (`policy.yaml`) and streams real-time telemetry to an interactive React dashboard with an AI Copilot security assistant.
 
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=github-actions&logoColor=white)
-![Python](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black)
-![GCP](https://img.shields.io/badge/Cloud_Run-4285F4?style=flat-square&logo=google-cloud&logoColor=white)
+![GCP Cloud Run](https://img.shields.io/badge/Cloud_Run-4285F4?style=flat-square&logo=google-cloud&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![OWASP ZAP](https://img.shields.io/badge/OWASP_ZAP-DAST-FF6B6B?style=flat-square&logo=owasp&logoColor=white)
 
-**Live demo → https://secureflow-frontend-1083585992526.us-central1.run.app/**
+**🚀 Live Production Dashboard → [https://secureflow-frontend-1083585992526.us-central1.run.app/](https://secureflow-frontend-1083585992526.us-central1.run.app/)**
 
 ---
 
-## Architecture
+## 🏗️ Architecture & DevSecOps Flow
 
 ```mermaid
 graph TB
     DEV([👨‍💻 git push]) --> GHA
 
-    subgraph GHA["⚙️ GitHub Actions — 16 Steps"]
-        GL[🔑 Gitleaks\nSecret Scan]
-        SG[🔍 Semgrep\nSAST · OWASP Top 10]
-        CHK{Files\nchanged?}
-        DB[🐳 Docker Build\n& Push]
-        TV[📦 Trivy\nCVE Scan]
-        GL --> SG --> CHK
-        CHK -->|no backend changes| SKIP([✅ ALLOW\nno build needed])
-        CHK -->|yes| DB --> TV
+    subgraph GHA["⚙️ GitHub Actions CI/CD Pipeline — 7 Stages"]
+        CK[🔄 Stage 0: Checkout]
+        GL[🔑 Stage 1: Code Scan\nGitleaks & Semgrep SAST]
+        DB[🐳 Stage 2: Docker Build\n& Artifact Registry Push]
+        TV[📦 Stage 3: Trivy CVE Scan]
+        CK --> GL --> DB --> TV
     end
 
     TV --> PG
 
-    subgraph PG["🛡️ Policy Gate — policy.yaml"]
-        SEV[Severity check\nblock_on · warn_on]
-        CV[CVSS threshold\n≥ 7.0 also blocks]
-        AL[Allowlist\nper-CVE expiry dates]
+    subgraph PG["🛡️ Stage 4: Policy Gate — policy.yaml"]
+        SEV[Severity Rules\nblock_on · warn_on]
+        CV[CVSS Threshold\n≥ 7.0 blocks build]
+        AL[Allowlist Engine\nper-CVE auto-expiry]
     end
 
-    GL -->|secrets found| BLK1([🚫 BLOCK])
-    SG -->|pattern found| BLK2([🚫 BLOCK])
-    PG -->|violations| BLK3([🚫 BLOCK])
-    PG -->|clear| CR([✅ Blue-Green\nDeploy → Cloud Run])
+    GL -->|secrets/SAST flaw| BLK1([🚫 BLOCK])
+    PG -->|policy violation| BLK2([🚫 BLOCK])
 
-    BLK1 & BLK2 & BLK3 --> AI
+    PG -->|ALLOW| CR[☁️ Stage 5: Cloud Run Deploy\nBackend & Frontend]
+    CR --> ZAP[⚡ Stage 6: OWASP ZAP DAST Scan\nLive API Security Probe]
+
+    BLK1 & BLK2 --> AI
 
     subgraph AI["🤖 AI Engine — ai_analysis.py"]
         GR[Groq · llama-3.3-70b\nPrimary]
         GM[Gemini · flash-lite\nFallback]
-        OL[Ollama · qwen2.5:7b\nLocal last resort]
+        OL[Ollama · qwen2.5:7b\nLocal Resort]
         GR -->|fail| GM -->|fail| OL
     end
 
     AI -->|explanation + fix\n+ risk score 1–10| BE
 
-    subgraph BE["🐍 FastAPI Backend — Cloud Run"]
-        WS[WebSocket\nBroadcaster]
-        WD[Stale Run Watchdog\ntimeout after 20 min]
-        PG2[(PostgreSQL\nScan History)]
-        RD[(Redis\nCache)]
+    subgraph BE["🐍 FastAPI Backend — Google Cloud Run"]
+        WS[WebSocket Broadcaster]
+        SLK[Slack Webhook Dispatcher\n#devsecops-alerts]
+        DB_PG[(PostgreSQL Scan History)]
     end
 
     WS -->|real-time push| DASH
 
-    subgraph DASH["⚛️ React Dashboard — 4 Tabs"]
-        OV[Overview\nKPIs · Charts · Activity]
-        PL[Pipeline\nLive Step Status]
-        INS[AI Insights\nGauges · Heatmap · Scatter]
-        MT[Metrics\nBlock rate · Stage stats]
-        COP[🤖 AI Copilot\nFloating chat · context-aware]
+    subgraph DASH["⚛️ React Dashboard — 4 Interactive Tabs"]
+        OV[Overview\nHealth Score · Risk Trend · Decision Pie]
+        PL[Pipeline\n7-Stage Flow · Terminal Inspector]
+        INS[AI Insights\nRemedies · Feedback Rating]
+        MT[Metrics\nOWASP Radar · Policy Sandbox · Audit Exporter]
+        COP[🤖 AI Security Copilot\nContext-aware Q&A Chat]
     end
 
     style BLK1 fill:#e03131,color:#fff
     style BLK2 fill:#e03131,color:#fff
-    style BLK3 fill:#e03131,color:#fff
-    style SKIP fill:#2f9e44,color:#fff
-    style CR   fill:#2f9e44,color:#fff
+    style CR   fill:#0c8599,color:#fff
+    style ZAP  fill:#2f9e44,color:#fff
     style GR   fill:#4dabf7,color:#fff
-    style GM   fill:#74c0fc,color:#333
-    style OL   fill:#a5d8ff,color:#333
     style COP  fill:#845ef7,color:#fff
 ```
 
 ---
 
-## Key Features
+## 🔥 Key Innovations & Core Features
 
-**Three-layer scanning** — Gitleaks scans full git history for secrets (not just the working tree). Semgrep checks OWASP Top 10 patterns across four rulesets. Trivy scans the built Docker image for CVEs. Each is a hard gate.
+### 1. 🛡️ 4-Layer Security Stack (SAST + SCA + Secrets + DAST)
+- **Secret Scanning (Gitleaks)**: Scans full git commit history for exposed API keys and credentials.
+- **SAST (Semgrep)**: Checks OWASP Top 10 code patterns across Python and GitHub Actions workflow rules.
+- **SCA Container Scanning (Trivy)**: Scans container images for CVE vulnerabilities.
+- **DAST (OWASP ZAP)**: Dynamic security scanning against live deployed Cloud Run API endpoints (`https://secureflow-backend.../docs`).
 
-**Policy gate** — `policy.yaml` controls block/warn thresholds per repo with per-CVE allowlisting and expiry dates. Reloads on every request, no server restart needed. A dual blocking condition catches MEDIUM CVEs with a CVSS score above the threshold.
+### 2. 🎛️ Interactive Policy Engine Sandbox & SecOps Lock
+- Dynamic evaluation via [`policy.yaml`](file:///c:/Users/Abhimanyu%20kumar/project/DevSecOps/SecureFlow/policy.yaml) with CVSS score thresholds and allowlists.
+- **"What-If" Policy Simulator**: Interactive slider on the dashboard to test how tightening policy rules affects historical block rates.
+- **SecOps Admin Authorization Lock**: Modifying production policy rules requires entering a SecOps Admin Key (`ADMIN-POLICY-KEY-2026`).
 
-**AI analysis** — Every block triggers a Groq → Gemini → Ollama fallback chain that generates a specific explanation (CVE IDs, exploit paths) and numbered fix steps with exact package versions. Never fails silently.
+### 3. 📄 Executive Audit Exporter & Secret Masking
+- Single-click **"Export Audit Report"** generator for compliance auditors (SOC 2, ISO 27001).
+- **Role-Based Authorization & Secret Redaction**: Enforces auditor PIN verification (`SEC-AUDIT-2026`) and automatically redacts credentials (`[REDACTED_SECRET_KEY]`) in exported payloads.
 
-**AI Copilot** — Floating chat panel on the dashboard. Sends full scan context (recent 25 scans, aggregate stats, conversation history) with every question so answers are grounded in your actual pipeline data. Quick-action buttons for common queries. Read-only by design — cannot retrigger scans or flip decisions.
+### 4. 🤖 AI Remedy Engine & Copilot Assistant
+- Every blocked commit triggers an AI fallback chain (**Groq → Gemini → Ollama**) generating root-cause explanations and single-click **"Copy Code Fix"** buttons.
+- **User Feedback Rating Loop**: Rate AI analysis accuracy directly from the UI with feedback saved to PostgreSQL.
+- **Context-Aware AI Copilot**: Floating chat panel equipped with scan focus selectors and DevSecOps prompt chips.
 
-**Real-time WebSocket dashboard** — Single React page, four tabs. Pipeline step indicators update live as GitHub Actions runs. A stale-run watchdog automatically closes any run stuck at "running" after 20 minutes so the dashboard never shows stale state.
-
-**Smart change detection** — Only rebuilds Docker if backend files changed. Frontend-only pushes skip the image build and Trivy scan entirely. Add `[deploy]` to a commit message to force a full deploy regardless.
-
-**Blue-green deployment** — New Cloud Run revision deploys at 0% traffic, gets health-checked, then promoted. Previous revision stays live until promotion succeeds.
-
----
-
-## Dashboard — 4 Tabs
-
-| Tab | What's inside |
-|---|---|
-| **Overview** | Health score, avg risk, block rate KPIs · Risk trend area chart · Allow vs block pie · Severity distribution bar · Security posture radar · Daily activity · Latest 5 commits |
-| **Pipeline** | Live running pipelines with animated step nodes · Recent completed runs · Expand any commit to see full stage detail + AI analysis |
-| **AI Insights** | Prometheus-style arc gauges (block rate, AI coverage, confidence) · Confidence histogram · Risk-by-repo heatmap · AI confidence vs risk scatter plot · All blocked commits with full AI explanations and remedies |
-| **Metrics** | Daily scan volume · Risk distribution · Cumulative block rate · AI confidence over time · Pipeline stage pass rates |
+### 5. 💬 Real-Time Slack Security Webhook Dispatcher
+- Dispatches formatted security alerts to `#devsecops-alerts` Slack channels on every `BLOCK` or `ALLOW` event with one-click dashboard test triggers.
 
 ---
 
-## Policy Gate
+## 📊 Dashboard Overview — 4 Tabs
 
-```yaml
-default:
-  block_on: [CRITICAL, HIGH]
-  warn_on: [MEDIUM]
-  cvss_threshold: 7.0        # blocks MEDIUM CVEs with CVSS ≥ 7.0 too
-
-repos:
-  SecureFlow:
-    block_on: [CRITICAL]     # relaxed: base image has unfixable OS-level HIGHs
-    warn_on: [HIGH, MEDIUM]
-    allowlist:
-      - cve: CVE-2005-2541
-        expires: 2026-12-01
-        reason: "tar, no upstream fix, Debian ships it unfixed by design"
-```
+| Tab | Key Features |
+| :--- | :--- |
+| **Overview** | Health Score Arc Gauge · Risk Trend Area Chart · Policy Decision Donut Chart · Scanner Breakdown Bar Chart (**Trivy**, **Gitleaks**, **Semgrep**, **OWASP ZAP**) · Live Feed |
+| **Pipeline** | **7-Stage Visual Pipeline Diagram** · Expandable Stage Inspector with `$ command` logs and duration metrics · Full Commit SHA Copy |
+| **AI Insights** | AI Remediation Cards · Single-click Code Fix Generator · Accuracy Feedback Loop (Accurate / Incorrect) |
+| **Metrics & Policy** | **OWASP Top 10 Compliance Radar Chart** · Interactive Policy Sandbox Simulator · Active Policy Rules Matrix · Slack Dispatcher Card |
 
 ---
 
-## AI Fallback Chain
+## ⚙️ Tech Stack & Security Tools
 
-```
-Groq (llama-3.3-70b-versatile) → Gemini (gemini-2.5-flash-lite) → Ollama (qwen2.5:7b, local)
-```
-
-Each provider only tried if its API key is configured. Ollama runs locally — pipeline never fully fails without internet access.
-
----
-
-## Tech Stack
-
-| Layer | Tech |
-|---|---|
-| Pipeline | GitHub Actions (16 steps) |
-| Secret scan | Gitleaks v8.24.3 |
-| SAST | Semgrep (OWASP Top 10, Python, Secrets) |
-| Container scan | Trivy |
-| Backend | FastAPI + PostgreSQL + Redis |
-| AI | Groq → Gemini → Ollama |
-| Frontend | React + Recharts + Framer Motion + WebSockets |
-| Infra | GCP Cloud Run + Artifact Registry |
-| Metrics | Prometheus + Grafana |
+| Layer | Technology |
+| :--- | :--- |
+| **CI/CD Pipeline** | GitHub Actions (7-Stage Workflow) |
+| **Secret Scanning** | Gitleaks v8.24.3 |
+| **SAST** | Semgrep (OWASP Top 10, Python, Security Rules) |
+| **Container SCA** | Trivy Container Vulnerability Scanner |
+| **Runtime DAST** | OWASP ZAP (Zed Attack Proxy) Baseline API Scanner |
+| **Policy Engine** | Custom Python Engine + PyYAML (`policy.yaml`) |
+| **Backend** | FastAPI + PostgreSQL + SQLAlchemy + WebSockets |
+| **AI Core** | Groq (`llama-3.3-70b`) ➔ Gemini (`flash-lite`) ➔ Ollama (`qwen2.5`) |
+| **Frontend** | React + Recharts + Framer Motion + Lucide Icons |
+| **Cloud Infra** | Google Cloud Run + Artifact Registry |
 
 ---
 
-## Local Setup
+## 🛠️ Local Development Setup
 
 ```bash
+# 1. Clone the repository
 git clone https://github.com/abhienix/SecureFlow.git
 cd SecureFlow
+
+# 2. Start PostgreSQL, Redis & FastAPI backend
 docker compose up -d
+
+# 3. Start React frontend
+cd frontend
+npm install
+npm start
 ```
 
-| Service | URL |
-|---|---|
-| Dashboard | http://localhost:3000 |
-| Backend API | http://localhost:8000 |
-| Grafana | http://localhost:3001 (admin / admin) |
-
-**Required GitHub Secrets:** `BACKEND_URL` · `GCP_SA_KEY`
-
----
-
-## Project Structure
-
-```
-SecureFlow/
-├── .github/workflows/secureflow.yml   # 16-step CI/CD pipeline
-├── backend/
-│   ├── main.py                        # FastAPI — REST + WebSocket + Copilot API
-│   ├── policy_engine.py               # Evaluates policy.yaml per repo
-│   └── ai_analysis.py                 # Groq → Gemini → Ollama fallback chain
-├── frontend/
-│   └── src/App.jsx                    # Single-page dashboard (4 tabs + AI Copilot)
-├── policy.yaml                        # Security thresholds + CVE allowlist
-└── docker-compose.yml                 # Local dev stack
-```
+| Service | Access URL |
+| :--- | :--- |
+| **React Dashboard** | `http://localhost:3000` |
+| **FastAPI Docs** | `http://localhost:8000/docs` |
+| **Cloud Run Production** | `https://secureflow-frontend-1083585992526.us-central1.run.app` |
 
 ---
 
 <p align="center">
-Built by <a href="https://github.com/abhienix">Abhimanyu Kumar</a> ·
-<a href="https://www.linkedin.com/in/abhimanyu-sec">LinkedIn</a>
+  Built by <a href="https://github.com/abhienix">Abhimanyu Kumar</a> · 
+  <a href="https://www.linkedin.com/in/abhimanyu-sec">LinkedIn</a>
 </p>
