@@ -487,7 +487,8 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     # -------------------------------------------------------------------
     # 🔥 MAIN POLICY ENGINE (NOW FIXED FOR ALL SCANNERS)
     # -------------------------------------------------------------------
-    policy_result = evaluate_policy(normalized_findings, repo_name)
+    custom_policy = data.get("policy")
+    policy_result = evaluate_policy(normalized_findings, repo_name, custom_policy=custom_policy)
 
     # -------------------------------------------------------------------
     # AI analysis (Trivy only, unchanged)
