@@ -487,7 +487,13 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     # -------------------------------------------------------------------
     # 🔥 MAIN POLICY ENGINE (NOW FIXED FOR ALL SCANNERS)
     # -------------------------------------------------------------------
-    custom_policy = data.get("policy")
+    custom_policy = data.get("policy") or data.get("policy_raw")
+    if isinstance(custom_policy, str):
+        import yaml
+        try:
+            custom_policy = yaml.safe_load(custom_policy)
+        except Exception:
+            custom_policy = None
     policy_result = evaluate_policy(normalized_findings, repo_name, custom_policy=custom_policy)
 
     # -------------------------------------------------------------------

@@ -624,8 +624,6 @@ jobs:
             RUN_ID_JSON="null"
           fi
 
-          POLICY_JSON=$(python -c "import yaml, json; print(json.dumps(yaml.safe_load(open('policy.yaml'))))" 2>/dev/null || echo "{}")
-
           PAYLOAD=$(jq -n \
             --arg repo "$REPO_NAME" \
             --arg sha "$COMMIT_SHA" \
@@ -634,11 +632,11 @@ jobs:
             --arg scan_type "full-pipeline" \
             --argjson vuln_count "$VULN_COUNT" \
             --argjson run_id "$RUN_ID_JSON" \
-            --argjson policy "$POLICY_JSON" \
+            --rawfile policy_raw policy.yaml \
             --slurpfile findings trivy-results.json \
             '{
               repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
-              scan_type: $scan_type, run_id: $run_id, status: "running", findings: $findings[0], policy: $policy,
+              scan_type: $scan_type, run_id: $run_id, status: "running", findings: $findings[0], policy_raw: $policy_raw,
               pipeline_steps: {
                 checkout:  { result: "PASS",    detail: "code checked out" },
                 code_scan: { result: "PASS",    detail: "no secrets or bad patterns found" },
