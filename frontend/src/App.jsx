@@ -3139,7 +3139,6 @@ export default function App() {
                 />
               )}
               {activeTab === "metrics" && <MetricsTab scans={scans} totalScans={totalScans} C={C} />}
-              {activeTab === "aws-hub" && <AWSSecurityHubTab scans={scans} C={C} />}
             </>
           )}
         </main>
