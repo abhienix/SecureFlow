@@ -2191,22 +2191,8 @@ function AIInsightsTab({ scans, feedback, onFeedback, C }) {
 }
 
 function SlackIntegrationCard({ C }) {
-  const [testingSlack, setTestingSlack] = useState(false);
-  const [slackResult, setSlackResult] = useState(null);
-
-  const triggerSlackTest = async () => {
-    setTestingSlack(true);
-    setSlackResult(null);
-    try {
-      const res = await fetch(`${BACKEND}/api/slack/test`, { method: "POST" });
-      const data = await res.json();
-      setSlackResult(data.message || "Slack test trigger completed.");
-    } catch {
-      setSlackResult("Failed to trigger Slack test alert.");
-    } finally {
-      setTestingSlack(false);
-    }
-  };
+  return <SlackWebhookConfig C={C} />;
+}
 
 function SlackWebhookConfig({ C }) {
   const [testingSlack, setTestingSlack] = useState(false);
