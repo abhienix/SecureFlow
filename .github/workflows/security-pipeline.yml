@@ -743,6 +743,25 @@ jobs:
             --allow-unauthenticated \
             --port 8080
 
+      - name: Notify Frontend Deploy Success
+        if: >
+          steps.changes.outputs.frontend_changed == 'true' &&
+          (steps.changes.outputs.image_changed == 'false' || steps.gate.outputs.action == 'ALLOW')
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+        run: |
+          if [ "${{ steps.changes.outputs.image_changed }}" == "false" ]; then
+            # If backend didn't deploy, ZAP DAST will skip. Mark run complete and ZAP skipped.
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Content-Type: application/json" \
+              -d '{ "status": "complete", "pipeline_steps": { "deploy": { "result": "PASS", "detail": "secureflow-frontend deployed to Cloud Run" }, "zap": { "result": "SKIPPED", "detail": "No backend deployed to scan" } } }' || true
+          else
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Content-Type: application/json" \
+              -d '{ "pipeline_steps": { "deploy": { "result": "PASS", "detail": "secureflow-frontend deployed to Cloud Run" } } }' || true
+          fi
+
       # ── Step 16: OWASP ZAP DAST Scan (Post-Deploy Dynamic Security Test) ────
       - name: Run OWASP ZAP API DAST Scan
         if: steps.gate.outputs.action == 'ALLOW'
