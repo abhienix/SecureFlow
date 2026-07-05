@@ -19,7 +19,7 @@ import {
   Loader2, X, Send, Bot, Minimize2,
   Lock, Terminal, Cpu, Globe, Brain,
   Wrench, BarChart2, AlertCircle, Copy, Check, Sun, Moon,
-  Search, Download, FileText, Zap,
+  Search, Download, FileText, Zap, CircleDashed
 } from "lucide-react";
 
 /* ─── Design Tokens (Dark / Light Theme Engine) ─────────────────────────── */
@@ -221,6 +221,7 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
 }
 
 .spin        { animation: spin 1s linear infinite; }
+.spin-slow   { animation: spin 4s linear infinite; }
 .pulse-dot   { animation: pulse 1.8s ease-in-out infinite; }
 .fade-up     { animation: fadeInUp .4s ease forwards; }
 .fade-in     { animation: fadeIn .3s ease forwards; }
@@ -737,7 +738,7 @@ function PipelineMiniNodes({ pipeline, live = false, C }) {
                  stage.status === "passed"  ? <CheckCircle size={iconSize} /> :
                  stage.status === "failed"  ? <XCircle size={iconSize} /> :
                  isSkipped ? <span style={{ fontSize: live ? 13 : 11, fontWeight: 700 }}>⊘</span> :
-                 isPending ? <div style={{ width: 6, height: 6, borderRadius: "50%", background: color }} /> :
+                 isPending ? <CircleDashed size={iconSize - 2} className="spin-slow" style={{ opacity: 0.6 }} /> :
                  Icon ? <Icon size={iconSize - 2} /> : null}
               </motion.div>
               <div style={{ fontSize: 9, color: isSkipped ? C.amber : isActive ? C.blue : isPending ? C.inkLow : C.inkMid, fontWeight: isSkipped || isActive ? 700 : 500, textAlign: "center", whiteSpace: "nowrap" }}>
@@ -2050,7 +2051,7 @@ function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }) {
                      stage.status === "passed"  ? <CheckCircle size={18} /> :
                      stage.status === "failed"  ? <XCircle size={18} /> :
                      isSkipped ? <span style={{ fontSize: 14, fontWeight: 700 }}>⊘</span> :
-                     isPending ? <span style={{ fontSize: 14, fontWeight: 700 }}>—</span> :
+                     isPending ? <CircleDashed size={16} className="spin-slow" style={{ opacity: 0.6 }} /> :
                      Icon ? <Icon size={16} /> : null}
                   </div>
                   <div style={{
