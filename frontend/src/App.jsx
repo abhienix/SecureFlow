@@ -2208,56 +2208,241 @@ function SlackIntegrationCard({ C }) {
     }
   };
 
+function SlackWebhookConfig({ C }) {
+  const [testingSlack, setTestingSlack] = useState(false);
+  const [slackResult, setSlackResult] = useState(null);
+  const [previewMode, setPreviewMode] = useState("BLOCK"); // "BLOCK" | "ALLOW"
+
+  const triggerSlackTest = async () => {
+    setTestingSlack(true);
+    setSlackResult(null);
+    try {
+      const res = await fetch(`${BACKEND}/api/slack/test`, { method: "POST" });
+      const data = await res.json();
+      setSlackResult(data.message || "Slack test trigger dispatched successfully.");
+    } catch {
+      setSlackResult("Failed to trigger Slack test alert.");
+    } finally {
+      setTestingSlack(false);
+    }
+  };
+
+  const isBlock = previewMode === "BLOCK";
+  const slackBorderColor = isBlock ? "#E01E5A" : "#2EB67D";
+
   return (
-    <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, marginTop: 20 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <div style={{ padding: 22, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, marginTop: 20 }}>
+      {/* Header bar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: C.violetSoft, border: `1px solid ${C.violetBord}`,
+            width: 36, height: 36, borderRadius: 10,
+            background: "linear-gradient(135deg, #4A154B 0%, #611F69 100%)",
             display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 12px rgba(74,21,75,0.3)"
           }}>
-            <Send size={16} color={C.violet} />
+            <Send size={18} color="#FFFFFF" />
           </div>
           <div>
-            <h4 style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>Slack Security Webhook Alert Dispatcher</h4>
-            <p style={{ fontSize: 11, color: C.inkLow }}>Real-time security notifications sent to <code style={{ color: C.teal }}>#devsecops-alerts</code> on pipeline BLOCK or ALLOW</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <h4 style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>Slack Security Webhook Dispatcher</h4>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: C.violetSoft, color: C.violet, border: `1px solid ${C.violetBord}` }}>
+                SLACK BLOCK KIT
+              </span>
+            </div>
+            <p style={{ fontSize: 12, color: C.inkLow, marginTop: 2 }}>
+              Real-time security notifications dispatched to <code style={{ color: C.teal, fontWeight: 700 }}>#devsecops-alerts</code> on pipeline BLOCK or ALLOW
+            </p>
           </div>
         </div>
 
-        <button
-          onClick={triggerSlackTest}
-          disabled={testingSlack}
-          style={{
-            padding: "7px 14px", borderRadius: 8,
-            background: C.violetSoft, border: `1px solid ${C.violetBord}`,
-            color: C.violet, fontSize: 12, fontWeight: 700,
-            display: "flex", alignItems: "center", gap: 6,
-          }}
-        >
-          {testingSlack ? <Loader2 size={13} className="spin" /> : <Send size={13} />}
-          Test Slack Alert Payload
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Toggle between Block / Allow preview */}
+          <div style={{ display: "flex", background: C.bgSurface, padding: 3, borderRadius: 8, border: `1px solid ${C.border}` }}>
+            <button
+              onClick={() => setPreviewMode("BLOCK")}
+              style={{
+                padding: "5px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer",
+                background: isBlock ? C.redSoft : "transparent", color: isBlock ? C.red : C.inkLow,
+                transition: "all 0.2s ease"
+              }}
+            >
+              🚨 Block Alert
+            </button>
+            <button
+              onClick={() => setPreviewMode("ALLOW")}
+              style={{
+                padding: "5px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer",
+                background: !isBlock ? C.tealSoft : "transparent", color: !isBlock ? C.teal : C.inkLow,
+                transition: "all 0.2s ease"
+              }}
+            >
+              ✅ Allow Pass
+            </button>
+          </div>
+
+          <button
+            onClick={triggerSlackTest}
+            disabled={testingSlack}
+            style={{
+              padding: "8px 16px", borderRadius: 8,
+              background: "linear-gradient(135deg, #4A154B 0%, #611F69 100%)",
+              border: "none", color: "#FFFFFF", fontSize: 12, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+              boxShadow: "0 4px 14px rgba(74,21,75,0.25)"
+            }}
+          >
+            {testingSlack ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+            Test Slack Webhook
+          </button>
+        </div>
       </div>
 
       {slackResult && (
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{
-          padding: "8px 12px", background: C.tealSoft, border: `1px solid ${C.tealBord}`,
-          borderRadius: 8, color: C.teal, fontSize: 12, fontWeight: 600, marginBottom: 12,
+          padding: "10px 14px", background: C.tealSoft, border: `1px solid ${C.tealBord}`,
+          borderRadius: 10, color: C.teal, fontSize: 12, fontWeight: 600, marginBottom: 16,
+          display: "flex", alignItems: "center", gap: 8
         }}>
-          ✓ {slackResult}
+          <span>✓</span> {slackResult}
         </motion.div>
       )}
 
+      {/* Authentic Slack Message Block UI Container */}
       <div style={{
-        background: C.bgSurface, padding: 14, borderRadius: 10,
-        border: `1px solid ${C.border}`, fontFamily: C.mono, fontSize: 11, color: C.inkMid,
+        background: C.isDark ? "#1A1D21" : "#F8F8F8",
+        borderRadius: 12,
+        border: `1px solid ${C.isDark ? "#2C2D30" : "#E8E8E8"}`,
+        padding: 18,
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+        boxShadow: "inset 0 1px 3px rgba(0,0,0,0.1)"
       }}>
-        <div style={{ color: C.amber, fontWeight: 700, marginBottom: 4 }}>🚨 [SLACK WEBHOOK PAYLOAD PREVIEW]</div>
-        <div>🚨 <strong style={{ color: C.red }}>Deployment BLOCKED</strong></div>
-        <div>Repo: <span style={{ color: C.teal }}>abhienix/SecureFlow</span> | Branch: <span style={{ color: C.teal }}>main</span> | Commit: <span style={{ color: C.teal }}>7ddbbe8f</span></div>
-        <div>Reason: Security gate policy blocked deployment due to rule violation (github-actions-mutable-action-tag).</div>
-        <div style={{ marginTop: 6, color: C.inkLow }}>Fix: Pin GitHub Action step tags to 40-character commit SHAs or annotate with # nosemgrep</div>
+        {/* Slack Channel Top Bar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, paddingBottom: 10, borderBottom: `1px solid ${C.isDark ? "#2C2D30" : "#E8E8E8"}` }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: C.isDark ? "#ABABAD" : "#616061" }}>#</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.isDark ? "#D1D2D3" : "#1D1C1D" }}>devsecops-alerts</span>
+          <span style={{ fontSize: 11, color: C.isDark ? "#ABABAD" : "#616061", marginLeft: 4 }}>• Slack Security Notification Channel</span>
+        </div>
+
+        {/* Slack Message Item */}
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          {/* Bot Avatar */}
+          <div style={{
+            width: 38, height: 38, borderRadius: 8,
+            background: "linear-gradient(135deg, #00B4D8 0%, #0077B6 100%)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0, fontWeight: 800, color: "#FFF", fontSize: 14,
+            boxShadow: "0 2px 6px rgba(0,180,216,0.3)"
+          }}>
+            SF
+          </div>
+
+          <div style={{ flex: 1 }}>
+            {/* Bot Header Name & App Tag */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 14, fontWeight: 900, color: C.isDark ? "#F8F8F8" : "#1D1C1D" }}>SecureFlow Bot</span>
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: C.isDark ? "#ABABAD" : "#616061",
+                background: C.isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.06)",
+                padding: "1px 5px", borderRadius: 3, textTransform: "uppercase"
+              }}>
+                APP
+              </span>
+              <span style={{ fontSize: 12, color: C.isDark ? "#ABABAD" : "#616061" }}>Today at 20:42</span>
+            </div>
+
+            {/* Slack Message Attachment Box */}
+            <div style={{
+              borderLeft: `4px solid ${slackBorderColor}`,
+              paddingLeft: 12,
+              marginTop: 4
+            }}>
+              {/* Alert Title */}
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.isDark ? "#F8F8F8" : "#1D1C1D", marginBottom: 8 }}>
+                {isBlock ? "🚨 [CRITICAL ALERT] Pipeline Deployment BLOCKED" : "✅ [DEPLOYMENT PERMITTED] Pipeline Passed Policy Gate"}
+              </div>
+
+              {/* 2-Column Fields Grid */}
+              <div style={{
+                display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px",
+                background: C.isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                padding: "10px 12px", borderRadius: 8, marginBottom: 10,
+                border: `1px solid ${C.isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"}`
+              }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.isDark ? "#ABABAD" : "#616061" }}>Repository</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.isDark ? "#2EB67D" : "#1264A3" }}>abhienix/SecureFlow</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.isDark ? "#ABABAD" : "#616061" }}>Branch / Commit</div>
+                  <div style={{ fontSize: 12, fontFamily: C.mono, color: C.isDark ? "#D1D2D3" : "#1D1C1D" }}>main (<code>7ddbbe8f</code>)</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.isDark ? "#ABABAD" : "#616061" }}>Decision Status</div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: isBlock ? "#E01E5A" : "#2EB67D" }}>
+                    {isBlock ? "BLOCK (Policy Violation)" : "ALLOW (Policy Compliant)"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.isDark ? "#ABABAD" : "#616061" }}>Vulnerabilities</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.isDark ? "#D1D2D3" : "#1D1C1D" }}>
+                    {isBlock ? "16 Total (3 Critical / High)" : "0 Critical / High"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Description Reason */}
+              <div style={{ fontSize: 12, color: C.isDark ? "#D1D2D3" : "#1D1C1D", lineHeight: 1.5, marginBottom: 10 }}>
+                {isBlock ? (
+                  <span>
+                    <strong>Policy Reason:</strong> Security gate policy engine blocked deployment due to CVSS severity threshold violations or unpinned action SHA rules.
+                  </span>
+                ) : (
+                  <span>
+                    <strong>Policy Reason:</strong> All security gate checks passed successfully. Code deployed to Cloud Run staging environment.
+                  </span>
+                )}
+              </div>
+
+              {/* AI Remediation Callout */}
+              {isBlock && (
+                <div style={{
+                  background: C.isDark ? "rgba(224, 30, 90, 0.1)" : "#FDF2F4",
+                  border: `1px solid ${C.isDark ? "rgba(224, 30, 90, 0.3)" : "#FADCDD"}`,
+                  borderRadius: 6, padding: "8px 10px", fontSize: 11, color: C.isDark ? "#FF88A5" : "#E01E5A",
+                  marginBottom: 12
+                }}>
+                  💡 <strong>AI Remediation:</strong> Upgrade <code>requests==2.32.3</code> and <code>urllib3==2.3.0</code> or add allowlist entry in <code>policy.yaml</code>.
+                </div>
+              )}
+
+              {/* Slack Action Buttons (Block Kit Buttons) */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                <button style={{
+                  padding: "5px 12px", borderRadius: 4, background: "#007A5A", color: "#FFFFFF",
+                  border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer"
+                }}>
+                  Inspect in SecureFlow
+                </button>
+                <button style={{
+                  padding: "5px 12px", borderRadius: 4, background: C.isDark ? "#2C2D30" : "#E8E8E8",
+                  color: C.isDark ? "#D1D2D3" : "#1D1C1D", border: `1px solid ${C.isDark ? "#404040" : "#CCCCCC"}`,
+                  fontSize: 12, fontWeight: 700, cursor: "pointer"
+                }}>
+                  View GitHub Actions Log
+                </button>
+                {isBlock && (
+                  <button style={{
+                    padding: "5px 12px", borderRadius: 4, background: C.isDark ? "#3A1E26" : "#FFF0F3",
+                    color: "#E01E5A", border: "1px solid #E01E5A", fontSize: 12, fontWeight: 700, cursor: "pointer"
+                  }}>
+                    Request SecOps Override
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
