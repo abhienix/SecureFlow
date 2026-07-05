@@ -220,11 +220,18 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   transform-style: preserve-3d;
 }
 
+@keyframes copilotGlow {
+  0% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.4), 0 0 20px rgba(121, 40, 202, 0.3); transform: scale(1); }
+  50% { box-shadow: 0 0 22px rgba(0, 242, 254, 0.8), 0 0 35px rgba(121, 40, 202, 0.6); transform: scale(1.03); }
+  100% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.4), 0 0 20px rgba(121, 40, 202, 0.3); transform: scale(1); }
+}
+
 .spin        { animation: spin 1s linear infinite; }
 .spin-slow   { animation: spin 4s linear infinite; }
 .pulse-dot   { animation: pulse 1.8s ease-in-out infinite; }
 .fade-up     { animation: fadeInUp .4s ease forwards; }
 .fade-in     { animation: fadeIn .3s ease forwards; }
+.copilot-btn-glow { animation: copilotGlow 3s infinite ease-in-out; }
 
 /* Cards & Layout */
 .sf-card {
@@ -1561,10 +1568,64 @@ function ScanDetail({ scan, onClose, feedback, onFeedback, onWhyBlocked, C }) {
   );
 }
 
+function renderFormattedInline(str, C) {
+  const parts = str.split(/(\*\*.*?\*\*|`.*?`)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={idx} style={{ color: C.ink, fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code key={idx} style={{
+          background: C.isDark ? "rgba(0,242,254,0.12)" : "rgba(0,0,0,0.06)",
+          color: C.cyan, padding: "1px 5px", borderRadius: 4, fontSize: 11, fontFamily: C.mono
+        }}>
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
+}
+
+function FormattedCopilotMessage({ text, C }) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {lines.map((line, i) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={i} style={{ height: 4 }} />;
+
+        if (trimmed.startsWith("#")) {
+          const title = trimmed.replace(/^#+\s*/, "");
+          return (
+            <div key={i} style={{ fontWeight: 800, fontSize: 13, color: C.cyan, marginTop: 4, marginBottom: 2 }}>
+              {title}
+            </div>
+          );
+        }
+
+        if (trimmed.startsWith("* ") || trimmed.startsWith("- ") || /^\d+\.\s/.test(trimmed)) {
+          const content = trimmed.replace(/^(\*|-|\d+\.)\s*/, "");
+          return (
+            <div key={i} style={{ display: "flex", gap: 6, alignItems: "flex-start", paddingLeft: 4 }}>
+              <span style={{ color: C.teal, fontWeight: 800, fontSize: 12 }}>•</span>
+              <span style={{ flex: 1 }}>{renderFormattedInline(content, C)}</span>
+            </div>
+          );
+        }
+
+        return <div key={i}>{renderFormattedInline(trimmed, C)}</div>;
+      })}
+    </div>
+  );
+}
+
 function AICopilot({ scans, onClose, C }) {
   const [messages, setMessages] = useState([{
     role: "assistant",
-    text: "Hello! I am your DevSecOps AI Copilot. Ask me about blocked builds, vulnerability remedies, policy gate rules, or OWASP Top 10 compliance risks.",
+    text: "Hello! I am your DevSecOps AI Copilot — your humble security mentor. Ask me about OWASP Top 10 risks, CVE remedies, Docker hardening, or your live pipeline scan history!",
   }]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -1603,53 +1664,76 @@ function AICopilot({ scans, onClose, C }) {
   };
 
   const QUICK_PROMPTS = [
-    "Why was the last build blocked?",
-    "Explain policy gate rules",
-    "How to remediate top CVEs?",
-    "List OWASP Top 10 risks",
+    "🛡️ List OWASP Top 10 risks",
+    "⚡ How to remediate active CVEs?",
+    "🔒 Explain Policy Gate rules",
+    "🐳 Docker Container Hardening Tips",
+    "🔑 How to fix Gitleaks secrets?",
   ];
 
   return (
     <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 500 }}>
       {minimised ? (
-        <button onClick={() => setMinimised(false)} style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "10px 18px", borderRadius: 999,
-          background: C.bgCard, border: `1px solid ${C.tealBord}`,
-          color: C.teal, fontSize: 13, fontWeight: 700,
-          boxShadow: `0 8px 32px ${C.teal}30`,
-        }}>
+        <button
+          onClick={() => setMinimised(false)}
+          className="copilot-btn-glow"
+          style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 20px", borderRadius: 999,
+            background: "linear-gradient(135deg, #7928CA 0%, #00DFD8 100%)",
+            color: "#FFFFFF", fontSize: 13, fontWeight: 800,
+            border: "none", cursor: "pointer",
+            boxShadow: "0 8px 32px rgba(0, 223, 216, 0.4)",
+          }}
+        >
           <Bot size={18} /> AI Copilot
         </button>
       ) : (
         <div style={{
-          background: C.bgCard, border: `1px solid ${C.border}`,
-          borderRadius: 20, width: 400, maxWidth: "92vw",
-          height: 540, display: "flex", flexDirection: "column",
-          boxShadow: "0 24px 64px rgba(0,0,0,.4)", overflow: "hidden",
+          background: C.bgCard, border: `1px solid ${C.isDark ? "rgba(0, 242, 254, 0.3)" : C.border}`,
+          borderRadius: 20, width: 420, maxWidth: "94vw",
+          height: 580, display: "flex", flexDirection: "column",
+          boxShadow: "0 24px 64px rgba(0,0,0,.5)", overflow: "hidden",
+          backdropFilter: "blur(12px)"
         }}>
+          {/* Animated Header */}
           <div style={{
-            padding: "12px 16px", borderBottom: `1px solid ${C.border}`,
-            background: C.bgSurface, display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "14px 18px", borderBottom: `1px solid ${C.border}`,
+            background: "linear-gradient(135deg, #18192A 0%, #0D0E1A 100%)",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Bot size={18} color={C.teal} />
-              <span style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>AI Security Copilot</span>
-              {blocked.length > 0 && <Badge color={C.red} small C={C}>{blocked.length} blocked</Badge>}
-              {running.length > 0 && <Badge color={C.blue} small C={C}>{running.length} running</Badge>}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 10,
+                background: "linear-gradient(135deg, #7928CA 0%, #00DFD8 100%)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 0 12px rgba(0,223,216,0.5)"
+              }}>
+                <Bot size={18} color="#FFFFFF" />
+              </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "#FFFFFF" }}>AI Security Mentor</span>
+                  <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 8, background: "rgba(0,223,216,0.2)", color: "#00DFD8", border: "1px solid rgba(0,223,216,0.4)" }}>
+                    ONLINE
+                  </span>
+                </div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Powered by Groq / Gemini DevSecOps LLM</div>
+              </div>
             </div>
             <div style={{ display: "flex", gap: 4 }}>
-              <button onClick={() => setMinimised(true)} style={{ background: "none", border: "none", color: C.inkMid, padding: 4 }}><Minimize2 size={15} /></button>
-              <button onClick={onClose} style={{ background: "none", border: "none", color: C.inkMid, padding: 4 }}><X size={15} /></button>
+              <button onClick={() => setMinimised(true)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.7)", padding: 4, cursor: "pointer" }}><Minimize2 size={15} /></button>
+              <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.7)", padding: 4, cursor: "pointer" }}><X size={15} /></button>
             </div>
           </div>
 
+          {/* Focus Scan Picker */}
           <div style={{ padding: "6px 14px", background: C.bgSurface, borderBottom: `1px solid ${C.border}` }}>
-            <label style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 2 }}>Focus Scan ID</label>
+            <label style={{ fontSize: 10, color: C.inkLow, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 2 }}>Focus Scan Context</label>
             <select
               value={focusScanId || ""}
               onChange={e => setFocusScanId(Number(e.target.value) || null)}
-              style={{ width: "100%", padding: "4px 8px", borderRadius: 6, background: C.bgCard, border: `1px solid ${C.border}`, color: C.ink, fontSize: 11, fontFamily: C.mono }}
+              style={{ width: "100%", padding: "5px 8px", borderRadius: 6, background: C.bgCard, border: `1px solid ${C.border}`, color: C.ink, fontSize: 11, fontFamily: C.mono, outline: "none" }}
             >
               {scans.slice(0, 15).map(s => (
                 <option key={s.id} value={s.id}>#{s.id} · {s.repo_name} ({s.commit_sha?.slice(0, 8)}) · {s.action_taken}</option>
@@ -1657,35 +1741,39 @@ function AICopilot({ scans, onClose, C }) {
             </select>
           </div>
 
+          {/* Messages Body */}
           <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
             {messages.map((m, idx) => (
               <div key={idx} style={{
                 alignSelf: m.role === "user" ? "flex-end" : "flex-start",
                 maxWidth: "88%", padding: "10px 14px", borderRadius: 12,
-                background: m.role === "user" ? C.tealSoft : C.bgSurface,
-                border: `1px solid ${m.role === "user" ? C.tealBord : C.border}`,
-                color: C.ink, fontSize: 12, lineHeight: 1.5,
+                background: m.role === "user" ? "linear-gradient(135deg, #0077B6 0%, #0096C7 100%)" : C.bgSurface,
+                border: `1px solid ${m.role === "user" ? "#00B4D8" : C.border}`,
+                color: m.role === "user" ? "#FFFFFF" : C.ink, fontSize: 12, lineHeight: 1.5,
+                boxShadow: m.role === "user" ? "0 4px 12px rgba(0,180,216,0.2)" : "none"
               }}>
-                {m.text}
+                {m.role === "user" ? m.text : <FormattedCopilotMessage text={m.text} C={C} />}
               </div>
             ))}
             {sending && (
-              <div style={{ alignSelf: "flex-start", color: C.teal, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                <Loader2 size={13} className="spin" /> Analyzing pipeline scan context…
+              <div style={{ alignSelf: "flex-start", color: C.teal, fontSize: 12, display: "flex", alignItems: "center", gap: 6, background: C.bgSurface, padding: "8px 12px", borderRadius: 10, border: `1px solid ${C.border}` }}>
+                <Loader2 size={14} className="spin" color={C.cyan} /> Consulting DevSecOps AI Knowledge Base…
               </div>
             )}
             <div ref={endRef} />
           </div>
 
+          {/* Footer & Quick Prompts */}
           <div style={{ padding: 12, borderTop: `1px solid ${C.border}`, background: C.bgSurface }}>
-            <div style={{ display: "flex", gap: 6, marginBottom: 8, overflowX: "auto" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10, overflowX: "auto", paddingBottom: 4 }}>
               {QUICK_PROMPTS.map((p, i) => (
                 <button
-                  key={i} onClick={() => send(p)}
+                  key={i} onClick={() => send(p.replace(/^[^\s]+\s*/, ""))}
                   style={{
-                    padding: "4px 8px", borderRadius: 999, whiteSpace: "nowrap",
+                    padding: "5px 10px", borderRadius: 999, whiteSpace: "nowrap",
                     background: C.bgCard, border: `1px solid ${C.border}`,
-                    color: C.inkMid, fontSize: 10, fontWeight: 600,
+                    color: C.inkMid, fontSize: 10, fontWeight: 700, cursor: "pointer",
+                    transition: "all 0.2s ease"
                   }}
                 >
                   {p}
@@ -1698,23 +1786,24 @@ function AICopilot({ scans, onClose, C }) {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && send()}
-                placeholder="Ask about pipeline security..."
+                placeholder="Ask your DevSecOps AI Copilot..."
                 style={{
-                  flex: 1, padding: "8px 12px", borderRadius: 8,
-                  border: `1px solid ${C.border}`, background: C.bgCard,
+                  flex: 1, padding: "9px 14px", borderRadius: 10,
+                  background: C.bgCard, border: `1px solid ${C.border}`,
                   color: C.ink, fontSize: 12, outline: "none",
                 }}
               />
               <button
                 onClick={() => send()}
-                disabled={sending}
+                disabled={sending || !input.trim()}
                 style={{
-                  padding: "8px 14px", borderRadius: 8,
-                  background: C.teal, border: "none", color: "#fff",
-                  display: "flex", alignItems: "center", justifyContent: "center",
+                  padding: "9px 16px", borderRadius: 10,
+                  background: "linear-gradient(135deg, #7928CA 0%, #00DFD8 100%)",
+                  border: "none", color: "#FFF", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center"
                 }}
               >
-                <Send size={14} />
+                <Send size={15} />
               </button>
             </div>
           </div>
@@ -2637,14 +2726,32 @@ export default function App() {
 
             <button
               onClick={() => setShowCopilot(v => !v)}
+              className="copilot-btn-glow"
               style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "6px 12px", borderRadius: 8,
-                background: C.violetSoft, border: `1px solid ${C.violetBord}`,
-                color: C.violet, fontSize: 12, fontWeight: 700,
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "7px 16px", borderRadius: 10,
+                background: "linear-gradient(135deg, #7928CA 0%, #00DFD8 100%)",
+                color: "#FFFFFF", fontSize: 12, fontWeight: 800,
+                border: "none", cursor: "pointer",
+                boxShadow: "0 0 16px rgba(0, 223, 216, 0.5)",
+                transition: "all 0.2s ease",
               }}
             >
-              <Bot size={15} /> Copilot
+              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                <Bot size={16} color="#FFFFFF" />
+                <span style={{
+                  position: "absolute", top: -2, right: -2, width: 6, height: 6,
+                  borderRadius: "50%", background: "#00FF66",
+                  boxShadow: "0 0 6px #00FF66"
+                }} className="pulse-dot" />
+              </div>
+              <span>AI Security Copilot</span>
+              <span style={{
+                fontSize: 9, fontWeight: 800, background: "rgba(255,255,255,0.25)",
+                padding: "2px 6px", borderRadius: 8, textTransform: "uppercase"
+              }}>
+                PRO
+              </span>
             </button>
           </div>
         </header>
