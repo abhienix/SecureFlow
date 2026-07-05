@@ -1986,14 +1986,17 @@ function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }) {
 
         <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto", paddingBottom: 6 }}>
           {scan.pipeline.map((stage, i) => {
+            const isSkipped = stage.status === "skipped";
+            const isActive  = stage.status === "running";
+            const isSelected = expandedStage === stage.key;
             const color =
               stage.status === "passed"  ? C.teal  :
               stage.status === "failed"  ? C.red   :
               stage.status === "running" ? C.blue  :
-              stage.status === "skipped" ? C.inkMuted : C.inkLow;
-            const isActive = stage.status === "running";
-            const isSelected = expandedStage === stage.key;
+              isSkipped                  ? C.amber : C.inkLow;
             const { Icon } = stage;
+            // which stage first failed (to explain why later ones are skipped)
+            const blockedAt = scan.pipeline.find(s => s.status === "failed");
 
             return (
               <React.Fragment key={stage.id}>
@@ -2003,6 +2006,7 @@ function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }) {
                     minWidth: 16, maxWidth: 42,
                     background: scan.pipeline[i-1].status === "passed"
                       ? `linear-gradient(90deg, ${C.teal}80, ${color}80)`
+                      : isSkipped ? `${C.amber}30`
                       : (scan.pipeline[i-1].status === "running" || isActive) ? undefined : C.border,
                     borderRadius: 2,
                   }} />
@@ -2012,36 +2016,41 @@ function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }) {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => setExpandedStage(isSelected ? null : stage.key)}
+                  title={isSkipped && blockedAt ? `Skipped — pipeline blocked at ${blockedAt.name}` : ""}
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
                     background: "none", border: "none", cursor: "pointer", outline: "none",
-                    minWidth: 70,
+                    minWidth: 70, opacity: isSkipped ? 0.8 : 1,
                   }}
                 >
                   <div style={{
                     width: 40, height: 40, borderRadius: "50%",
-                    border: `2px solid ${isSelected ? C.teal : color}`,
-                    background: isSelected ? `${C.teal}25` : `${color}18`,
+                    border: `2px ${isSkipped ? "dashed" : "solid"} ${isSelected ? C.teal : color}`,
+                    background: isSelected ? `${C.teal}25` : isSkipped ? `${C.amber}14` : `${color}18`,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     color: isSelected ? C.teal : color,
                     boxShadow: isSelected
                       ? `0 0 0 4px ${C.teal}35, 0 0 16px ${C.teal}60`
-                      : isActive ? `0 0 0 4px ${color}25, 0 0 16px ${color}55` : "none",
+                      : isActive ? `0 0 0 4px ${color}25, 0 0 16px ${color}55`
+                      : isSkipped ? `0 0 6px ${C.amber}20` : "none",
                     transition: "all 0.2s ease",
                   }}>
-                    {isActive ? <Loader2 size={18} className="spin" /> :
+                    {isActive  ? <Loader2 size={18} className="spin" /> :
                      stage.status === "passed"  ? <CheckCircle size={18} /> :
                      stage.status === "failed"  ? <XCircle size={18} /> :
-                     stage.status === "skipped" ? <span style={{ fontSize: 12, fontWeight: 700 }}>—</span> :
+                     isSkipped ? <span style={{ fontSize: 14, fontWeight: 700 }}>⊘</span> :
                      Icon ? <Icon size={16} /> : null}
                   </div>
                   <div style={{
                     fontSize: 10, fontWeight: isSelected || isActive ? 800 : 600,
-                    color: isSelected ? C.teal : isActive ? C.blue : C.inkMid,
+                    color: isSelected ? C.teal : isSkipped ? C.amber : isActive ? C.blue : C.inkMid,
                     textAlign: "center", whiteSpace: "nowrap",
                   }}>
                     {stage.name}
                   </div>
+                  {isSkipped && (
+                    <div style={{ fontSize: 8, color: C.amber, fontWeight: 700, textAlign: "center", whiteSpace: "nowrap" }}>SKIPPED</div>
+                  )}
                 </motion.button>
               </React.Fragment>
             );
