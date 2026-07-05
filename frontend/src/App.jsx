@@ -490,22 +490,49 @@ function normaliseScan(raw) {
   const rawSteps = raw.pipeline_steps || {};
   const status = raw.status || "complete";
 
-  const pipeline = PIPELINE_STAGES.map(def => {
+  let blockedStageIndex = -1;
+  let blockedStageName = "";
+
+  const pipeline = PIPELINE_STAGES.map((def, idx) => {
     const step = rawSteps[def.key];
-    const st = resultToStatus(step, status);
+    let st = resultToStatus(step, status);
+
+    if (blockedStageIndex !== -1 && idx > blockedStageIndex) {
+      if (st === "failed" || !step || step.result === "FAILED") {
+        st = "skipped";
+      }
+    }
+
+    if (st === "failed" && blockedStageIndex === -1) {
+      blockedStageIndex = idx;
+      blockedStageName = def.label;
+    }
+
+    const isSkippedAfterBlock = blockedStageIndex !== -1 && idx > blockedStageIndex;
+
     return {
       id: def.key,
       key: def.key,
       name: def.label,
       Icon: def.Icon,
-      status: st,
-      result: step?.result || (st === "passed" ? "PASS" : st === "failed" ? "FAIL" : st === "running" ? "RUNNING" : "SKIPPED"),
-      detail: step?.detail || null,
+      status: isSkippedAfterBlock ? "skipped" : st,
+      result: isSkippedAfterBlock ? "SKIPPED" : (step?.result || (st === "passed" ? "PASS" : st === "failed" ? "FAIL" : st === "running" ? "RUNNING" : "SKIPPED")),
+      detail: isSkippedAfterBlock ? `pipeline stopped at ${blockedStageName.toLowerCase()}` : (step?.detail || null),
     };
   });
 
   const vulnerabilities = buildVulnerabilities(raw, raw.vuln_breakdown, pipeline);
   const severity_counts = getSeverityCounts(vulnerabilities);
+
+  const codeScanStep = pipeline.find(s => s.key === "code_scan");
+  let explanation = raw.ai_explanation;
+  if (!explanation || explanation.includes("unreported step") || explanation.includes("unknown reason")) {
+    if (codeScanStep?.detail && codeScanStep.detail.includes("Rule:")) {
+      explanation = `The pipeline was blocked during Code Scan due to a security policy violation: ${codeScanStep.detail}. Using mutable tags or unpinned commit SHAs in GitHub Actions workflows exposes your deployment to supply chain attacks if the upstream repository tag is modified.`;
+    } else if (raw.action_taken === "BLOCK") {
+      explanation = `The security gate blocked this deployment because the policy engine evaluated high severity risk criteria or rule violations during pipeline execution.`;
+    }
+  }
 
   return {
     ...raw,
@@ -518,6 +545,7 @@ function normaliseScan(raw) {
     action_taken: raw.action_taken || "ALLOW",
     status,
     risk_score: raw.risk_score != null ? raw.risk_score : (raw.action_taken === "BLOCK" ? 8 : 2),
+    ai_explanation: explanation,
     pipeline,
     vulnerabilities,
     severity_counts,
