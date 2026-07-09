@@ -229,6 +229,17 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   100% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.4), 0 0 20px rgba(121, 40, 202, 0.3); transform: scale(1); }
 }
 
+@keyframes voidGlitchGlow {
+  0%, 100% { text-shadow: 0 0 6px #7928CA, 0 0 12px #7928CA, 0 0 20px #00DFD8; color: #FFFFFF; }
+  50% { text-shadow: 0 0 10px #00DFD8, 0 0 20px #00DFD8, 0 0 35px #7928CA; color: #F0FDFA; }
+}
+
+.void-text-cyber {
+  animation: voidGlitchGlow 2.5s infinite ease-in-out;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .spin        { animation: spin 1s linear infinite; }
 .spin-slow   { animation: spin 4s linear infinite; }
 .pulse-dot   { animation: pulse 1.8s ease-in-out infinite; }
@@ -1748,10 +1759,34 @@ function FormattedCopilotMessage({ text, C, onCveClick }) {
   );
 }
 
+const VoidCoreIcon = () => (
+  <div style={{ position: "relative", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    {/* Outer rotating cyber ring */}
+    <div style={{
+      position: "absolute",
+      width: "100%",
+      height: "100%",
+      borderRadius: "50%",
+      border: "2px dashed #00DFD8",
+      animation: "spin 8s linear infinite",
+      opacity: 0.8
+    }} />
+    {/* Inner pulsating core */}
+    <div style={{
+      width: 12,
+      height: 12,
+      borderRadius: "50%",
+      background: "radial-gradient(circle, #FFFFFF 0%, #7928CA 60%, #00DFD8 100%)",
+      boxShadow: "0 0 10px #00DFD8, 0 0 20px #7928CA",
+      animation: "pulse 1.4s ease-in-out infinite"
+    }} />
+  </div>
+);
+
 function AICopilot({ scans, onClose, C }) {
   const [messages, setMessages] = useState([{
     role: "assistant",
-    text: "DevSecOps AI Copilot online. Ask me about live pipeline scans, policy rules, OWASP Top 10 vulnerabilities, or CVE remediation.",
+    text: "Void security companion online. Ask me about live pipeline scans, policy rules, OWASP Top 10 vulnerabilities, or CVE remediation.",
   }]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -1780,7 +1815,7 @@ function AICopilot({ scans, onClose, C }) {
       const data = await res.json();
       setMessages(m => [...m, { role: "assistant", text: data?.answer || "AI response generated successfully." }]);
     } catch {
-      setMessages(m => [...m, { role: "assistant", text: "Unable to contact AI Copilot backend." }]);
+      setMessages(m => [...m, { role: "assistant", text: "Unable to contact Void backend." }]);
     } finally {
       setSending(false);
     }
@@ -1801,15 +1836,19 @@ function AICopilot({ scans, onClose, C }) {
           onClick={() => setMinimised(false)}
           className="copilot-btn-glow"
           style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "10px 20px", borderRadius: 999,
-            background: "linear-gradient(135deg, #7928CA 0%, #00DFD8 100%)",
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "8px 18px", borderRadius: 999,
+            background: "linear-gradient(135deg, #0f172a 0%, #090d16 100%)",
+            border: "1px solid rgba(0, 242, 254, 0.4)",
             color: "#FFFFFF", fontSize: 13, fontWeight: 800,
-            border: "none", cursor: "pointer",
-            boxShadow: "0 8px 32px rgba(0, 223, 216, 0.4)",
+            cursor: "pointer",
+            boxShadow: "0 8px 32px rgba(121, 40, 202, 0.4)",
           }}
         >
-          <Bot size={18} /> AI Security Copilot
+          <div style={{ transform: "scale(0.85)", margin: "-4px 0" }}>
+            <VoidCoreIcon />
+          </div>
+          <span className="void-text-cyber" style={{ fontSize: 12, fontWeight: 900 }}>Void</span>
         </button>
       ) : (
         <div style={{
@@ -1826,22 +1865,15 @@ function AICopilot({ scans, onClose, C }) {
             display: "flex", alignItems: "center", justifyContent: "space-between",
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: 10,
-                background: "linear-gradient(135deg, #7928CA 0%, #00DFD8 100%)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 0 12px rgba(0,223,216,0.5)"
-              }}>
-                <Bot size={18} color="#FFFFFF" />
-              </div>
+              <VoidCoreIcon />
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: "#FFFFFF" }}>AI Security Copilot</span>
+                  <span className="void-text-cyber" style={{ fontSize: 15, fontWeight: 900, color: "#FFFFFF" }}>Void</span>
                   <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 8, background: "rgba(0,223,216,0.2)", color: "#00DFD8", border: "1px solid rgba(0,223,216,0.4)" }}>
                     ACTIVE
                   </span>
                 </div>
-                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Autonomous DevSecOps Intelligence Engine</div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Vulnerability Analytics & Remediation Gate</div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 4 }}>
@@ -1912,7 +1944,7 @@ function AICopilot({ scans, onClose, C }) {
             ))}
             {sending && (
               <div style={{ alignSelf: "flex-start", color: C.teal, fontSize: 12, display: "flex", alignItems: "center", gap: 6, background: C.bgSurface, padding: "8px 12px", borderRadius: 10, border: `1px solid ${C.border}` }}>
-                <Loader2 size={14} className="spin" color={C.cyan} /> Consulting DevSecOps AI Knowledge Base…
+                <Loader2 size={14} className="spin" color={C.cyan} /> Interrogating Void security core...
               </div>
             )}
             <div ref={endRef} />
@@ -1941,7 +1973,7 @@ function AICopilot({ scans, onClose, C }) {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && send()}
-                placeholder="Ask your DevSecOps AI Copilot..."
+                placeholder="Ask Void..."
                 style={{
                   flex: 1, padding: "9px 14px", borderRadius: 10,
                   background: C.bgCard, border: `1px solid ${C.border}`,
@@ -3250,24 +3282,25 @@ export default function App() {
               onClick={() => setShowCopilot(v => !v)}
               className="copilot-btn-glow"
               style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "7px 16px", borderRadius: 10,
-                background: "linear-gradient(135deg, #7928CA 0%, #00DFD8 100%)",
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "6px 16px", borderRadius: 10,
+                background: "linear-gradient(135deg, #0f172a 0%, #090d16 100%)",
+                border: "1px solid rgba(0, 242, 254, 0.4)",
                 color: "#FFFFFF", fontSize: 12, fontWeight: 800,
-                border: "none", cursor: "pointer",
-                boxShadow: "0 0 16px rgba(0, 223, 216, 0.5)",
+                cursor: "pointer",
+                boxShadow: "0 0 16px rgba(121, 40, 202, 0.5)",
                 transition: "all 0.2s ease",
               }}
             >
-              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-                <Bot size={16} color="#FFFFFF" />
+              <div style={{ position: "relative", display: "flex", alignItems: "center", transform: "scale(0.75)", margin: "-4px 0" }}>
+                <VoidCoreIcon />
                 <span style={{
                   position: "absolute", top: -2, right: -2, width: 6, height: 6,
                   borderRadius: "50%", background: "#00FF66",
                   boxShadow: "0 0 6px #00FF66"
                 }} className="pulse-dot" />
               </div>
-              <span>AI Copilot</span>
+              <span className="void-text-cyber" style={{ fontSize: 11, fontWeight: 900 }}>Void</span>
             </button>
           </div>
         </header>
