@@ -340,6 +340,30 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
 `;
 }
 
+const VoidCoreIcon = () => (
+  <div style={{ position: "relative", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    {/* Outer rotating cyber ring */}
+    <div style={{
+      position: "absolute",
+      width: "100%",
+      height: "100%",
+      borderRadius: "50%",
+      border: "2px dashed #00DFD8",
+      animation: "spin 8s linear infinite",
+      opacity: 0.8
+    }} />
+    {/* Inner pulsating core */}
+    <div style={{
+      width: 12,
+      height: 12,
+      borderRadius: "50%",
+      background: "radial-gradient(circle, #FFFFFF 0%, #7928CA 60%, #00DFD8 100%)",
+      boxShadow: "0 0 10px #00DFD8, 0 0 20px #7928CA",
+      animation: "pulse 1.4s ease-in-out infinite"
+    }} />
+  </div>
+);
+
 /* ─── Helpers ─────────────────────────────────────────────────────────── */
 function resultToStatus(stage, fallbackStatus) {
   const isRunning = (fallbackStatus || "").toLowerCase() === "running";
@@ -993,13 +1017,15 @@ function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback, onAskCopil
             onClick={() => onAskCopilot(scan)}
             style={{
               padding: "5px 12px", borderRadius: 8,
-              background: "linear-gradient(135deg, #7928CA 0%, #00DFD8 100%)",
-              border: "none", color: "#FFFFFF", fontSize: 11, fontWeight: 800, cursor: "pointer",
+              background: "linear-gradient(135deg, #0f172a 0%, #090d16 100%)",
+              border: "1px solid rgba(0, 242, 254, 0.4)",
+              color: "#FFFFFF", fontSize: 11, fontWeight: 800, cursor: "pointer",
               display: "flex", alignItems: "center", gap: 6,
               boxShadow: "0 2px 10px rgba(121,40,202,0.3)"
             }}
           >
-            <Bot size={13} /> Discuss in Copilot
+            <div style={{ transform: "scale(0.6)", display: "flex", alignItems: "center", margin: "-6px -2px" }}><VoidCoreIcon /></div>
+            Discuss with Void
           </button>
         )}
       </div>
@@ -1691,7 +1717,7 @@ function renderFormattedInline(str, C, onCveClick) {
         <span
           key={idx}
           onClick={() => onCveClick?.(`How to fix ${part} in code?`)}
-          title={`Click to ask Copilot how to fix ${part}`}
+          title={`Click to ask Void how to fix ${part}`}
           style={{
             display: "inline-flex", alignItems: "center", gap: 3,
             background: C.isDark ? "rgba(239, 68, 68, 0.2)" : "#FEE2E2",
@@ -1758,30 +1784,6 @@ function FormattedCopilotMessage({ text, C, onCveClick }) {
     </div>
   );
 }
-
-const VoidCoreIcon = () => (
-  <div style={{ position: "relative", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center" }}>
-    {/* Outer rotating cyber ring */}
-    <div style={{
-      position: "absolute",
-      width: "100%",
-      height: "100%",
-      borderRadius: "50%",
-      border: "2px dashed #00DFD8",
-      animation: "spin 8s linear infinite",
-      opacity: 0.8
-    }} />
-    {/* Inner pulsating core */}
-    <div style={{
-      width: 12,
-      height: 12,
-      borderRadius: "50%",
-      background: "radial-gradient(circle, #FFFFFF 0%, #7928CA 60%, #00DFD8 100%)",
-      boxShadow: "0 0 10px #00DFD8, 0 0 20px #7928CA",
-      animation: "pulse 1.4s ease-in-out infinite"
-    }} />
-  </div>
-);
 
 function AICopilot({ scans, onClose, C }) {
   const [messages, setMessages] = useState([{
