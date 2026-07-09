@@ -1980,18 +1980,19 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
     return scans.slice(0, 7).reverse().map((s, idx) => {
       let crit = 0, high = 0, med = 0, low = 0;
       (s.vulnerabilities || []).forEach(v => {
-        const score = v.cvss_score || 0;
-        if (score >= 9.0 || v.severity === "CRITICAL") crit++;
-        else if (score >= 7.0 || v.severity === "HIGH") high++;
-        else if (score >= 4.0 || v.severity === "MEDIUM") med++;
+        const score = parseFloat(v.score) || 0;
+        const severity = (v.severity || "").toUpperCase();
+        if (score >= 9.0 || severity === "CRITICAL") crit++;
+        else if (score >= 7.0 || severity === "HIGH") high++;
+        else if (score >= 4.0 || severity === "MEDIUM") med++;
         else low++;
       });
       return {
         name: `Run #${s.id || idx + 1}`,
-        Critical: crit || (idx % 2 === 0 ? 3 : 1),
-        High: high || (idx % 2 === 0 ? 5 : 2),
-        Medium: med || (idx % 2 === 0 ? 8 : 4),
-        Low: low || (idx % 2 === 0 ? 12 : 6),
+        Critical: crit,
+        High: high,
+        Medium: med,
+        Low: low,
       };
     });
   }, [scans]);
@@ -2001,31 +2002,58 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
     let crit = 0, high = 0, med = 0, low = 0;
     scans.forEach(s => {
       (s.vulnerabilities || []).forEach(v => {
-        const score = v.cvss_score || 0;
-        if (score >= 9.0 || v.severity === "CRITICAL") crit++;
-        else if (score >= 7.0 || v.severity === "HIGH") high++;
-        else if (score >= 4.0 || v.severity === "MEDIUM") med++;
+        const score = parseFloat(v.score) || 0;
+        const severity = (v.severity || "").toUpperCase();
+        if (score >= 9.0 || severity === "CRITICAL") crit++;
+        else if (score >= 7.0 || severity === "HIGH") high++;
+        else if (score >= 4.0 || severity === "MEDIUM") med++;
         else low++;
       });
     });
     return [
-      { name: "Critical", value: crit || 3, color: C.red },
-      { name: "High", value: high || 12, color: C.amber },
-      { name: "Medium", value: med || 24, color: C.violet },
-      { name: "Low", value: low || 45, color: C.teal },
+      { name: "Critical", value: crit, color: C.red },
+      { name: "High", value: high, color: C.amber },
+      { name: "Medium", value: med, color: C.violet },
+      { name: "Low", value: low, color: C.teal },
     ];
   }, [scans, C]);
 
   const totalVulns = useMemo(() => severityPieData.reduce((a, b) => a + b.value, 0), [severityPieData]);
 
-  // Horizontal threat ranking bars
-  const topFindings = useMemo(() => [
-    { type: "Exposed Secrets & API Keys (Gitleaks)", count: 18, color: C.red, pct: 100 },
-    { type: "Policy Gate Violations (Unpinned SHAs)", count: 14, color: C.amber, pct: 77 },
-    { type: "Container & Layer OS Vulnerabilities (Trivy)", count: 11, color: C.violet, pct: 61 },
-    { type: "OWASP Top 10 SAST Flaws (Semgrep)", count: 7, color: C.cyan, pct: 38 },
-    { type: "Runtime DAST API Flaws (OWASP ZAP)", count: 4, color: C.teal, pct: 22 },
-  ], [C]);
+  // Horizontal threat ranking bars derived dynamically from database findings
+  const topFindings = useMemo(() => {
+    let secrets = 0;
+    let policyGate = 0;
+    let containerCves = 0;
+    let sastFlaws = 0;
+    let dastFlaws = 0;
+
+    scans.forEach(s => {
+      (s.vulnerabilities || []).forEach(v => {
+        if (v.tool === "Gitleaks") secrets++;
+        else if (v.tool === "Policy Engine") policyGate++;
+        else if (v.tool === "Semgrep") sastFlaws++;
+        else if (v.tool === "Trivy") containerCves++;
+        else dastFlaws++;
+      });
+    });
+
+    const categories = [
+      { type: "Exposed Secrets & API Keys (Gitleaks)", count: secrets },
+      { type: "Policy Gate Violations (Unpinned SHAs)", count: policyGate },
+      { type: "Container & Layer OS Vulnerabilities (Trivy)", count: containerCves },
+      { type: "OWASP Top 10 SAST Flaws (Semgrep)", count: sastFlaws },
+      { type: "Runtime DAST API Flaws (OWASP ZAP)", count: dastFlaws },
+    ];
+
+    const maxCount = Math.max(...categories.map(c => c.count), 1);
+
+    return categories.map(c => ({
+      ...c,
+      color: c.count > 0 ? (c.type.includes("Secrets") ? C.red : c.type.includes("Policy") ? C.amber : C.violet) : C.inkLow,
+      pct: Math.round((c.count / maxCount) * 100)
+    }));
+  }, [scans, C]);
 
   // Top Priority Remediation Queue
   const severeFindings = useMemo(() => {
@@ -2044,6 +2072,83 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
     });
     return list.slice(0, 5);
   }, [scans]);
+
+  // Dynamic Compliance Framework Readiness Scorecard
+  const complianceData = useMemo(() => {
+    let soc2 = 98;
+    let iso = 96;
+    let nist = 94;
+    let owasp = 95;
+    let pci = 92;
+    let cis = 97;
+
+    let crit = 0, high = 0, med = 0, secrets = 0, sast = 0;
+    scans.forEach(s => {
+      (s.vulnerabilities || []).forEach(v => {
+        const severity = (v.severity || "").toUpperCase();
+        if (severity === "CRITICAL") crit++;
+        else if (severity === "HIGH") high++;
+        else if (severity === "MEDIUM") med++;
+
+        if (v.tool === "Gitleaks" || v.cve_id.includes("SECRET")) secrets++;
+        if (v.tool === "Semgrep") sast++;
+      });
+    });
+
+    if (secrets > 0) {
+      soc2 -= Math.min(30, secrets * 10);
+      iso -= Math.min(25, secrets * 8);
+      pci -= Math.min(35, secrets * 12);
+      cis -= Math.min(20, secrets * 5);
+    }
+    if (sast > 0) {
+      owasp -= Math.min(25, sast * 5);
+      iso -= Math.min(15, sast * 3);
+    }
+
+    const totalCveDeduction = (crit * 4) + (high * 2) + (med * 0.5);
+    soc2 -= Math.min(20, totalCveDeduction * 0.8);
+    nist -= Math.min(30, totalCveDeduction * 1.2);
+    pci -= Math.min(25, totalCveDeduction * 1.0);
+    cis -= Math.min(25, totalCveDeduction * 0.9);
+
+    return [
+      { subject: "SOC 2", score: Math.round(Math.max(40, soc2)) },
+      { subject: "ISO 27001", score: Math.round(Math.max(40, iso)) },
+      { subject: "NIST 800-53", score: Math.round(Math.max(40, nist)) },
+      { subject: "OWASP ASVS", score: Math.round(Math.max(40, owasp)) },
+      { subject: "PCI-DSS 4.0", score: Math.round(Math.max(40, pci)) },
+      { subject: "CIS Benchmarks", score: Math.round(Math.max(40, cis)) },
+    ];
+  }, [scans]);
+
+  // Dynamic Scanner Engine Detection Volume
+  const engineVolumeData = useMemo(() => {
+    let trivyCount = 0;
+    let gitleaksCount = 0;
+    let semgrepCount = 0;
+    let zapCount = 0;
+
+    scans.forEach(s => {
+      (s.vulnerabilities || []).forEach(v => {
+        if (v.tool === "Gitleaks") gitleaksCount++;
+        else if (v.tool === "Semgrep") semgrepCount++;
+        else if (v.tool === "Trivy") trivyCount++;
+        else if (v.tool === "OWASP ZAP" || v.tool === "ZAP") zapCount++;
+      });
+      const zapStep = s.pipeline?.find(p => p.key === "zap");
+      if (zapStep?.status === "failed") {
+        zapCount += 2;
+      }
+    });
+
+    return [
+      { engine: "Trivy CVEs", count: trivyCount, fill: C.teal },
+      { engine: "Gitleaks Secrets", count: gitleaksCount, fill: C.red },
+      { engine: "Semgrep SAST", count: semgrepCount, fill: C.violet },
+      { engine: "ZAP DAST", count: zapCount, fill: C.cyan },
+    ];
+  }, [scans, C]);
 
   const filteredScans = useMemo(() => {
     return scans.filter(s => {
@@ -2145,14 +2250,7 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
           <SectionTitle accent={C.teal} C={C}>Compliance Framework Readiness Scorecard</SectionTitle>
           <div style={{ width: "100%", height: 210 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={[
-                { subject: "SOC 2", score: 94 },
-                { subject: "ISO 27001", score: 88 },
-                { subject: "NIST 800-53", score: 92 },
-                { subject: "OWASP ASVS", score: 85 },
-                { subject: "PCI-DSS 4.0", score: 90 },
-                { subject: "CIS Benchmarks", score: 96 },
-              ]}>
+              <RadarChart data={complianceData}>
                 <PolarGrid stroke={C.border} />
                 <PolarAngleAxis dataKey="subject" stroke={C.inkMid} fontSize={10} />
                 <Radar name="Compliance" dataKey="score" stroke={C.teal} fill={`${C.teal}33`} fillOpacity={0.6} />
@@ -2167,23 +2265,13 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
           <SectionTitle accent={C.amber} C={C}>Detection Volume by Security Engine</SectionTitle>
           <div style={{ width: "100%", height: 210, marginTop: 4 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={[
-                { engine: "Trivy CVEs", count: 24, fill: C.teal },
-                { engine: "Gitleaks Secrets", count: 18, fill: C.red },
-                { engine: "Semgrep SAST", count: 12, fill: C.violet },
-                { engine: "ZAP DAST", count: 6, fill: C.cyan },
-              ]}>
+              <BarChart data={engineVolumeData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                 <XAxis dataKey="engine" stroke={C.inkMid} fontSize={10} />
                 <YAxis stroke={C.inkMid} fontSize={10} />
                 <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
                 <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                  {[
-                    { fill: C.teal },
-                    { fill: C.red },
-                    { fill: C.violet },
-                    { fill: C.cyan }
-                  ].map((entry, idx) => (
+                  {engineVolumeData.map((entry, idx) => (
                     <Cell key={idx} fill={entry.fill} />
                   ))}
                 </Bar>
@@ -2770,7 +2858,6 @@ function SlackIntegrationCard({ C }) {
 function SecurityIntegrationsHub({ C }) {
   const [activeSubTab, setActiveSubTab] = useState("audit"); // "audit" | "soc2" | "webhooks"
   const [slackUrl, setSlackUrl] = useState("https://hooks.slack.com/services/WORK_SPACE/CHANNEL_ID/WEBHOOK_SECRET_KEY");
-  const [teamsUrl, setTeamsUrl] = useState("https://outlook.office.com/webhook/WORKSPACE_ID/IncomingWebhook/CHANNEL_KEY");
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [testSuccess, setTestSuccess] = useState(null);
 
@@ -2898,33 +2985,18 @@ function SecurityIntegrationsHub({ C }) {
         </div>
       )}
 
-      {/* Tab 3: Webhook Alert Channels (Slack / Teams / PagerDuty) */}
+      {/* Tab 3: Webhook Alert Channels (Slack) */}
       {activeSubTab === "webhooks" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            {/* Slack Webhook Input */}
-            <div style={{ padding: 14, background: C.bgSurface, borderRadius: 12, border: `1px solid ${C.border}` }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: C.ink, display: "block", marginBottom: 4 }}>
-                💬 Slack Channel Webhook URL (<code style={{ color: C.teal }}>#devsecops-alerts</code>)
-              </label>
-              <input
-                value={slackUrl}
-                onChange={e => setSlackUrl(e.target.value)}
-                style={{ width: "100%", padding: "8px 12px", borderRadius: 8, background: C.bgCard, border: `1px solid ${C.border}`, color: C.ink, fontSize: 11, fontFamily: C.mono, outline: "none" }}
-              />
-            </div>
-
-            {/* MS Teams Webhook Input */}
-            <div style={{ padding: 14, background: C.bgSurface, borderRadius: 12, border: `1px solid ${C.border}` }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: C.ink, display: "block", marginBottom: 4 }}>
-                📢 Microsoft Teams Incoming Webhook URL
-              </label>
-              <input
-                value={teamsUrl}
-                onChange={e => setTeamsUrl(e.target.value)}
-                style={{ width: "100%", padding: "8px 12px", borderRadius: 8, background: C.bgCard, border: `1px solid ${C.border}`, color: C.ink, fontSize: 11, fontFamily: C.mono, outline: "none" }}
-              />
-            </div>
+          <div style={{ padding: 14, background: C.bgSurface, borderRadius: 12, border: `1px solid ${C.border}` }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.ink, display: "block", marginBottom: 4 }}>
+              💬 Slack Channel Webhook URL (<code style={{ color: C.teal }}>#devsecops-alerts</code>)
+            </label>
+            <input
+              value={slackUrl}
+              onChange={e => setSlackUrl(e.target.value)}
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, background: C.bgCard, border: `1px solid ${C.border}`, color: C.ink, fontSize: 11, fontFamily: C.mono, outline: "none" }}
+            />
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
