@@ -20,7 +20,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
 from models import Base, ScanResult
-from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label
+from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label, load_policy_file
 from ai_analysis import analyze_scan, analyze_code_scan_failure, answer_copilot_question
 from slack_notifier import send_slack_alert
 
@@ -669,9 +669,15 @@ async def copilot_ask(data: dict, db: Session = Depends(get_db)):
             "created_at": utc_iso(s.created_at),
         }
 
+    try:
+        active_policy = load_policy_file()
+    except Exception:
+        active_policy = {}
+
     context = {
         "recent_scans": [scan_summary(s) for s in recent],
         "focus_scan": scan_summary(focus_scan) if focus_scan else None,
+        "active_policy_rules": active_policy,
     }
     if data.get("context"):
         context["client_context"] = data["context"]
