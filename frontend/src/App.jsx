@@ -66,8 +66,8 @@ const THEMES = {
     cyanSoft:     "#083344",
     cyanBord:     "#0e7490",
     borderBright: "#334155",
-    mono: "'JetBrains Mono','Fira Mono','Consolas',monospace",
-    sans: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    mono: "'JetBrains Mono','Fira Code','Courier New',monospace",
+    sans: "'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
   },
   light: {
     isDark:       false,
@@ -111,8 +111,8 @@ const THEMES = {
     cyanSoft:     "#ecfeff",
     cyanBord:     "#a5f3fc",
     borderBright: "#cbd5e1",
-    mono: "'JetBrains Mono','Fira Mono','Consolas',monospace",
-    sans: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    mono: "'JetBrains Mono','Fira Code','Courier New',monospace",
+    sans: "'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
   }
 };
 
@@ -131,10 +131,14 @@ const PIPELINE_STAGES = [
 /* ─── Global CSS Generator ─────────────────────────────────────────── */
 function buildGlobalCSS(C) {
   return `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
+.login-grid-bg {
+  background-image: linear-gradient(rgba(0, 242, 254, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 242, 254, 0.04) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
 body {
   background: ${C.bg};
   color: ${C.ink};
@@ -1159,37 +1163,7 @@ const AIFeedbackRow = ({ scanId, feedback, onFeedback, C }) => {
 /* ─────────────────────────────────────────────
    POLICY GATE SANDBOX (Interactive Policy Simulator)
 ───────────────────────────────────────────── */
-function PolicySandbox({ scans, C }) {
-  const [cvssThreshold, setCvssThreshold] = useState(7.0);
-  const [strictSecrets, setStrictSecrets] = useState(true);
-
-  const simulatedResults = useMemo(() => {
-    let simBlocked = 0;
-    let simAllowed = 0;
-
-    scans.forEach(s => {
-      let isBlocked = false;
-      if (strictSecrets && (s.vulnerabilities || []).some(v => v.tool === "Gitleaks" || v.cve_id.includes("SECRET"))) {
-        isBlocked = true;
-      }
-      (s.vulnerabilities || []).forEach(v => {
-        const sc = parseFloat(v.score);
-        if (!Number.isNaN(sc) && sc >= cvssThreshold) {
-          isBlocked = true;
-        }
-      });
-      if (isBlocked) simBlocked++;
-      else simAllowed++;
-    });
-
-    const total = scans.length || 1;
-    return {
-      blocked: simBlocked,
-      allowed: simAllowed,
-      blockRate: ((simBlocked / total) * 100).toFixed(1),
-    };
-  }, [scans, cvssThreshold, strictSecrets]);
-
+function PolicySandbox({ scans, cvssThreshold, setCvssThreshold, strictSecrets, setStrictSecrets, simulatedResults, C }) {
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -3017,113 +2991,119 @@ function AIInsightsTab({ scans, feedback, onFeedback, onOpenCopilotForScan, C })
 
 
 
-function SlackWebhookCard({ C, onTriggerTestAlert }) {
-  const [slackUrl, setSlackUrl] = useState("https://hooks.slack.com/services/WORK_SPACE/CHANNEL_ID/WEBHOOK_SECRET_KEY");
-  const [testingWebhook, setTestingWebhook] = useState(false);
-  const [testSuccess, setTestSuccess] = useState(null);
-
-  const triggerTest = async () => {
-    setTestingWebhook(true);
-    setTestSuccess(null);
-    try {
-      const res = await fetch(`${BACKEND}/api/slack/test`, { method: "POST" });
-      const data = await res.json();
-      setTestSuccess(data.message || "Webhook test payload dispatched successfully.");
-      if (onTriggerTestAlert) {
-        onTriggerTestAlert({
-          repo_name: "abhienix/SecureFlow",
-          commit_sha: "test-webhook-trigger",
-          commit_message: "Slack webhook verification test",
-          action_taken: "ALLOW",
-          severity: "CLEAN",
-          vulnerabilities: []
-        });
-      }
-    } catch {
-      setTestSuccess("Webhook dispatch test simulated successfully.");
-      if (onTriggerTestAlert) {
-        onTriggerTestAlert({
-          repo_name: "abhienix/SecureFlow",
-          commit_sha: "test-webhook-trigger",
-          commit_message: "Slack webhook verification test",
-          action_taken: "ALLOW",
-          severity: "CLEAN",
-          vulnerabilities: []
-        });
-      }
-    } finally {
-      setTestingWebhook(false);
-    }
-  };
+function PolicySimulationStatsCard({ simulatedResults, C }) {
+  const rate = parseFloat(simulatedResults.blockRate || 0);
+  const radius = 45;
+  const strokeWidth = 8;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (rate / 100) * circumference;
 
   return (
-    <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", justifyContent: "space-between", height: 260 }}>
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 2px 10px rgba(0,242,254,0.3)"
-          }}>
-            <Send size={15} color="#FFFFFF" />
-          </div>
-          <h4 style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>Slack Security Webhook Dispatcher</h4>
-        </div>
-
-        <p style={{ fontSize: 11, color: C.inkLow, lineHeight: 1.5, marginBottom: 12 }}>
-          Send real-time alerts to `#devsecops-alerts` when a security gate evaluates commit vulnerabilities.
+    <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", height: 260 }}>
+      <div style={{ flex: 1, minWidth: 0, paddingRight: 16 }}>
+        <SectionTitle accent={C.teal} C={C}>Simulation Matrix</SectionTitle>
+        <p style={{ fontSize: 11, color: C.inkLow, lineHeight: 1.5, marginBottom: 16 }}>
+          Visualizing how shifting the CVSS policy gate affects deployment pass rates in real-time.
         </p>
 
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.inkMid, display: "block", marginBottom: 6 }}>
-          💬 Slack Incoming Webhook URL
-        </label>
-        <input
-          value={slackUrl}
-          onChange={e => setSlackUrl(e.target.value)}
-          style={{
-            width: "100%", padding: "8px 12px", borderRadius: 8,
-            background: C.bgSurface, border: `1px solid ${C.border}`,
-            color: C.ink, fontSize: 11, fontFamily: C.mono, outline: "none"
-          }}
-        />
+        <div style={{ display: "flex", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C.red, fontFamily: C.mono }}>
+              {simulatedResults.blocked}
+            </div>
+            <div style={{ fontSize: 10, color: C.red, fontWeight: 700, textTransform: "uppercase" }}>Blocked</div>
+          </div>
+          <div style={{ borderLeft: `1px solid ${C.border}`, paddingLeft: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C.teal, fontFamily: C.mono }}>
+              {simulatedResults.allowed}
+            </div>
+            <div style={{ fontSize: 10, color: C.teal, fontWeight: 700, textTransform: "uppercase" }}>Allowed</div>
+          </div>
+        </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <button
-          onClick={triggerTest}
-          disabled={testingWebhook}
-          style={{
-            padding: "8px 14px", borderRadius: 8,
-            background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
-            border: "none", color: "#FFFFFF", fontSize: 11, fontWeight: 800,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer",
-            boxShadow: "0 4px 12px rgba(0,242,254,0.3)"
-          }}
-        >
-          {testingWebhook ? <Loader2 size={13} className="spin" /> : <Send size={13} />}
-          Test Webhook Dispatcher
-        </button>
-
-        {testSuccess && (
-          <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} style={{
-            padding: "6px 10px", background: C.tealSoft, border: `1px solid ${C.tealBord}`,
-            borderRadius: 6, color: C.teal, fontSize: 10, fontWeight: 700, textAlign: "center"
-          }}>
-            ✓ Webhook payload sent!
-          </motion.div>
-        )}
+      {/* Circle Radial Ring Gauge */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0, position: "relative" }}>
+        <svg width="120" height="120" style={{ transform: "rotate(-90deg)" }}>
+          {/* Base track */}
+          <circle
+            cx="60" cy="60" r={radius}
+            fill="transparent"
+            stroke={C.border}
+            strokeWidth={strokeWidth}
+          />
+          {/* Active progress */}
+          <motion.circle
+            cx="60" cy="60" r={radius}
+            fill="transparent"
+            stroke={rate > 50 ? C.red : rate > 0 ? C.teal : C.teal}
+            strokeWidth={strokeWidth}
+            strokeDasharray={circumference}
+            animate={{ strokeDashoffset }}
+            transition={{ type: "spring", stiffness: 60, damping: 15 }}
+            strokeLinecap="round"
+          />
+        </svg>
+        <div style={{
+          position: "absolute", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "100%", textAlign: "center"
+        }}>
+          <span style={{ fontSize: 16, fontWeight: 900, color: C.ink, fontFamily: C.mono }}>
+            {rate.toFixed(0)}%
+          </span>
+          <span style={{ fontSize: 8, color: C.inkLow, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.02em" }}>
+            Block Rate
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
 function MetricsTab({ scans, totalScans, onTriggerTestAlert, C }) {
+  const [cvssThreshold, setCvssThreshold] = useState(7.0);
+  const [strictSecrets, setStrictSecrets] = useState(true);
+
+  const simulatedResults = useMemo(() => {
+    let simBlocked = 0;
+    let simAllowed = 0;
+
+    scans.forEach(s => {
+      let isBlocked = false;
+      if (strictSecrets && (s.vulnerabilities || []).some(v => v.tool === "Gitleaks" || v.cve_id.includes("SECRET"))) {
+        isBlocked = true;
+      }
+      (s.vulnerabilities || []).forEach(v => {
+        const sc = parseFloat(v.score);
+        if (!Number.isNaN(sc) && sc >= cvssThreshold) {
+          isBlocked = true;
+        }
+      });
+      if (isBlocked) simBlocked++;
+      else simAllowed++;
+    });
+
+    const total = scans.length || 1;
+    return {
+      blocked: simBlocked,
+      allowed: simAllowed,
+      blockRate: parseFloat(((simBlocked / total) * 100).toFixed(1)),
+    };
+  }, [scans, cvssThreshold, strictSecrets]);
+
   return (
     <div>
       <SectionTitle accent={C.teal} C={C}>Enterprise Security Gate Telemetry & Policy Matrix</SectionTitle>
 
-      <PolicySandbox scans={scans} C={C} />
+      <PolicySandbox
+        scans={scans}
+        cvssThreshold={cvssThreshold}
+        setCvssThreshold={setCvssThreshold}
+        strictSecrets={strictSecrets}
+        setStrictSecrets={setStrictSecrets}
+        simulatedResults={simulatedResults}
+        C={C}
+      />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 24 }}>
         {/* Left Column: Active Policy Engine Rules Matrix */}
@@ -3147,58 +3127,67 @@ function MetricsTab({ scans, totalScans, onTriggerTestAlert, C }) {
           </div>
         </div>
 
-        {/* Right Column: Slack Webhook Integration Card */}
-        <SlackWebhookCard C={C} onTriggerTestAlert={onTriggerTestAlert} />
+        {/* Right Column: Policy Simulation Statistics Card */}
+        <PolicySimulationStatsCard simulatedResults={simulatedResults} C={C} />
       </div>
     </div>
   );
 }
 
 function LoginGate({ onAuthenticate, C }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("secureflow");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [terminalLogs, setTerminalLogs] = useState([]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    handleLogin(username, password);
-  };
+    if (username.trim() !== "admin" || password !== "secureflow") {
+      setError("Invalid identity credentials. Access Denied.");
+      return;
+    }
 
-  const handleLogin = (user, pass) => {
     setError("");
     setLoading(true);
-    setTimeout(() => {
-      if (user.trim() === "admin" && pass === "secureflow") {
-        onAuthenticate();
-      } else {
-        setError("Invalid identity credentials. Access Denied.");
-        setLoading(false);
-      }
-    }, 1200);
-  };
+    setTerminalLogs([]);
 
-  const handleQuickLogin = () => {
-    setUsername("admin");
-    setPassword("secureflow");
-    handleLogin("admin", "secureflow");
+    const logSequence = [
+      "[SYS] Connecting to Zero-Trust SecureFlow gateway...",
+      "[KEY] Decrypting session authorization token...",
+      "[AUTH] Identity confirmed: admin (SecOps Administrator)",
+      "[OK] Granting access. Decapsulating dashboard payload..."
+    ];
+
+    logSequence.forEach((log, index) => {
+      setTimeout(() => {
+        setTerminalLogs(prev => [...prev, log]);
+      }, (index + 1) * 320);
+    });
+
+    setTimeout(() => {
+      onAuthenticate();
+    }, logSequence.length * 320 + 200);
   };
 
   return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "center",
-      minHeight: "100vh", background: C.isDark ? "#090D16" : "#F8FAFC",
-      fontFamily: "Inter, sans-serif", padding: 20
-    }}>
+    <div 
+      className="login-grid-bg"
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        minHeight: "100vh", background: C.isDark ? "#090D16" : "#F8FAFC",
+        fontFamily: C.sans, padding: 20
+      }}
+    >
       {/* Background Cyber Glows */}
       <div style={{
         position: "absolute", width: 350, height: 350, borderRadius: "50%",
-        background: "radial-gradient(circle, rgba(0, 242, 254, 0.15) 0%, rgba(0,0,0,0) 70%)",
+        background: "radial-gradient(circle, rgba(0, 242, 254, 0.12) 0%, rgba(0,0,0,0) 70%)",
         top: "20%", left: "30%", zIndex: 1, pointerEvents: "none"
       }} />
       <div style={{
         position: "absolute", width: 350, height: 350, borderRadius: "50%",
-        background: "radial-gradient(circle, rgba(121, 40, 202, 0.12) 0%, rgba(0,0,0,0) 70%)",
+        background: "radial-gradient(circle, rgba(121, 40, 202, 0.1) 0%, rgba(0,0,0,0) 70%)",
         bottom: "20%", right: "30%", zIndex: 1, pointerEvents: "none"
       }} />
 
@@ -3207,7 +3196,7 @@ function LoginGate({ onAuthenticate, C }) {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.4 }}
         style={{
-          width: "100%", maxWidth: 420, padding: 36,
+          width: "100%", maxWidth: 440, padding: 36,
           background: C.bgCard, border: `1px solid ${C.isDark ? "rgba(0, 242, 254, 0.25)" : C.border}`,
           borderRadius: 24, boxShadow: C.isDark ? "0 20px 50px rgba(0,0,0,0.5)" : "0 20px 40px rgba(0,0,0,0.06)",
           zIndex: 10, backdropFilter: "blur(16px)", position: "relative"
@@ -3219,107 +3208,109 @@ function LoginGate({ onAuthenticate, C }) {
             <VoidCoreIcon />
           </div>
           <h2 style={{ fontSize: 20, fontWeight: 900, color: C.ink, letterSpacing: "-0.02em", textAlign: "center" }}>
-            SecureFlow Gateway
+            SecureFlow Gate
           </h2>
           <p style={{ fontSize: 11, fontWeight: 700, color: C.teal, marginTop: 4, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Identity & Access Authorization
+            Zero-Trust Access Control
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 800, color: C.inkMid, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Username
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              disabled={loading}
-              placeholder="e.g. admin"
-              style={{
-                width: "100%", padding: "11px 14px", borderRadius: 10,
-                background: C.bgSurface, border: `1px solid ${C.border}`,
-                color: C.ink, fontSize: 13, outline: "none", transition: "all 0.2s ease"
-              }}
-            />
+        {loading ? (
+          /* Terminal Log simulation */
+          <div style={{
+            background: "#040711", border: "1px solid rgba(0, 242, 254, 0.2)",
+            borderRadius: 12, padding: 18, minHeight: 180, display: "flex",
+            flexDirection: "column", gap: 8, fontFamily: C.mono, fontSize: 11, color: "#38BDF8"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid rgba(0,242,254,0.1)", paddingBottom: 6, marginBottom: 4, color: "#64748B" }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.red }} />
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.amber }} />
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.teal }} />
+              <span style={{ marginLeft: "auto", fontSize: 9 }}>secops_decryptor.sh</span>
+            </div>
+            {terminalLogs.map((log, i) => (
+              <div key={i} style={{ animation: "fadeIn 0.2s forwards" }}>
+                {log.startsWith("[OK]") ? (
+                  <span style={{ color: C.teal }}>{log}</span>
+                ) : log.startsWith("[AUTH]") ? (
+                  <span style={{ color: C.amber }}>{log}</span>
+                ) : (
+                  <span>{log}</span>
+                )}
+              </div>
+            ))}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: "auto" }}>
+              <Loader2 size={12} className="spin" color="#00F2FE" />
+              <span style={{ color: "#64748B", fontSize: 10 }}>Decrypting authentication token...</span>
+            </div>
           </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 800, color: C.inkMid, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Username
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                placeholder="admin"
+                style={{
+                  width: "100%", padding: "11px 14px", borderRadius: 10,
+                  background: C.bgSurface, border: `1px solid ${C.border}`,
+                  color: C.ink, fontSize: 13, outline: "none", transition: "all 0.2s ease",
+                  fontFamily: C.mono
+                }}
+              />
+            </div>
 
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 800, color: C.inkMid, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              disabled={loading}
-              placeholder="••••••••"
-              style={{
-                width: "100%", padding: "11px 14px", borderRadius: 10,
-                background: C.bgSurface, border: `1px solid ${C.border}`,
-                color: C.ink, fontSize: 13, outline: "none", transition: "all 0.2s ease"
-              }}
-            />
-          </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 800, color: C.inkMid, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="secureflow"
+                style={{
+                  width: "100%", padding: "11px 14px", borderRadius: 10,
+                  background: C.bgSurface, border: `1px solid ${C.border}`,
+                  color: C.ink, fontSize: 13, outline: "none", transition: "all 0.2s ease",
+                  fontFamily: C.mono
+                }}
+              />
+            </div>
 
-          {error && (
-            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} style={{
-              fontSize: 12, color: C.red, fontWeight: 700, background: C.redSoft,
-              padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.redBord}`, display: "flex", alignItems: "center", gap: 6
-            }}>
-              <XCircle size={14} /> {error}
-            </motion.div>
-          )}
+            {error && (
+              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} style={{
+                fontSize: 12, color: C.red, fontWeight: 700, background: C.redSoft,
+                padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.redBord}`, display: "flex", alignItems: "center", gap: 6
+              }}>
+                <XCircle size={14} /> {error}
+              </motion.div>
+            )}
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
             <button
               type="submit"
-              disabled={loading || !username || !password}
+              disabled={!username || !password}
               style={{
                 width: "100%", padding: "12px", borderRadius: 10,
                 background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
                 border: "none", color: "#FFFFFF", fontSize: 13, fontWeight: 800,
-                cursor: (loading || !username || !password) ? "not-allowed" : "pointer",
+                cursor: (!username || !password) ? "not-allowed" : "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 boxShadow: "0 4px 14px rgba(0,242,254,0.35)", transition: "all 0.2s ease"
               }}
             >
-              {loading ? (
-                <>
-                  <Loader2 size={15} className="spin" /> Verifying Access Credentials...
-                </>
-              ) : (
-                <>
-                  <Lock size={14} /> Authenticate Gate
-                </>
-              )}
+              <Lock size={14} /> Decrypt & Authenticate
             </button>
-
-            <button
-              type="button"
-              onClick={handleQuickLogin}
-              disabled={loading}
-              style={{
-                width: "100%", padding: "11px", borderRadius: 10,
-                background: C.bgSurface, border: `1px solid ${C.border}`,
-                color: C.ink, fontSize: 12, fontWeight: 700,
-                cursor: loading ? "not-allowed" : "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                transition: "all 0.15s ease"
-              }}
-            >
-              <Zap size={14} color={C.amber} fill={C.amber} /> One-Click Quick Login
-            </button>
-          </div>
-        </form>
+          </form>
+        )}
 
         <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}`, textAlign: "center" }}>
-          <p style={{ fontSize: 11, color: C.inkLow, lineHeight: 1.5 }}>
-            🔒 <strong>Zero Trust Policy Lock Active</strong>
-          </p>
-          <p style={{ fontSize: 10, color: C.inkLow, marginTop: 4 }}>
-            Default Identity: <code style={{ color: C.teal, background: C.tealSoft, padding: "1px 5px", borderRadius: 4 }}>admin</code> / <code style={{ color: C.teal, background: C.tealSoft, padding: "1px 5px", borderRadius: 4 }}>secureflow</code>
+          <p style={{ fontSize: 10, color: C.inkLow, lineHeight: 1.5 }}>
+            Identity token is pre-filled. Press Enter or click **Decrypt & Authenticate** to access dashboard.
           </p>
         </div>
       </motion.div>
