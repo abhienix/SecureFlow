@@ -682,7 +682,7 @@ async def copilot_ask(data: dict, db: Session = Depends(get_db)):
         answer = await asyncio.to_thread(answer_copilot_question, question, context)
     except Exception as e:
         print(f"[copilot] error: {e}")
-        raise HTTPException(status_code=502, detail="AI Copilot is temporarily unavailable")
+        raise HTTPException(status_code=502, detail="Void is temporarily offline")
 
     return {"answer": answer}
 
