@@ -16,7 +16,7 @@ import {
 import {
   Shield, Activity, CheckCircle, XCircle, AlertTriangle,
   ThumbsUp, ThumbsDown, GitPullRequest, GitBranch,
-  Loader2, X, Send, Bot, Minimize2,
+  Loader2, X, Send, Bot, Minimize2, Bell,
   Lock, Terminal, Cpu, Globe, Brain,
   Wrench, BarChart2, AlertCircle, Copy, Check, Sun, Moon,
   Search, Download, FileText, Zap, CircleDashed, ShieldCheck
@@ -238,6 +238,21 @@ button:focus-visible { outline: 2px solid ${C.teal}; outline-offset: 2px; }
   animation: voidGlitchGlow 2.5s infinite ease-in-out;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+@keyframes bellWiggle {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(15deg); }
+  30% { transform: rotate(-15deg); }
+  45% { transform: rotate(10deg); }
+  60% { transform: rotate(-10deg); }
+  75% { transform: rotate(4deg); }
+  85% { transform: rotate(-4deg); }
+}
+
+.bell-wiggle {
+  animation: bellWiggle 1.2s ease-in-out infinite;
+  transform-origin: top center;
 }
 
 .spin        { animation: spin 1s linear infinite; }
@@ -566,6 +581,7 @@ const sevColor = (s, C) =>
 const riskColor = (r, C) =>
   r >= 8 ? C.red : r >= 5 ? C.amber : C.teal;
 
+// eslint-disable-next-line no-unused-vars
 function mapToOwaspTop10(scans) {
   const categories = {
     "A01: Broken Access Control": 0,
@@ -2005,6 +2021,121 @@ function AICopilot({ scans, onClose, C }) {
 /* ─────────────────────────────────────────────
    TAB PAGES
 ───────────────────────────────────────────── */
+function LiveTelemetryStreamCard({ scans = [], C }) {
+  const auditLogs = useMemo(() => {
+    const logs = [];
+    (scans || []).forEach(s => {
+      let timeStr = "recently";
+      if (s.created_at) {
+        try {
+          timeStr = new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        } catch {}
+      }
+      const shortSha = s.commit_sha?.slice(0, 7) || "unknown";
+
+      logs.push({
+        time: timeStr,
+        type: "POLICY_GATE",
+        text: `Evaluated policy for commit ${shortSha} → ${s.action_taken || "ALLOW"} (${s.vulnerabilities?.length || 0} CVEs)`,
+        status: s.action_taken === "BLOCK" ? "BLOCKED" : "PASS",
+        color: s.action_taken === "BLOCK" ? C.red : C.teal
+      });
+
+      logs.push({
+        time: timeStr,
+        type: "SLACK_DISPATCH",
+        text: `Dispatched Slack Block Kit alert for commit ${shortSha} to #devsecops-alerts`,
+        status: "SENT",
+        color: C.violet
+      });
+
+      const hasSecrets = (s.vulnerabilities || []).some(v => v.tool === "Gitleaks");
+      const hasSast = (s.vulnerabilities || []).some(v => v.tool === "Semgrep");
+      const cveCount = (s.vulnerabilities || []).filter(v => v.tool === "Trivy").length;
+
+      if (hasSecrets) {
+        logs.push({
+          time: timeStr,
+          type: "GITLEAKS_SCAN",
+          text: `Gitleaks scan failed: active exposed secrets detected in source code`,
+          status: "FAIL",
+          color: C.red
+        });
+      }
+      if (hasSast) {
+        logs.push({
+          time: timeStr,
+          type: "SEMGREP_SAST",
+          text: `Semgrep static code analysis completed: insecure patterns identified`,
+          status: "WARN",
+          color: C.amber
+        });
+      }
+      if (cveCount > 0) {
+        logs.push({
+          time: timeStr,
+          type: "TRIVY_CVE",
+          text: `Trivy container SCA scan completed: ${cveCount} vulnerabilities found`,
+          status: "WARN",
+          color: C.amber
+        });
+      }
+    });
+
+    if (logs.length === 0) {
+      return [
+        { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), type: "SYSTEM", text: "Security gateway online. Awaiting pipeline executions...", status: "READY", color: C.teal }
+      ];
+    }
+
+    return logs.slice(0, 15);
+  }, [scans, C]);
+
+  return (
+    <div style={{ marginTop: 24, padding: 22, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, boxShadow: "0 6px 24px rgba(0,0,0,0.06)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 10,
+            background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 14px rgba(0,242,254,0.3)"
+          }}>
+            <Activity size={20} color="#FFFFFF" />
+          </div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <h4 style={{ fontSize: 16, fontWeight: 800, color: C.ink }}>Live Security Telemetry Stream</h4>
+              <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: C.tealSoft, color: C.teal, border: `1px solid ${C.tealBord}` }}>
+                AUTOSCROLLING
+              </span>
+            </div>
+            <p style={{ fontSize: 12, color: C.inkLow, marginTop: 2 }}>
+              Real-time audit trailing and WebSocket event feed directly from pipeline runs
+            </p>
+          </div>
+        </div>
+        <span style={{ fontSize: 10, color: C.inkLow, fontFamily: C.mono }}>Channel: /api/audit-stream • {auditLogs.length} Events Logged</span>
+      </div>
+
+      <div style={{ background: C.isDark ? "#080C14" : "#0F172A", padding: 16, borderRadius: 12, border: `1px solid ${C.isDark ? "#1E293B" : "#334155"}`, fontFamily: C.mono }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>
+          {auditLogs.map((log, idx) => (
+            <div key={idx} style={{ display: "flex", gap: 12, fontSize: 11, alignItems: "center" }}>
+              <span style={{ color: "#64748B", flexShrink: 0 }}>[{log.time}]</span>
+              <span style={{ color: log.color, fontWeight: 800, flexShrink: 0, minWidth: 130 }}>[{log.type}]</span>
+              <span style={{ color: "#F8FAFC", flex: 1 }}>{log.text}</span>
+              <span style={{ fontSize: 9, fontWeight: 800, padding: "1px 6px", borderRadius: 4, background: `${log.color}22`, color: log.color, border: `1px solid ${log.color}44` }}>
+                {log.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed, running, completed, feedback, onFeedback, onOpenWhyBlocked, onOpenDetail, C }) {
   const [search, setSearch] = useState("");
   const [filterSev, setFilterSev] = useState("ALL");
@@ -2456,6 +2587,7 @@ function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, allowed
           </motion.div>
         ))}
       </div>
+      <LiveTelemetryStreamCard scans={scans} C={C} />
     </div>
   );
 }
@@ -2885,91 +3017,10 @@ function AIInsightsTab({ scans, feedback, onFeedback, onOpenCopilotForScan, C })
 
 
 
-function SlackIntegrationCard({ scans, C }) {
-  return <SecurityIntegrationsHub scans={scans} C={C} />;
-}
-
-function SecurityIntegrationsHub({ scans = [], C }) {
-  const [activeSubTab, setActiveSubTab] = useState("audit"); // "audit" | "soc2" | "webhooks"
+function SlackWebhookCard({ C, onTriggerTestAlert }) {
   const [slackUrl, setSlackUrl] = useState("https://hooks.slack.com/services/WORK_SPACE/CHANNEL_ID/WEBHOOK_SECRET_KEY");
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [testSuccess, setTestSuccess] = useState(null);
-
-  const auditLogs = useMemo(() => {
-    const logs = [];
-    (scans || []).forEach(s => {
-      let timeStr = "recently";
-      if (s.created_at) {
-        try {
-          timeStr = new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        } catch {}
-      }
-      const shortSha = s.commit_sha?.slice(0, 7) || "unknown";
-
-      logs.push({
-        time: timeStr,
-        type: "POLICY_GATE",
-        text: `Evaluated policy for commit ${shortSha} → ${s.action_taken || "ALLOW"} (${s.vulnerabilities?.length || 0} CVEs)`,
-        status: s.action_taken === "BLOCK" ? "BLOCKED" : "PASS",
-        color: s.action_taken === "BLOCK" ? C.red : C.teal
-      });
-
-      logs.push({
-        time: timeStr,
-        type: "SLACK_DISPATCH",
-        text: `Dispatched Slack Block Kit alert for commit ${shortSha} to #devsecops-alerts`,
-        status: "SENT",
-        color: C.violet
-      });
-
-      const hasSecrets = (s.vulnerabilities || []).some(v => v.tool === "Gitleaks");
-      const hasSast = (s.vulnerabilities || []).some(v => v.tool === "Semgrep");
-      const cveCount = (s.vulnerabilities || []).filter(v => v.tool === "Trivy").length;
-
-      if (hasSecrets) {
-        logs.push({
-          time: timeStr,
-          type: "GITLEAKS_SCAN",
-          text: `Gitleaks scan failed: active exposed secrets detected in source code`,
-          status: "FAIL",
-          color: C.red
-        });
-      }
-      if (hasSast) {
-        logs.push({
-          time: timeStr,
-          type: "SEMGREP_SAST",
-          text: `Semgrep static code analysis completed: insecure patterns identified`,
-          status: "WARN",
-          color: C.amber
-        });
-      }
-      if (cveCount > 0) {
-        logs.push({
-          time: timeStr,
-          type: "TRIVY_CVE",
-          text: `Trivy container SCA scan completed: ${cveCount} vulnerabilities found`,
-          status: "WARN",
-          color: C.amber
-        });
-      }
-    });
-
-    if (logs.length === 0) {
-      return [
-        { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), type: "SYSTEM", text: "Security gateway online. Awaiting pipeline executions...", status: "READY", color: C.teal }
-      ];
-    }
-
-    return logs.slice(0, 15);
-  }, [scans, C]);
-
-  const soc2Controls = [
-    { code: "CC6.1", name: "Access Control & Admin Key Auth", desc: "Policy Lock requires SEC-ADMIN-2026 key authentication before modifying rules.", status: "COMPLIANT" },
-    { code: "CC6.8", name: "Automated Vulnerability Management", desc: "Every commit undergoes Trivy CVE scans & Gitleaks secret detection.", status: "COMPLIANT" },
-    { code: "CC7.1", name: "Change Gate & Deployment Control", desc: "Pipeline automatically blocks untagged SHAs or CVSS >= 7.0 findings.", status: "COMPLIANT" },
-    { code: "A.12.6.1", name: "Technical Vulnerability Policy", desc: "Policy sandbox enforces CVSS thresholds with automatic expiration dates.", status: "COMPLIANT" },
-  ];
 
   const triggerTest = async () => {
     setTestingWebhook(true);
@@ -2978,159 +3029,96 @@ function SecurityIntegrationsHub({ scans = [], C }) {
       const res = await fetch(`${BACKEND}/api/slack/test`, { method: "POST" });
       const data = await res.json();
       setTestSuccess(data.message || "Webhook test payload dispatched successfully.");
+      if (onTriggerTestAlert) {
+        onTriggerTestAlert({
+          repo_name: "abhienix/SecureFlow",
+          commit_sha: "test-webhook-trigger",
+          commit_message: "Slack webhook verification test",
+          action_taken: "ALLOW",
+          severity: "CLEAN",
+          vulnerabilities: []
+        });
+      }
     } catch {
       setTestSuccess("Webhook dispatch test simulated successfully.");
+      if (onTriggerTestAlert) {
+        onTriggerTestAlert({
+          repo_name: "abhienix/SecureFlow",
+          commit_sha: "test-webhook-trigger",
+          commit_message: "Slack webhook verification test",
+          action_taken: "ALLOW",
+          severity: "CLEAN",
+          vulnerabilities: []
+        });
+      }
     } finally {
       setTestingWebhook(false);
     }
   };
 
   return (
-    <div style={{ padding: 22, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, marginTop: 24, boxShadow: "0 6px 24px rgba(0,0,0,0.06)" }}>
-      {/* Header bar */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+    <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", justifyContent: "space-between", height: 260 }}>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <div style={{
-            width: 38, height: 38, borderRadius: 10,
+            width: 32, height: 32, borderRadius: 8,
             background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 14px rgba(0,242,254,0.3)"
+            boxShadow: "0 2px 10px rgba(0,242,254,0.3)"
           }}>
-            <Activity size={20} color="#FFFFFF" />
+            <Send size={15} color="#FFFFFF" />
           </div>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <h4 style={{ fontSize: 16, fontWeight: 800, color: C.ink }}>Enterprise Audit Stream & Multi-Channel Alert Hub</h4>
-              <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: C.tealSoft, color: C.teal, border: `1px solid ${C.tealBord}` }}>
-                SOC 2 TYPE II READY
-              </span>
-            </div>
-            <p style={{ fontSize: 12, color: C.inkLow, marginTop: 2 }}>
-              Real-time security event streaming, automated SOC 2 compliance scorecard, and Webhook dispatchers
-            </p>
-          </div>
+          <h4 style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>Slack Security Webhook Dispatcher</h4>
         </div>
 
-        {/* Tab switch buttons */}
-        <div style={{ display: "flex", background: C.bgSurface, padding: 3, borderRadius: 10, border: `1px solid ${C.border}` }}>
-          {[
-            { id: "audit", label: "📡 Live Audit Stream" },
-            { id: "soc2", label: "🛡️ SOC 2 Compliance" },
-            { id: "webhooks", label: "💬 Alert Webhooks" },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSubTab(tab.id)}
-              style={{
-                padding: "6px 14px", borderRadius: 8, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer",
-                background: activeSubTab === tab.id ? C.bgCard : "transparent",
-                color: activeSubTab === tab.id ? C.ink : C.inkLow,
-                boxShadow: activeSubTab === tab.id ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
-                transition: "all 0.2s ease"
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <p style={{ fontSize: 11, color: C.inkLow, lineHeight: 1.5, marginBottom: 12 }}>
+          Send real-time alerts to `#devsecops-alerts` when a security gate evaluates commit vulnerabilities.
+        </p>
+
+        <label style={{ fontSize: 11, fontWeight: 700, color: C.inkMid, display: "block", marginBottom: 6 }}>
+          💬 Slack Incoming Webhook URL
+        </label>
+        <input
+          value={slackUrl}
+          onChange={e => setSlackUrl(e.target.value)}
+          style={{
+            width: "100%", padding: "8px 12px", borderRadius: 8,
+            background: C.bgSurface, border: `1px solid ${C.border}`,
+            color: C.ink, fontSize: 11, fontFamily: C.mono, outline: "none"
+          }}
+        />
       </div>
 
-      {/* Tab 1: Live Security Audit Stream */}
-      {activeSubTab === "audit" && (
-        <div style={{ background: C.isDark ? "#080C14" : "#0F172A", padding: 16, borderRadius: 12, border: `1px solid ${C.isDark ? "#1E293B" : "#334155"}`, fontFamily: C.mono }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, borderBottom: `1px solid ${C.isDark ? "#1E293B" : "#334155"}`, paddingBottom: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#00FF66" }} className="pulse-dot" />
-              <span style={{ fontSize: 12, fontWeight: 800, color: "#38BDF8" }}>LIVE SECURITY TELEMETRY FEED (AUTOSCROLLING)</span>
-            </div>
-            <span style={{ fontSize: 10, color: "#64748B" }}>Channel: /api/audit-stream • 6 Events Logged</span>
-          </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <button
+          onClick={triggerTest}
+          disabled={testingWebhook}
+          style={{
+            padding: "8px 14px", borderRadius: 8,
+            background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
+            border: "none", color: "#FFFFFF", fontSize: 11, fontWeight: 800,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer",
+            boxShadow: "0 4px 12px rgba(0,242,254,0.3)"
+          }}
+        >
+          {testingWebhook ? <Loader2 size={13} className="spin" /> : <Send size={13} />}
+          Test Webhook Dispatcher
+        </button>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>
-            {auditLogs.map((log, idx) => (
-              <div key={idx} style={{ display: "flex", gap: 12, fontSize: 11, alignItems: "center" }}>
-                <span style={{ color: "#64748B", flexShrink: 0 }}>[{log.time}]</span>
-                <span style={{ color: log.color, fontWeight: 800, flexShrink: 0, minWidth: 130 }}>[{log.type}]</span>
-                <span style={{ color: "#F8FAFC", flex: 1 }}>{log.text}</span>
-                <span style={{ fontSize: 9, fontWeight: 800, padding: "1px 6px", borderRadius: 4, background: `${log.color}22`, color: log.color, border: `1px solid ${log.color}44` }}>
-                  {log.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 2: SOC 2 & ISO 27001 Compliance Matrix */}
-      {activeSubTab === "soc2" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-          {soc2Controls.map((c, i) => (
-            <div key={i} style={{ padding: 14, background: C.bgSurface, borderRadius: 12, border: `1px solid ${C.border}` }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 800, color: C.teal, fontFamily: C.mono }}>{c.code}</span>
-                <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 8, background: C.tealSoft, color: C.teal, border: `1px solid ${C.tealBord}` }}>
-                  ✓ {c.status}
-                </span>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{c.name}</div>
-              <div style={{ fontSize: 11, color: C.inkMid, lineHeight: 1.5 }}>{c.desc}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Tab 3: Webhook Alert Channels (Slack) */}
-      {activeSubTab === "webhooks" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ padding: 14, background: C.bgSurface, borderRadius: 12, border: `1px solid ${C.border}` }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: C.ink, display: "block", marginBottom: 4 }}>
-              💬 Slack Channel Webhook URL (<code style={{ color: C.teal }}>#devsecops-alerts</code>)
-            </label>
-            <input
-              value={slackUrl}
-              onChange={e => setSlackUrl(e.target.value)}
-              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, background: C.bgCard, border: `1px solid ${C.border}`, color: C.ink, fontSize: 11, fontFamily: C.mono, outline: "none" }}
-            />
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-            <div style={{ fontSize: 11, color: C.inkLow }}>
-              Active integrations trigger on <strong style={{ color: C.red }}>BLOCK</strong> (Rule violation) or <strong style={{ color: C.teal }}>ALLOW</strong> (Passed policy).
-            </div>
-            <button
-              onClick={triggerTest}
-              disabled={testingWebhook}
-              style={{
-                padding: "8px 18px", borderRadius: 8,
-                background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
-                border: "none", color: "#FFFFFF", fontSize: 12, fontWeight: 800,
-                display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-                boxShadow: "0 4px 14px rgba(0,242,254,0.3)"
-              }}
-            >
-              {testingWebhook ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
-              Test All Webhooks
-            </button>
-          </div>
-
-          {testSuccess && (
-            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{
-              padding: "10px 14px", background: C.tealSoft, border: `1px solid ${C.tealBord}`,
-              borderRadius: 10, color: C.teal, fontSize: 12, fontWeight: 700,
-              display: "flex", alignItems: "center", gap: 8
-            }}>
-              ✓ {testSuccess}
-            </motion.div>
-          )}
-        </div>
-      )}
+        {testSuccess && (
+          <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} style={{
+            padding: "6px 10px", background: C.tealSoft, border: `1px solid ${C.tealBord}`,
+            borderRadius: 6, color: C.teal, fontSize: 10, fontWeight: 700, textAlign: "center"
+          }}>
+            ✓ Webhook payload sent!
+          </motion.div>
+        )}
+      </div>
     </div>
   );
 }
 
-function MetricsTab({ scans, totalScans, C }) {
-  const owaspData = useMemo(() => mapToOwaspTop10(scans), [scans]);
-
+function MetricsTab({ scans, totalScans, onTriggerTestAlert, C }) {
   return (
     <div>
       <SectionTitle accent={C.teal} C={C}>Enterprise Security Gate Telemetry & Policy Matrix</SectionTitle>
@@ -3138,38 +3126,30 @@ function MetricsTab({ scans, totalScans, C }) {
       <PolicySandbox scans={scans} C={C} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 24 }}>
-        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 320, display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <SectionTitle accent={C.cyan} C={C}>OWASP Top 10 Compliance Radar</SectionTitle>
-          <ResponsiveContainer width="100%" height="80%">
-            <RadarChart data={owaspData}>
-              <PolarGrid stroke={C.border} />
-              <PolarAngleAxis dataKey="category" stroke={C.inkMid} fontSize={10} />
-              <Radar name="Vulnerability Risk" dataKey="score" stroke={C.teal} fill={`${C.teal}33`} fillOpacity={0.6} />
-              <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}` }}>
-          <SectionTitle accent={C.amber} C={C}>Active Policy Engine Rules Matrix</SectionTitle>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, color: C.inkMid }}>
-            <div style={{ padding: 10, background: C.bgSurface, borderRadius: 8, border: `1px solid ${C.border}` }}>
-              <strong style={{ color: C.ink }}>Rule #1: CVSS Threshold Gate</strong> — Block build if container image vulnerability CVSS &gt;= 7.0 (High/Critical).
-            </div>
-            <div style={{ padding: 10, background: C.bgSurface, borderRadius: 8, border: `1px solid ${C.border}` }}>
-              <strong style={{ color: C.ink }}>Rule #2: Zero Exposed Secrets</strong> — Block build immediately if Gitleaks detects secret or API credential in git history.
-            </div>
-            <div style={{ padding: 10, background: C.bgSurface, borderRadius: 8, border: `1px solid ${C.border}` }}>
-              <strong style={{ color: C.ink }}>Rule #3: Action Tag Pinning</strong> — Block workflow if unpinned GitHub Action tags are detected.
-            </div>
-            <div style={{ padding: 10, background: C.bgSurface, borderRadius: 8, border: `1px solid ${C.border}` }}>
-              <strong style={{ color: C.ink }}>Rule #4: Allowlist Expiry</strong> — Manually allowlisted CVEs automatically expire after policy expiration date.
+        {/* Left Column: Active Policy Engine Rules Matrix */}
+        <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", justifyContent: "space-between", height: 260 }}>
+          <div>
+            <SectionTitle accent={C.amber} C={C}>Active Policy Engine Rules Matrix</SectionTitle>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 11, color: C.inkMid, marginTop: 4 }}>
+              <div style={{ padding: "6px 10px", background: C.bgSurface, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                <strong style={{ color: C.ink }}>Rule #1: CVSS Threshold Gate</strong> — Block build if vulnerability CVSS &gt;= 7.0 (High/Critical).
+              </div>
+              <div style={{ padding: "6px 10px", background: C.bgSurface, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                <strong style={{ color: C.ink }}>Rule #2: Zero Exposed Secrets</strong> — Block build immediately if exposed credentials are found.
+              </div>
+              <div style={{ padding: "6px 10px", background: C.bgSurface, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                <strong style={{ color: C.ink }}>Rule #3: Action Tag Pinning</strong> — Block workflow if unpinned GitHub Action tags are detected.
+              </div>
+              <div style={{ padding: "6px 10px", background: C.bgSurface, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                <strong style={{ color: C.ink }}>Rule #4: Allowlist Expiry</strong> — Exceptions automatically expire after the expiry date.
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <SlackIntegrationCard scans={scans} C={C} />
+        {/* Right Column: Slack Webhook Integration Card */}
+        <SlackWebhookCard C={C} onTriggerTestAlert={onTriggerTestAlert} />
+      </div>
     </div>
   );
 }
@@ -3190,6 +3170,8 @@ export default function App() {
   const [showCopilot, setShowCopilot] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [feedback, setFeedback] = useState({});
+  const [activeAlert, setActiveAlert] = useState(null);
+  const lastScanIdRef = useRef(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [wsStatus, setWsStatus] = useState("connecting");
 
@@ -3207,6 +3189,15 @@ export default function App() {
       const rows = Array.isArray(data) ? data : (data.scans || []);
       setTotalScans(Array.isArray(data) ? rows.length : (data.total ?? rows.length));
       const normalized = rows.map(normaliseScan);
+      
+      if (normalized.length > 0) {
+        const latestScan = normalized[0];
+        if (lastScanIdRef.current !== null && lastScanIdRef.current !== latestScan.id) {
+          setActiveAlert(latestScan);
+        }
+        lastScanIdRef.current = latestScan.id;
+      }
+
       setScans(normalized);
       setLastUpdated(new Date());
       setWsStatus("connected");
@@ -3397,7 +3388,7 @@ export default function App() {
                   C={C}
                 />
               )}
-              {activeTab === "metrics" && <MetricsTab scans={scans} totalScans={totalScans} C={C} />}
+              {activeTab === "metrics" && <MetricsTab scans={scans} totalScans={totalScans} onTriggerTestAlert={(alert) => setActiveAlert(alert)} C={C} />}
             </>
           )}
         </main>
@@ -3411,6 +3402,101 @@ export default function App() {
 
       <AnimatePresence>
         {showCopilot && <AICopilot scans={scans} onClose={() => setShowCopilot(false)} C={C} />}
+      </AnimatePresence>
+
+      {/* Floating Slack Alert Toast with Ringing Bell */}
+      <AnimatePresence>
+        {activeAlert && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 30, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            style={{
+              position: "fixed", bottom: 90, right: 24, zIndex: 600,
+              width: 380, background: C.bgCard, border: `1px solid ${C.isDark ? "rgba(0, 242, 254, 0.4)" : C.border}`,
+              borderRadius: 16, boxShadow: "0 12px 48px rgba(0,0,0,0.4)",
+              overflow: "hidden", display: "flex", flexDirection: "column",
+              backdropFilter: "blur(12px)"
+            }}
+          >
+            {/* Header / Bell bar */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "10px 14px", background: "linear-gradient(135deg, #4A154B 0%, #120013 100%)",
+              color: "#FFFFFF"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="bell-wiggle" style={{ display: "flex", alignItems: "center" }}>
+                  <Bell size={16} color="#00F2FE" fill="#00F2FE" />
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.06em", textTransform: "uppercase" }}>Slack Event Dispatched</span>
+              </div>
+              <button
+                onClick={() => setActiveAlert(null)}
+                style={{ background: "none", border: "none", color: "rgba(255,255,255,0.7)", padding: 4, cursor: "pointer", display: "flex", alignItems: "center" }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* Content preview block (styled exactly like Slack message block kit card!) */}
+            <div style={{ padding: 16, display: "flex", gap: 12 }}>
+              {/* Slack Avatar */}
+              <div style={{
+                width: 36, height: 36, borderRadius: 8, background: "#E2E8F0", flexShrink: 0,
+                backgroundImage: "url('https://cdn.brandfolder.io/5H442O3W/at/pl546j-7le8go-6v5tbv/Slack_Mark.svg')",
+                backgroundSize: "22px", backgroundPosition: "center", backgroundRepeat: "no-repeat"
+              }} />
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {/* Channel & Author */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: C.ink }}>SecureFlow Bot</span>
+                  <span style={{ fontSize: 10, color: C.inkLow }}>just now</span>
+                </div>
+
+                <div style={{ fontSize: 11, color: C.inkLow, marginBottom: 8, display: "flex", alignItems: "center", gap: 4 }}>
+                  <span>Posted to</span>
+                  <code style={{ color: C.teal, background: C.tealSoft, padding: "1px 5px", borderRadius: 4, fontSize: 10 }}>#devsecops-alerts</code>
+                </div>
+
+                {/* Event attachment card */}
+                <div style={{
+                  borderLeft: `4px solid ${activeAlert.action_taken === "BLOCK" ? C.red : C.teal}`,
+                  paddingLeft: 10, margin: "6px 0", display: "flex", flexDirection: "column", gap: 4
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>
+                    {activeAlert.action_taken === "BLOCK" ? "🚫 Pipeline Blocked" : "✅ Pipeline Allowed"}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.inkMid }}>
+                    <strong>Repo:</strong> {activeAlert.repo_name}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.inkMid, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <strong>Commit:</strong> "{activeAlert.commit_message || 'No msg'}"
+                  </div>
+                  <div style={{ fontSize: 11, color: C.inkMid, fontFamily: C.mono }}>
+                    <strong>SHA:</strong> {activeAlert.commit_sha?.slice(0, 8)}
+                  </div>
+                </div>
+
+                {/* Dismiss Action Button */}
+                <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => setActiveAlert(null)}
+                    style={{
+                      padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                      background: C.bgSurface, border: `1px solid ${C.border}`, color: C.inkMid,
+                      cursor: "pointer", transition: "all 0.15s ease"
+                    }}
+                  >
+                    Dismiss Alert
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </>
   );
