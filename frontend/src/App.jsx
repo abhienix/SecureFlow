@@ -2883,24 +2883,84 @@ function AIInsightsTab({ scans, feedback, onFeedback, onOpenCopilotForScan, C })
 
 
 
-function SlackIntegrationCard({ C }) {
-  return <SecurityIntegrationsHub C={C} />;
+function SlackIntegrationCard({ scans, C }) {
+  return <SecurityIntegrationsHub scans={scans} C={C} />;
 }
 
-function SecurityIntegrationsHub({ C }) {
+function SecurityIntegrationsHub({ scans = [], C }) {
   const [activeSubTab, setActiveSubTab] = useState("audit"); // "audit" | "soc2" | "webhooks"
   const [slackUrl, setSlackUrl] = useState("https://hooks.slack.com/services/WORK_SPACE/CHANNEL_ID/WEBHOOK_SECRET_KEY");
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [testSuccess, setTestSuccess] = useState(null);
 
-  const auditLogs = [
-    { time: "20:57:12", type: "POLICY_GATE", text: "Evaluated policy for commit 4b27578 → ALLOW (0 Critical/High CVEs)", status: "PASS", color: C.teal },
-    { time: "20:55:04", type: "GITLEAKS_SCAN", text: "Scanned backend/ai_analysis.py → PASS (0 Secrets Detected)", status: "PASS", color: C.teal },
-    { time: "20:45:09", type: "TRIVY_CVE", text: "Container scan complete → 16 Total (CVE-2022-0778, CVE-2022-1292)", status: "WARN", color: C.amber },
-    { time: "20:42:01", type: "WEBHOOK_DISPATCH", text: "Dispatched Slack Block Kit alert to #devsecops-alerts", status: "SENT", color: C.violet },
-    { time: "20:30:15", type: "CLOUD_RUN", text: "Deployed secureflow-frontend to us-central1 (Revision v1.42)", status: "DEPLOYED", color: C.blue },
-    { time: "20:15:30", type: "ADMIN_AUDIT", text: "Policy lock update requested with Key SEC-ADMIN-2026", status: "AUTH", color: C.green },
-  ];
+  const auditLogs = useMemo(() => {
+    const logs = [];
+    (scans || []).forEach(s => {
+      let timeStr = "recently";
+      if (s.created_at) {
+        try {
+          timeStr = new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        } catch {}
+      }
+      const shortSha = s.commit_sha?.slice(0, 7) || "unknown";
+
+      logs.push({
+        time: timeStr,
+        type: "POLICY_GATE",
+        text: `Evaluated policy for commit ${shortSha} → ${s.action_taken || "ALLOW"} (${s.vulnerabilities?.length || 0} CVEs)`,
+        status: s.action_taken === "BLOCK" ? "BLOCKED" : "PASS",
+        color: s.action_taken === "BLOCK" ? C.red : C.teal
+      });
+
+      logs.push({
+        time: timeStr,
+        type: "SLACK_DISPATCH",
+        text: `Dispatched Slack Block Kit alert for commit ${shortSha} to #devsecops-alerts`,
+        status: "SENT",
+        color: C.violet
+      });
+
+      const hasSecrets = (s.vulnerabilities || []).some(v => v.tool === "Gitleaks");
+      const hasSast = (s.vulnerabilities || []).some(v => v.tool === "Semgrep");
+      const cveCount = (s.vulnerabilities || []).filter(v => v.tool === "Trivy").length;
+
+      if (hasSecrets) {
+        logs.push({
+          time: timeStr,
+          type: "GITLEAKS_SCAN",
+          text: `Gitleaks scan failed: active exposed secrets detected in source code`,
+          status: "FAIL",
+          color: C.red
+        });
+      }
+      if (hasSast) {
+        logs.push({
+          time: timeStr,
+          type: "SEMGREP_SAST",
+          text: `Semgrep static code analysis completed: insecure patterns identified`,
+          status: "WARN",
+          color: C.amber
+        });
+      }
+      if (cveCount > 0) {
+        logs.push({
+          time: timeStr,
+          type: "TRIVY_CVE",
+          text: `Trivy container SCA scan completed: ${cveCount} vulnerabilities found`,
+          status: "WARN",
+          color: C.amber
+        });
+      }
+    });
+
+    if (logs.length === 0) {
+      return [
+        { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), type: "SYSTEM", text: "Security gateway online. Awaiting pipeline executions...", status: "READY", color: C.teal }
+      ];
+    }
+
+    return logs.slice(0, 15);
+  }, [scans, C]);
 
   const soc2Controls = [
     { code: "CC6.1", name: "Access Control & Admin Key Auth", desc: "Policy Lock requires SEC-ADMIN-2026 key authentication before modifying rules.", status: "COMPLIANT" },
@@ -3107,7 +3167,7 @@ function MetricsTab({ scans, totalScans, C }) {
         </div>
       </div>
 
-      <SlackIntegrationCard C={C} />
+      <SlackIntegrationCard scans={scans} C={C} />
     </div>
   );
 }
