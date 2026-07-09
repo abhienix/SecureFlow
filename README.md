@@ -61,10 +61,10 @@ graph TB
     WS -->|real-time push| DASH
 
     subgraph DASH["⚛️ React Dashboard — 4 Interactive Tabs"]
-        OV[Overview\nHealth Score · Risk Trend · Decision Pie]
-        PL[Pipeline\n7-Stage Flow · Terminal Inspector]
+        OV[Security Command Center\nTelemetry Matrix · Compliance Radar · Real-time Feed]
+        PL[Pipeline Execution\n7-Stage Flow · Terminal Inspector · Deduplicated Live Banner]
         INS[AI Insights\nRemedies · Feedback Rating]
-        MT[Metrics\nOWASP Radar · Policy Sandbox · Audit Exporter]
+        MT[Metrics & Policy\nPolicy Sandbox · Active Rules · Webhook Dispatcher]
         COP[🤖 AI Security Copilot\nContext-aware Q&A Chat]
     end
 
@@ -86,22 +86,23 @@ graph TB
 - **SCA Container Scanning (Trivy)**: Scans container images for CVE vulnerabilities.
 - **DAST (OWASP ZAP)**: Dynamic security scanning against live deployed Cloud Run API endpoints (`https://secureflow-backend.../docs`).
 
-### 2. 🎛️ Interactive Policy Engine Sandbox & SecOps Lock
-- Dynamic evaluation via [`policy.yaml`](file:///c:/Users/Abhimanyu%20kumar/project/DevSecOps/SecureFlow/policy.yaml) with CVSS score thresholds and allowlists.
+### 2. 📊 Dynamic Telemetry & Compliance Scorecard
+- **Dynamic Heuristic Compliance Mapping**: Calculates compliance readiness (SOC 2, ISO 27001, NIST 800-53, OWASP ASVS, PCI-DSS, CIS Benchmarks) dynamically by analyzing active scan logs (e.g. exposed secrets directly reduce SOC 2 Access Control scores; SAST violations penalize OWASP ASVS rankings).
+- **Scanner Volume & Threat Progress Indicators**: High-density Recharts rendering threat rankings and engine detection volumes dynamically parsed from real-time PostgreSQL scan data.
+
+### 3. 🎛️ Interactive Policy Engine Sandbox & SecOps Lock
+- Dynamic evaluation via [`policy.yaml`](policy.yaml) with CVSS score thresholds and allowlists.
 - **"What-If" Policy Simulator**: Interactive slider on the dashboard to test how tightening policy rules affects historical block rates.
 - **SecOps Admin Authorization Lock**: Modifying production policy rules requires entering a SecOps Admin Key (`ADMIN-POLICY-KEY-2026`).
 
-### 3. 📄 Executive Audit Exporter & Secret Masking
+### 4. 📄 Executive Audit Exporter & Secret Masking
 - Single-click **"Export Audit Report"** generator for compliance auditors (SOC 2, ISO 27001).
 - **Role-Based Authorization & Secret Redaction**: Enforces auditor PIN verification (`SEC-AUDIT-2026`) and automatically redacts credentials (`[REDACTED_SECRET_KEY]`) in exported payloads.
 
-### 4. 🤖 AI Remedy Engine & Copilot Assistant
+### 5. 🤖 AI Remedy Engine & Copilot Assistant
 - Every blocked commit triggers an AI fallback chain (**Groq → Gemini → Ollama**) generating root-cause explanations and single-click **"Copy Code Fix"** buttons.
 - **User Feedback Rating Loop**: Rate AI analysis accuracy directly from the UI with feedback saved to PostgreSQL.
 - **Context-Aware AI Copilot**: Floating chat panel equipped with scan focus selectors and DevSecOps prompt chips.
-
-### 5. 💬 Real-Time Slack Security Webhook Dispatcher
-- Dispatches formatted security alerts to `#devsecops-alerts` Slack channels on every `BLOCK` or `ALLOW` event with one-click dashboard test triggers.
 
 ---
 
@@ -109,10 +110,10 @@ graph TB
 
 | Tab | Key Features |
 | :--- | :--- |
-| **Overview** | Health Score Arc Gauge · Risk Trend Area Chart · Policy Decision Donut Chart · Scanner Breakdown Bar Chart (**Trivy**, **Gitleaks**, **Semgrep**, **OWASP ZAP**) · Live Feed |
-| **Pipeline** | **7-Stage Visual Pipeline Diagram** · Expandable Stage Inspector with `$ command` logs and duration metrics · Full Commit SHA Copy |
+| **Security Command Center** | Health Score Arc Gauge · Severity Trends Line Chart · Center-Metric Donut Chart · Top Threat Rankings · Compliance Framework Radar Chart · Security Engine Volume Bar Chart · Top Priority Remediation Queue |
+| **Pipeline Execution** | **7-Stage Visual Pipeline Diagram** · Deduplicated live running scan banner · Expandable Stage Inspector with `$ command` logs and duration metrics |
 | **AI Insights** | AI Remediation Cards · Single-click Code Fix Generator · Accuracy Feedback Loop (Accurate / Incorrect) |
-| **Metrics & Policy** | **OWASP Top 10 Compliance Radar Chart** · Interactive Policy Sandbox Simulator · Active Policy Rules Matrix · Slack Dispatcher Card |
+| **Metrics & Policy** | Interactive Policy Sandbox Simulator · Active Policy Rules Matrix · Slack Dispatcher Card & Live Audit Webhook log stream |
 
 ---
 
@@ -129,7 +130,7 @@ graph TB
 | **Backend** | FastAPI + PostgreSQL + SQLAlchemy + WebSockets |
 | **AI Core** | Groq (`llama-3.3-70b`) ➔ Gemini (`flash-lite`) ➔ Ollama (`qwen2.5`) |
 | **Frontend** | React + Recharts + Framer Motion + Lucide Icons |
-| **Cloud Infra** | Google Cloud Run + Artifact Registry |
+| **Cloud Infra** | Google Cloud Run + PostgreSQL + Artifact Registry |
 
 ---
 
@@ -140,7 +141,7 @@ graph TB
 git clone https://github.com/abhienix/SecureFlow.git
 cd SecureFlow
 
-# 2. Start PostgreSQL, Redis & FastAPI backend
+# 2. Start PostgreSQL & FastAPI backend
 docker compose up -d
 
 # 3. Start React frontend
