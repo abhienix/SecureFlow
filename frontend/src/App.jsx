@@ -3154,6 +3154,179 @@ function MetricsTab({ scans, totalScans, onTriggerTestAlert, C }) {
   );
 }
 
+function LoginGate({ onAuthenticate, C }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    handleLogin(username, password);
+  };
+
+  const handleLogin = (user, pass) => {
+    setError("");
+    setLoading(true);
+    setTimeout(() => {
+      if (user.trim() === "admin" && pass === "secureflow") {
+        onAuthenticate();
+      } else {
+        setError("Invalid identity credentials. Access Denied.");
+        setLoading(false);
+      }
+    }, 1200);
+  };
+
+  const handleQuickLogin = () => {
+    setUsername("admin");
+    setPassword("secureflow");
+    handleLogin("admin", "secureflow");
+  };
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "center",
+      minHeight: "100vh", background: C.isDark ? "#090D16" : "#F8FAFC",
+      fontFamily: "Inter, sans-serif", padding: 20
+    }}>
+      {/* Background Cyber Glows */}
+      <div style={{
+        position: "absolute", width: 350, height: 350, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(0, 242, 254, 0.15) 0%, rgba(0,0,0,0) 70%)",
+        top: "20%", left: "30%", zIndex: 1, pointerEvents: "none"
+      }} />
+      <div style={{
+        position: "absolute", width: 350, height: 350, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(121, 40, 202, 0.12) 0%, rgba(0,0,0,0) 70%)",
+        bottom: "20%", right: "30%", zIndex: 1, pointerEvents: "none"
+      }} />
+
+      <motion.div
+        initial={{ opacity: 0, y: 30, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.4 }}
+        style={{
+          width: "100%", maxWidth: 420, padding: 36,
+          background: C.bgCard, border: `1px solid ${C.isDark ? "rgba(0, 242, 254, 0.25)" : C.border}`,
+          borderRadius: 24, boxShadow: C.isDark ? "0 20px 50px rgba(0,0,0,0.5)" : "0 20px 40px rgba(0,0,0,0.06)",
+          zIndex: 10, backdropFilter: "blur(16px)", position: "relative"
+        }}
+      >
+        {/* Void icon header */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
+          <div style={{ display: "flex", transform: "scale(1.25)", marginBottom: 12 }}>
+            <VoidCoreIcon />
+          </div>
+          <h2 style={{ fontSize: 20, fontWeight: 900, color: C.ink, letterSpacing: "-0.02em", textAlign: "center" }}>
+            SecureFlow Gateway
+          </h2>
+          <p style={{ fontSize: 11, fontWeight: 700, color: C.teal, marginTop: 4, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+            Identity & Access Authorization
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 800, color: C.inkMid, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              disabled={loading}
+              placeholder="e.g. admin"
+              style={{
+                width: "100%", padding: "11px 14px", borderRadius: 10,
+                background: C.bgSurface, border: `1px solid ${C.border}`,
+                color: C.ink, fontSize: 13, outline: "none", transition: "all 0.2s ease"
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 800, color: C.inkMid, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              disabled={loading}
+              placeholder="••••••••"
+              style={{
+                width: "100%", padding: "11px 14px", borderRadius: 10,
+                background: C.bgSurface, border: `1px solid ${C.border}`,
+                color: C.ink, fontSize: 13, outline: "none", transition: "all 0.2s ease"
+              }}
+            />
+          </div>
+
+          {error && (
+            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} style={{
+              fontSize: 12, color: C.red, fontWeight: 700, background: C.redSoft,
+              padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.redBord}`, display: "flex", alignItems: "center", gap: 6
+            }}>
+              <XCircle size={14} /> {error}
+            </motion.div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+            <button
+              type="submit"
+              disabled={loading || !username || !password}
+              style={{
+                width: "100%", padding: "12px", borderRadius: 10,
+                background: "linear-gradient(135deg, #0284C7 0%, #00F2FE 100%)",
+                border: "none", color: "#FFFFFF", fontSize: 13, fontWeight: 800,
+                cursor: (loading || !username || !password) ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                boxShadow: "0 4px 14px rgba(0,242,254,0.35)", transition: "all 0.2s ease"
+              }}
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={15} className="spin" /> Verifying Access Credentials...
+                </>
+              ) : (
+                <>
+                  <Lock size={14} /> Authenticate Gate
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleQuickLogin}
+              disabled={loading}
+              style={{
+                width: "100%", padding: "11px", borderRadius: 10,
+                background: C.bgSurface, border: `1px solid ${C.border}`,
+                color: C.ink, fontSize: 12, fontWeight: 700,
+                cursor: loading ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                transition: "all 0.15s ease"
+              }}
+            >
+              <Zap size={14} color={C.amber} fill={C.amber} /> One-Click Quick Login
+            </button>
+          </div>
+        </form>
+
+        <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}`, textAlign: "center" }}>
+          <p style={{ fontSize: 11, color: C.inkLow, lineHeight: 1.5 }}>
+            🔒 <strong>Zero Trust Policy Lock Active</strong>
+          </p>
+          <p style={{ fontSize: 10, color: C.inkLow, marginTop: 4 }}>
+            Default Identity: <code style={{ color: C.teal, background: C.tealSoft, padding: "1px 5px", borderRadius: 4 }}>admin</code> / <code style={{ color: C.teal, background: C.tealSoft, padding: "1px 5px", borderRadius: 4 }}>secureflow</code>
+          </p>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    MAIN APP
 ───────────────────────────────────────────── */
@@ -3174,6 +3347,7 @@ export default function App() {
   const lastScanIdRef = useRef(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [wsStatus, setWsStatus] = useState("connecting");
+  const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem("sf_auth") === "true");
 
   const toggleTheme = () => {
     const next = themeMode === "dark" ? "light" : "dark";
@@ -3255,6 +3429,18 @@ export default function App() {
     { id: "ai-insights",label: "AI Insights",             Icon: Brain         },
     { id: "metrics",    label: "Metrics & Policy",        Icon: BarChart2     },
   ];
+
+  if (!isAuthenticated) {
+    return (
+      <>
+        <style>{buildGlobalCSS(C)}</style>
+        <LoginGate onAuthenticate={() => {
+          setIsAuthenticated(true);
+          sessionStorage.setItem("sf_auth", "true");
+        }} C={C} />
+      </>
+    );
+  }
 
   return (
     <>
