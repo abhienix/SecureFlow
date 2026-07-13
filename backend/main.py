@@ -16,8 +16,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import select, func, text
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from models import Base, ScanResult
 from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label, load_policy_file
@@ -35,10 +35,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localho
 STALE_RUN_TIMEOUT_MINUTES = int(os.getenv("STALE_RUN_TIMEOUT_MINUTES", "20"))
 WATCHDOG_INTERVAL_SECONDS = int(os.getenv("WATCHDOG_INTERVAL_SECONDS", "30"))
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
+# Dynamically convert to postgresql+asyncpg for asyncio postgres driver
+ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://") if DATABASE_URL.startswith("postgresql://") else DATABASE_URL
 
-Base.metadata.create_all(bind=engine)
+engine = create_async_engine(ASYNC_DATABASE_URL, pool_size=20, max_overflow=10)
+AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 # ---------------------------------------------------------------------------
 # WebSocket connection manager
@@ -92,12 +93,15 @@ app.add_middleware(
 Instrumentator().instrument(app).expose(app)
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db():
+    async with AsyncSessionLocal() as db:
+        try:
+            yield db
+        except Exception:
+            await db.rollback()
+            raise
+        finally:
+            await db.close()
 
 
 def utc_iso(dt: datetime | None) -> str | None:
@@ -138,39 +142,43 @@ async def stale_run_watchdog():
     while True:
         try:
             await asyncio.sleep(WATCHDOG_INTERVAL_SECONDS)
-            db = SessionLocal()
-            try:
-                cutoff = datetime.utcnow() - timedelta(minutes=STALE_RUN_TIMEOUT_MINUTES)
-                stale_runs = (
-                    db.query(ScanResult)
-                    .filter(ScanResult.status == "running")
-                    .filter(ScanResult.started_at != None)  # noqa: E711
-                    .filter(ScanResult.started_at < cutoff)
-                    .all()
-                )
-                for scan in stale_runs:
-                    scan.status = "timeout"
-                    scan.action_taken = scan.action_taken or "UNKNOWN"
-                    scan.severity = scan.severity or "UNKNOWN"
-                    scan.ai_explanation = (
-                        scan.ai_explanation
-                        or f"No result received within {STALE_RUN_TIMEOUT_MINUTES} minutes — "
-                           "the pipeline likely crashed, was cancelled, or failed before "
-                           "reporting back. Check the GitHub Actions run logs for this commit."
+            async with AsyncSessionLocal() as db:
+                try:
+                    cutoff = datetime.utcnow() - timedelta(minutes=STALE_RUN_TIMEOUT_MINUTES)
+                    result = await db.execute(
+                        select(ScanResult)
+                        .filter(ScanResult.status == "running")
+                        .filter(ScanResult.started_at != None)  # noqa: E711
+                        .filter(ScanResult.started_at < cutoff)
                     )
-                    db.commit()
-                    db.refresh(scan)
-                    await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_timeout"))
-            finally:
-                db.close()
+                    stale_runs = result.scalars().all()
+                    for scan in stale_runs:
+                        scan.status = "timeout"
+                        scan.action_taken = scan.action_taken or "UNKNOWN"
+                        scan.severity = scan.severity or "UNKNOWN"
+                        scan.ai_explanation = (
+                            scan.ai_explanation
+                            or f"No result received within {STALE_RUN_TIMEOUT_MINUTES} minutes — "
+                               "the pipeline likely crashed, was cancelled, or failed before "
+                               "reporting back. Check the GitHub Actions run logs for this commit."
+                        )
+                        await db.commit()
+                        await db.refresh(scan)
+                        await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_timeout"))
+                except Exception as ex:
+                    await db.rollback()
+                    print(f"[watchdog db transaction] error: {ex}")
         except asyncio.CancelledError:
             break
         except Exception as e:
-            print(f"[watchdog] error: {e}")
+            print(f"[watchdog loop] error: {e}")
 
 
 @app.on_event("startup")
 async def start_watchdog():
+    # Asynchronously create tables on startup inside async loop
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     asyncio.create_task(stale_run_watchdog())
 
 
@@ -213,18 +221,18 @@ async def websocket_scans(ws: WebSocket):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results/start")
-async def start_scan_run(data: dict, db: Session = Depends(get_db)):
+async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
     repo_name = data.get("repo_name", "unknown")
     branch = data.get("branch", "main")
 
     # Supersede older active runs on the same branch (concurrency cancellation)
-    prev_running = (
-        db.query(ScanResult)
+    result = await db.execute(
+        select(ScanResult)
         .filter(ScanResult.repo_name == repo_name)
         .filter(ScanResult.branch == branch)
         .filter(ScanResult.status == "running")
-        .all()
     )
+    prev_running = result.scalars().all()
     for prev in prev_running:
         prev.status = "superseded"
         prev.action_taken = prev.action_taken or "SKIPPED"
@@ -249,12 +257,9 @@ async def start_scan_run(data: dict, db: Session = Depends(get_db)):
         started_at=datetime.utcnow(),
     )
     db.add(scan)
-    db.commit()
-    db.refresh(scan)
+    await db.commit()
+    await db.refresh(scan)
 
-    # FIX: was asyncio.create_task() inside a sync nested function called
-    # from a threadpool — no event loop available there. Now the endpoint is
-    # async so await works directly.
     await manager.broadcast({
         "type": "scan_started",
         "run_id": scan.id,
@@ -271,8 +276,9 @@ async def start_scan_run(data: dict, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/scan-results/{run_id}/progress")
-async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(get_db)):
-    scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
+async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(ScanResult).filter(ScanResult.id == run_id))
+    scan = result.scalars().first()
     if not scan:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -283,7 +289,7 @@ async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(ge
     if "status" in data:
         scan.status = data["status"]
         
-    db.commit()
+    await db.commit()
 
     await manager.broadcast({
         "type": "scan_progress",
@@ -300,23 +306,23 @@ async def update_scan_progress(run_id: int, data: dict, db: Session = Depends(ge
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results/cleanup-stale")
-async def cleanup_stale_runs(db: Session = Depends(get_db), older_than_minutes: int = 0):
+async def cleanup_stale_runs(db: AsyncSession = Depends(get_db), older_than_minutes: int = 0):
     cutoff = datetime.utcnow() - timedelta(minutes=older_than_minutes)
-    stale_runs = (
-        db.query(ScanResult)
+    result = await db.execute(
+        select(ScanResult)
         .filter(ScanResult.status == "running")
         .filter(ScanResult.started_at != None)  # noqa: E711
         .filter(ScanResult.started_at < cutoff)
-        .all()
     )
+    stale_runs = result.scalars().all()
     cleared = []
     for scan in stale_runs:
         scan.status = "timeout"
         scan.action_taken = scan.action_taken or "UNKNOWN"
         scan.severity = scan.severity or "UNKNOWN"
         scan.ai_explanation = scan.ai_explanation or "Manually cleared stale run."
-        db.commit()
-        db.refresh(scan)
+        await db.commit()
+        await db.refresh(scan)
         await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_timeout"))
         cleared.append(scan.id)
     return {"status": "cleaned", "cleared_run_ids": cleared, "count": len(cleared)}
@@ -327,20 +333,17 @@ async def cleanup_stale_runs(db: Session = Depends(get_db), older_than_minutes: 
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results")
-async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
+async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
     scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
     run_id = data.get("run_id")
     pipeline_steps = data.get("pipeline_steps", {})
 
-    # -------------------------------------------------------------------
-    # Normalize ALL scanner outputs (IMPORTANT FIX)
-    # -------------------------------------------------------------------
     gitleaks = data.get("gitleaks", [])
     semgrep = data.get("semgrep", [])
     trivy = data.get("findings", {})
 
-    # Normalise scanner payloads — gitleaks may arrive as object or single finding
+    # Normalise scanner payloads
     if isinstance(gitleaks, dict):
         gitleaks = gitleaks.get("findings") or gitleaks.get("results") or [gitleaks]
     if not isinstance(gitleaks, list):
@@ -362,7 +365,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     explicit_action = (data.get("action") or "").upper()
     has_trivy = bool(normalized_findings["Results"])
 
-    def _upsert(fields: dict) -> ScanResult:
+    async def _upsert(fields: dict) -> ScanResult:
         nonlocal run_id
         if run_id is not None:
             try:
@@ -370,7 +373,8 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             except (TypeError, ValueError):
                 run_id = None
         if run_id:
-            scan = db.query(ScanResult).filter(ScanResult.id == run_id).first()
+            res = await db.execute(select(ScanResult).filter(ScanResult.id == run_id))
+            scan = res.scalars().first()
             if scan:
                 for key, value in fields.items():
                     if key == "findings" and scan.findings:
@@ -386,21 +390,21 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
                 merged_steps = dict(scan.pipeline_steps or {})
                 merged_steps.update(pipeline_steps)
                 scan.pipeline_steps = merged_steps
-                db.commit()
-                db.refresh(scan)
+                await db.commit()
+                await db.refresh(scan)
                 return scan
 
         scan = ScanResult(**fields, pipeline_steps=pipeline_steps, status="complete")
         db.add(scan)
-        db.commit()
-        db.refresh(scan)
+        await db.commit()
+        await db.refresh(scan)
         return scan
 
     # -------------------------------------------------------------------
-    # Code scan (unchanged)
+    # Code scan
     # -------------------------------------------------------------------
     if scan_type == "code-scan":
-        scan = _upsert({
+        scan = await _upsert({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
             "repo_name": repo_name,
@@ -419,7 +423,6 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
 
     # -------------------------------------------------------------------
     # CI code-scan block/allow — honor explicit action when no Trivy CVE data
-    # (fixes Gitleaks BLOCK being overwritten as ALLOW by the Trivy policy path)
     # -------------------------------------------------------------------
     if explicit_action in ("BLOCK", "ALLOW") and not has_trivy:
         block_reason = data.get("reason") or (
@@ -459,7 +462,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
             except Exception as e:
                 print(f"[code-scan AI] error: {e}")
 
-        scan = _upsert({
+        scan = await _upsert({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
             "repo_name": repo_name,
@@ -481,10 +484,10 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         }
 
     # -------------------------------------------------------------------
-    # Explicit scanner actions (legacy fast path — kept for compatibility)
+    # Explicit scanner actions (legacy fast path)
     # -------------------------------------------------------------------
     if explicit_action and not has_trivy and not gitleaks and not semgrep:
-        scan = _upsert({
+        scan = await _upsert({
             "commit_sha": data.get("commit_sha", "unknown"),
             "commit_message": data.get("commit_message", ""),
             "repo_name": repo_name,
@@ -502,7 +505,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
         return {"status": "processed", "id": scan.id, "action": explicit_action}
 
     # -------------------------------------------------------------------
-    # 🔥 MAIN POLICY ENGINE (NOW FIXED FOR ALL SCANNERS)
+    # 🔥 MAIN POLICY ENGINE
     # -------------------------------------------------------------------
     custom_policy = data.get("policy") or data.get("policy_raw")
     if isinstance(custom_policy, str):
@@ -514,7 +517,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     policy_result = evaluate_policy(normalized_findings, repo_name, custom_policy=custom_policy)
 
     # -------------------------------------------------------------------
-    # AI analysis (Trivy only, unchanged)
+    # AI analysis (Trivy only)
     # -------------------------------------------------------------------
     ai_results = []
     vulnerabilities = []
@@ -530,7 +533,7 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
     # -------------------------------------------------------------------
     # Save scan result
     # -------------------------------------------------------------------
-    scan = _upsert({
+    scan = await _upsert({
         "commit_sha": data.get("commit_sha", "unknown"),
         "commit_message": data.get("commit_message", ""),
         "repo_name": repo_name,
@@ -561,12 +564,13 @@ async def receive_scan_results(data: dict, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results/{scan_id}/feedback")
-def submit_feedback(scan_id: int, feedback: dict, db: Session = Depends(get_db)):
-    scan = db.query(ScanResult).filter(ScanResult.id == scan_id).first()
+async def submit_feedback(scan_id: int, feedback: dict, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(ScanResult).filter(ScanResult.id == scan_id))
+    scan = result.scalars().first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     scan.ai_feedback = feedback.get("feedback")
-    db.commit()
+    await db.commit()
     return {"status": "feedback saved", "scan_id": scan_id}
 
 
@@ -638,7 +642,7 @@ def test_slack_alert():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/copilot/ask")
-async def copilot_ask(data: dict, db: Session = Depends(get_db)):
+async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
     question = (data.get("question") or "").strip()
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
@@ -646,14 +650,15 @@ async def copilot_ask(data: dict, db: Session = Depends(get_db)):
     focus_scan_id = data.get("scan_id")
     focus_scan = None
     if focus_scan_id:
-        focus_scan = db.query(ScanResult).filter(ScanResult.id == focus_scan_id).first()
+        res = await db.execute(select(ScanResult).filter(ScanResult.id == focus_scan_id))
+        focus_scan = res.scalars().first()
 
-    recent = (
-        db.query(ScanResult)
+    res = await db.execute(
+        select(ScanResult)
         .order_by(ScanResult.created_at.desc())
         .limit(25)
-        .all()
     )
+    recent = res.scalars().all()
 
     def scan_summary(s: ScanResult) -> dict:
         return {
@@ -698,8 +703,9 @@ async def copilot_ask(data: dict, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results/{scan_id}/reanalyze")
-async def reanalyze_scan(scan_id: int, db: Session = Depends(get_db)):
-    scan = db.query(ScanResult).filter(ScanResult.id == scan_id).first()
+async def reanalyze_scan(scan_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(ScanResult).filter(ScanResult.id == scan_id))
+    scan = result.scalars().first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     if scan.status == "running":
@@ -729,8 +735,8 @@ async def reanalyze_scan(scan_id: int, db: Session = Depends(get_db)):
 
     scan.ai_explanation = explanation
     scan.ai_fix = fix
-    db.commit()
-    db.refresh(scan)
+    await db.commit()
+    await db.refresh(scan)
 
     await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_reanalyzed"))
 
@@ -745,15 +751,19 @@ SCAN_RESULTS_LIMIT = int(os.getenv("SCAN_RESULTS_LIMIT", "200"))
 
 
 @app.get("/api/scan-results")
-def get_scan_results(db: Session = Depends(get_db), limit: int = SCAN_RESULTS_LIMIT):
+async def get_scan_results(db: AsyncSession = Depends(get_db), limit: int = SCAN_RESULTS_LIMIT):
     limit = max(1, min(limit, 500))
-    total = db.query(ScanResult).count()
-    rows = (
-        db.query(ScanResult)
+    
+    count_res = await db.execute(select(func.count()).select_from(ScanResult))
+    total = count_res.scalar()
+    
+    result = await db.execute(
+        select(ScanResult)
         .order_by(ScanResult.created_at.desc())
         .limit(limit)
-        .all()
     )
+    rows = result.scalars().all()
+    
     scans = [
         {
             "id": r.id,
@@ -782,7 +792,7 @@ def get_scan_results(db: Session = Depends(get_db), limit: int = SCAN_RESULTS_LI
 
 # Optional admin routes
 @app.get("/api/migrate")
-def migrate(db: Session = Depends(get_db)):
-    db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
-    db.commit()
+async def migrate(db: AsyncSession = Depends(get_db)):
+    await db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
+    await db.commit()
     return {"status": "migrated"}# updated
