@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
+import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 import { Loader2, CheckCircle, XCircle, CircleDashed, Terminal, Copy, Check } from "lucide-react";
 import { Badge, SectionTitle } from "../shared/Common";
 import { relTime } from "../../utils/formatters";
@@ -251,14 +251,24 @@ export function PipelineTab({ scans, onOpenWhyBlocked, onOpenDetail, C }) {
 
       <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 260, marginBottom: 24 }}>
         <ResponsiveContainer width="100%" height="90%">
-          <BarChart data={stageData}>
+          <AreaChart data={stageData}>
+            <defs>
+              <linearGradient id="passGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={C.teal} stopOpacity={0.4}/>
+                <stop offset="95%" stopColor={C.teal} stopOpacity={0.0}/>
+              </linearGradient>
+              <linearGradient id="failGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={C.red} stopOpacity={0.3}/>
+                <stop offset="95%" stopColor={C.red} stopOpacity={0.0}/>
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
             <XAxis dataKey="stage" stroke={C.inkMid} fontSize={11} />
             <YAxis stroke={C.inkMid} fontSize={11} />
             <Tooltip contentStyle={{ background: C.bgCard, borderColor: C.border, color: C.ink }} />
-            <Bar dataKey="pass" fill={C.teal} stackId="a" radius={[0, 0, 0, 0]} />
-            <Bar dataKey="fail" fill={C.red} stackId="a" radius={[6, 6, 0, 0]} />
-          </BarChart>
+            <Area type="monotone" dataKey="pass" stroke={C.teal} strokeWidth={2.5} fillOpacity={1} fill="url(#passGrad)" activeDot={{ r: 6 }} name="Pass Rate (%)" />
+            <Area type="monotone" dataKey="fail" stroke={C.red} strokeWidth={2.5} fillOpacity={1} fill="url(#failGrad)" activeDot={{ r: 6 }} name="Fail Rate (%)" />
+          </AreaChart>
         </ResponsiveContainer>
       </div>
 
