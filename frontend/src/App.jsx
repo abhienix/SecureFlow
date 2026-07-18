@@ -161,7 +161,7 @@ export default function App() {
             }}>
               <Shield size={18} color={C.teal} />
             </div>
-            <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em" }}>
+            <span className="brand-name" style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em" }}>
               Secure<span style={{ color: C.teal }}>Flow</span>
             </span>
           </div>
@@ -177,10 +177,10 @@ export default function App() {
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: wsStatus === "connected" ? C.teal : C.amber, fontWeight: 600 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: wsStatus === "connected" ? C.teal : C.amber, display: "inline-block" }} />
-              {wsStatus === "connected" ? "Live" : "Polling"}
+              <span className="hide-mobile">{wsStatus === "connected" ? "Live" : "Polling"}</span>
             </div>
             {lastUpdated && (
-              <span style={{ fontSize: 11, color: C.inkLow, fontWeight: 500 }}>
+              <span className="hide-mobile" style={{ fontSize: 11, color: C.inkLow, fontWeight: 500 }}>
                 {relTime(lastUpdated)}
               </span>
             )}
@@ -194,7 +194,7 @@ export default function App() {
                 color: C.ink, fontSize: 12, fontWeight: 600,
               }}
             >
-              <Download size={14} /> Export Audit
+              <Download size={14} /> <span className="hide-mobile">Export Audit</span>
             </button>
 
             <button
@@ -292,7 +292,7 @@ export default function App() {
             transition={{ type: "spring", stiffness: 300, damping: 25 }}
             style={{
               position: "fixed", bottom: 90, right: 24, zIndex: 600,
-              width: 380, background: C.bgCard, border: `1px solid ${C.isDark ? "rgba(0, 242, 254, 0.4)" : C.border}`,
+              width: 380, maxWidth: "calc(100vw - 48px)", background: C.bgCard, border: `1px solid ${C.isDark ? "rgba(0, 242, 254, 0.4)" : C.border}`,
               borderRadius: 16, boxShadow: "0 12px 48px rgba(0,0,0,0.4)",
               overflow: "hidden", display: "flex", flexDirection: "column",
               backdropFilter: "blur(12px)"

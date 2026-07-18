@@ -229,7 +229,7 @@ export function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, 
       </div>
 
       {/* Row 1 Graphs: Multi-line Trends + Center Metric Donut + Horizontal Bars */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 24 }}>
         {/* Multi-Line Severity Trend Chart */}
         <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 280, display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -306,7 +306,7 @@ export function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, 
       </div>
 
       {/* Row 2 Matrix Graphs: Compliance Radar + Scanner Engine Volume + Risk Density Area */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 24 }}>
         {/* Compliance Framework Checklist Progress Card */}
         <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, height: 280, display: "flex", flexDirection: "column" }}>
           <SectionTitle accent={C.teal} C={C}>Compliance Framework Readiness</SectionTitle>

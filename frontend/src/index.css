@@ -428,6 +428,10 @@ button:focus-visible {
   .hide-mobile { display: none !important; }
 }
 
+@media (max-width: 600px) {
+  .brand-name { display: none !important; }
+}
+
 @media (max-width: 480px) {
   .sf-main { padding: 12px 8px 60px; }
 }
