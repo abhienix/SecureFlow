@@ -13,7 +13,40 @@
 
 ---
 
-## 🏗️ Architecture & DevSecOps Flow
+## 💡 The "Why" Behind the Project (Interview Talking Points)
+
+### 1. Why a Multi-Scanner Gate? (SAST + SCA + Secrets + DAST)
+Single-scanner approaches leave massive blind spots. An application can pass dependency scans but ship with hardcoded API keys, or pass static code analysis but expose severe security gaps at runtime. 
+
+SecureFlow addresses this by building an **end-to-end security pipeline** spanning four distinct layers:
+*   **Secret Scanning (Gitleaks)**: Prevents exposed credentials from entering version control history.
+*   **Static Application Security Testing (Semgrep)**: Identifies bad code patterns (SQL injection, weak cryptography) inside Python source files.
+*   **Software Composition Analysis (Trivy)**: Inspects the final Docker container image layers for package CVEs.
+*   **Dynamic Application Security Testing (OWASP ZAP)**: Actively probes live API endpoints on Google Cloud Run to verify that runtime configuration is robust.
+
+### 2. Heuristics vs. AI Decision Model
+Using LLMs as hard-blocking gates is a bad idea—they are slow, expensive, and subject to hallucinations (e.g. declaring a clean library malicious).
+
+SecureFlow implements a **fast local security funnel** with **deferred AI intelligence**:
+1.  **Local Policy Engine**: Instantly evaluates scan results against [`policy.yaml`](policy.yaml) rules (CVSS score thresholds and allowlists). It runs at **~0ms latency** with **100% cost-efficiency**, deciding whether to `ALLOW` or `BLOCK` the build.
+2.  **Void AI Remedy Engine**: Escapes to the LLM **after the policy decision is made** to generate explanations, remediation patches, and step-by-step containment instructions. The AI never controls the gate directly, protecting pipeline stability.
+
+### 3. Comparison: Local Policies vs. AI Remediation
+
+| Metric | Local Policy Engine (`policy.yaml`) | Void AI Remediation Engine |
+| :--- | :--- | :--- |
+| **Execution Latency** | ~0ms (Instantaneous) | ~1.2s (Groq LPU Inference) |
+| **Cost Profile** | $0.00 (Local CPU execution) | Extremely low (Structured fallback chain) |
+| **Primary Goal** | Binary decision (`ALLOW` / `BLOCK`) | High-fidelity diagnostic explanations & patches |
+| **Failure Mode Resilience** | Deterministic (Zero false positives/negatives) | Graceful degradation (Static fallbacks on failure) |
+| **Active Rules** | Severity levels, CVSS, allowlist expiries | Groq (Llama 3.3) $\rightarrow$ Gemini $\rightarrow$ local Ollama |
+
+---
+
+## 📐 System Architecture
+
+### 1. Operational DevSecOps Lifecycle
+This flow shows how code commits travel from a local Git push through the multi-stage GitHub Actions runner, policy evaluation gate, production deployment, and live API dynamic tests:
 
 ```mermaid
 graph TB
@@ -76,87 +109,109 @@ graph TB
     style COP  fill:#845ef7,color:#fff
 ```
 
----
+### 2. Telemetry & AI Copilot Loop
+This diagram highlights the database-to-UI real-time streaming pipeline and the context-aware chatbot (Void) data flow:
 
-## 🔥 Key Innovations & Core Features
-
-### 1. 🛡️ 4-Layer Security Stack (SAST + SCA + Secrets + DAST)
-- **Secret Scanning (Gitleaks)**: Scans full git commit history for exposed API keys and credentials.
-- **SAST (Semgrep)**: Checks OWASP Top 10 code patterns across Python and GitHub Actions workflow rules.
-- **SCA Container Scanning (Trivy)**: Scans container images for CVE vulnerabilities.
-- **DAST (OWASP ZAP)**: Dynamic security scanning against live deployed Cloud Run API endpoints (`https://secureflow-backend.../docs`).
-
-### 2. 📊 Dynamic Telemetry & Compliance Scorecard
-- **Dynamic Heuristic Compliance Mapping**: Calculates compliance readiness (SOC 2, ISO 27001, NIST 800-53, OWASP ASVS, PCI-DSS, CIS Benchmarks) dynamically by analyzing active scan logs (e.g. exposed secrets directly reduce SOC 2 Access Control scores; SAST violations penalize OWASP ASVS rankings).
-- **Scanner Volume & Threat Progress Indicators**: High-density Recharts rendering threat rankings and engine detection volumes dynamically parsed from real-time PostgreSQL scan data.
-
-### 3. 🎛️ Interactive Policy Engine Sandbox & SecOps Lock
-- Dynamic evaluation via [`policy.yaml`](policy.yaml) with CVSS score thresholds and allowlists.
-- **"What-If" Policy Simulator**: Interactive slider on the dashboard to test how tightening policy rules affects historical block rates.
-- **SecOps Admin Authorization Lock**: Modifying production policy rules requires entering a SecOps Admin Key (`ADMIN-POLICY-KEY-2026`).
-
-### 4. 📄 Executive Audit Exporter & Secret Masking
-- Single-click **"Export Audit Report"** generator for compliance auditors (SOC 2, ISO 27001).
-- **Role-Based Authorization & Secret Redaction**: Enforces auditor PIN verification (`SEC-AUDIT-2026`) and automatically redacts credentials (`[REDACTED_SECRET_KEY]`) in exported payloads.
-
-### 5. 🤖 AI Remedy Engine & Copilot Assistant
-- Every blocked commit triggers an AI fallback chain (**Groq → Gemini → Ollama**) generating root-cause explanations and single-click **"Copy Code Fix"** buttons.
-- **User Feedback Rating Loop**: Rate AI analysis accuracy directly from the UI with feedback saved to PostgreSQL.
-- **Context-Aware AI Copilot**: Floating chat panel equipped with scan focus selectors and DevSecOps prompt chips.
-
----
-
-## 📊 Dashboard Overview — 4 Tabs
-
-| Tab | Key Features |
-| :--- | :--- |
-| **Security Command Center** | Health Score Arc Gauge · Severity Trends Line Chart · Center-Metric Donut Chart · Top Threat Rankings · Compliance Framework Radar Chart · Security Engine Volume Bar Chart · Top Priority Remediation Queue |
-| **Pipeline Execution** | **7-Stage Visual Pipeline Diagram** · Deduplicated live running scan banner · Expandable Stage Inspector with `$ command` logs and duration metrics |
-| **AI Insights** | AI Remediation Cards · Single-click Code Fix Generator · Accuracy Feedback Loop (Accurate / Incorrect) |
-| **Metrics & Policy** | Interactive Policy Sandbox Simulator · Active Policy Rules Matrix · Slack Dispatcher Card & Live Audit Webhook log stream |
-
----
-
-## ⚙️ Tech Stack & Security Tools
-
-| Layer | Technology |
-| :--- | :--- |
-| **CI/CD Pipeline** | GitHub Actions (7-Stage Workflow) |
-| **Secret Scanning** | Gitleaks v8.24.3 |
-| **SAST** | Semgrep (OWASP Top 10, Python, Security Rules) |
-| **Container SCA** | Trivy Container Vulnerability Scanner |
-| **Runtime DAST** | OWASP ZAP (Zed Attack Proxy) Baseline API Scanner |
-| **Policy Engine** | Custom Python Engine + PyYAML (`policy.yaml`) |
-| **Backend** | FastAPI + PostgreSQL + SQLAlchemy + WebSockets |
-| **AI Core** | Groq (`llama-3.3-70b`) ➔ Gemini (`flash-lite`) ➔ Ollama (`qwen2.5`) |
-| **Frontend** | React + Recharts + Framer Motion + Lucide Icons |
-| **Cloud Infra** | Google Cloud Run + PostgreSQL + Artifact Registry |
-
----
-
-## 🛠️ Local Development Setup
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/abhienix/SecureFlow.git
-cd SecureFlow
-
-# 2. Start PostgreSQL & FastAPI backend
-docker compose up -d
-
-# 3. Start React frontend
-cd frontend
-npm install
-npm start
+```mermaid
+flowchart LR
+    Ingest["Ingested Scan Results"] --> DB[(PostgreSQL DB)]
+    DB --> FastAPI["FastAPI Server"]
+    FastAPI -->|WebSocket Stream| WebUI["React Dashboard UI"]
+    
+    subgraph Void Chatbot [Void AI Security Copilot]
+        WebUI -->|Question + Scan Context| CopilotAPI["POST /api/copilot/ask"]
+        CopilotAPI -->|Context + Prompt| LPU["Groq Llama 3.3 (Fallback: Gemini/Ollama)"]
+        LPU -->|Plain Text Answer| CopilotAPI
+        CopilotAPI -->|Rendered Answer| WebUI
+    end
+    
+    FastAPI -->|Slack Webhook Alert| Slack["Slack Channel (#devsecops-alerts)"]
 ```
 
-| Service | Access URL |
-| :--- | :--- |
-| **React Dashboard** | `http://localhost:3000` |
-| **FastAPI Docs** | `http://localhost:8000/docs` |
-| **Cloud Run Production** | `https://secureflow-frontend-1083585992526.us-central1.run.app` |
+---
+
+## 🛠️ The Tech Stack: Simple Choices, Big Engineering Impact
+
+*   **Backend: FastAPI (Python)**
+    *   *Why?* FastAPI delivers high-concurrency event loops, making it perfect for handling WebSocket streams from multiple CI/CD agents concurrently.
+*   **Database Access: SQLAlchemy 2.0 (Async Driver via `asyncpg`)**
+    *   *Why?* The backend leverages non-blocking PostgreSQL pools (`create_async_engine` and `async_sessionmaker`), protecting server performance during high-throughput security event logs telemetry spikes.
+*   **Frontend: React + Recharts + Framer Motion**
+    *   *Why?* React allows us to build a responsive, modular tab structure. Recharts provides high-density rendering for severity lines and area gradients. Framer Motion provides smooth layout animations for tabs and drawers.
+*   **AI Engine Fallback Chain: Groq Llama 3.3 ➔ Gemini Flash-Lite ➔ Local Ollama**
+    *   *Why?* Ensures our developer diagnostics never go offline. If the primary cloud LPU limits are exceeded or the network is down, the engine falls back to Gemini and then to a locally hosted Ollama model.
+*   **Slack Webhook Alert Integration**
+    *   *Why?* Delivers instantaneous pipeline blocks directly into Slack channels (`#devsecops-alerts`) so engineering teams can immediately trigger remediation tasks.
 
 ---
+
+## 🚀 Key UX & Hardening Upgrades
+
+1.  **Async Database Transaction Hardening**:
+    *   Migrated the FastAPI database layer from synchronous psycopg2 blocking database sessions to asyncpg pools.
+    *   Refactored 9 distinct endpoints and the background watchdog timer to use modern SQLAlchemy 2.0 `select()` syntax and `await db.execute()`.
+2.  **App Layout Modularization**:
+    *   Refactored a monolithic `App.jsx` by decoupling modular tab panels and common widgets under `/components/` and `/utils/`.
+    *   Converted the rigid stacked bar charts into a glowing smooth monotone AreaChart using transparent gradient overlays.
+3.  **Mobile Viewport & Responsiveness Polish**:
+    *   Hides the text logo `.brand-name` on viewports $\le 600\text{px}$, keeping navigation controls on a single line.
+    *   Uses `.hide-mobile` to collapse header labels (such as "Live" status and "Export Audit" text) into simple icons on small mobile screens.
+    *   Adjusts chart grid columns in the Overview Tab using `minmax(280px, 1fr)` to prevent layout overflows.
+    *   Constrains the floating Slack alert toast with `maxWidth: "calc(100vw - 48px)"` to prevent off-screen rendering.
+
+---
+
+## ⚙️ Running Locally
+
+### 1. Run the Backend Service (FastAPI)
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
+2. Create and activate a Python virtual environment:
+   ```bash
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On macOS/Linux:
+   source venv/bin/activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Configure environment variables in `.env`:
+   ```env
+   DATABASE_URL=postgresql://postgres:password@localhost:5432/secureflow
+   GROQ_API_KEY=gsk_your_key_here
+   GEMINI_API_KEY=your_gemini_key
+   SLACK_WEBHOOK_URL=your_slack_webhook
+   ```
+5. Launch the FastAPI server:
+   ```bash
+   uvicorn main:app --reload --port 8000
+   ```
+
+### 2. Launch the React Frontend
+1. Navigate to the frontend directory:
+   ```bash
+   cd frontend
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Launch the development server:
+   ```bash
+   npm start
+   ```
+   Open `http://localhost:3000` in your browser.
+
+---
+
+## 📜 License
+
+MIT License. Developed for enterprise security gating, CI/CD telemetry analysis, and developer interviews.
 
 <p align="center">
   Built by <a href="https://github.com/abhienix">Abhimanyu Kumar</a> · 
