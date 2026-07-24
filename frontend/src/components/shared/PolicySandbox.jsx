@@ -1,10 +1,34 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lock, X, Loader2, Shield } from "lucide-react";
-import { BACKEND } from "../../theme";
+import { BACKEND } from "../../contexts/AppContext";
 import { Badge, IconBtn, SectionTitle } from "./Common";
 
-export function PolicySandbox({ scans, cvssThreshold, setCvssThreshold, strictSecrets, setStrictSecrets, simulatedResults, C }) {
+export function PolicySandbox({
+  scans = [],
+  cvssThreshold: propCvssThreshold,
+  setCvssThreshold: propSetCvssThreshold,
+  strictSecrets: propStrictSecrets,
+  setStrictSecrets: propSetStrictSecrets,
+  simulatedResults: propSimulatedResults,
+  C
+}) {
+  // Internal state fallbacks if props are not provided
+  const [internalCvssThreshold, setInternalCvssThreshold] = useState(7.0);
+  const [internalStrictSecrets, setInternalStrictSecrets] = useState(true);
+
+  const cvssThreshold = propCvssThreshold !== undefined ? propCvssThreshold : internalCvssThreshold;
+  const setCvssThreshold = propSetCvssThreshold || setInternalCvssThreshold;
+
+  const strictSecrets = propStrictSecrets !== undefined ? propStrictSecrets : internalStrictSecrets;
+  const setStrictSecrets = propSetStrictSecrets || setInternalStrictSecrets;
+
+  const simulatedResults = propSimulatedResults || {
+    blocked: 3,
+    allowed: 15,
+    blockRate: 16
+  };
+
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -41,7 +65,7 @@ export function PolicySandbox({ scans, cvssThreshold, setCvssThreshold, strictSe
   };
 
   return (
-    <div style={{ padding: 20, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, marginBottom: 24 }}>
+    <div style={{ padding: 20, background: C?.bgCard || "#0f172a", borderRadius: 16, border: `1px solid ${C?.border || "#1e293b"}`, marginBottom: 24 }}>
       <AnimatePresence>
         {showAdminModal && (
           <motion.div
@@ -60,25 +84,25 @@ export function PolicySandbox({ scans, cvssThreshold, setCvssThreshold, strictSe
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               style={{
-                background: C.bgCard, border: `1px solid ${C.border}`,
+                background: C?.bgCard || "#0f172a", border: `1px solid ${C?.border || "#1e293b"}`,
                 borderRadius: 20, width: "100%", maxWidth: 440,
                 padding: 24, boxShadow: "0 24px 64px rgba(0,0,0,.4)",
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Lock size={18} color={C.amber} />
-                  <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>SecOps Policy Lock Authorization</h3>
+                  <Lock size={18} color={C?.amber || "#f59e0b"} />
+                  <h3 style={{ fontSize: 15, fontWeight: 700, color: C?.ink || "#f8fafc" }}>SecOps Policy Lock Authorization</h3>
                 </div>
                 <IconBtn Icon={X} onClick={() => setShowAdminModal(false)} C={C} />
               </div>
 
-              <div style={{ fontSize: 12, color: C.inkMid, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: C?.inkMid || "#94a3b8", marginBottom: 12 }}>
                 Modifying production policy rules requires SecOps Security Admin authorization to prevent unauthorized policy bypass.
               </div>
 
               <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: C.inkLow, textTransform: "uppercase", display: "block", marginBottom: 4 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: C?.inkLow || "#64748b", textTransform: "uppercase", display: "block", marginBottom: 4 }}>
                   SecOps Admin Key (Demo: ADMIN-POLICY-KEY-2026)
                 </label>
                 <input
@@ -86,13 +110,13 @@ export function PolicySandbox({ scans, cvssThreshold, setCvssThreshold, strictSe
                   value={adminKey}
                   onChange={e => setAdminKey(e.target.value)}
                   placeholder="Enter ADMIN-POLICY-KEY-2026"
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, background: C.bgSurface, border: `1px solid ${C.border}`, color: C.ink, fontSize: 12, outline: "none" }}
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, background: C?.bgSurface || "#111827", border: `1px solid ${C?.border || "#1e293b"}`, color: C?.ink || "#f8fafc", fontSize: 12, outline: "none" }}
                 />
-                {adminError && <div style={{ fontSize: 11, color: C.red, marginTop: 6, fontWeight: 600 }}>{adminError}</div>}
+                {adminError && <div style={{ fontSize: 11, color: C?.red || "#ef4444", marginTop: 6, fontWeight: 600 }}>{adminError}</div>}
               </div>
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button onClick={() => setShowAdminModal(false)} style={{ padding: "8px 14px", borderRadius: 8, background: C.bgSurface, border: `1px solid ${C.border}`, color: C.ink, fontSize: 12 }}>
+                <button onClick={() => setShowAdminModal(false)} style={{ padding: "8px 14px", borderRadius: 8, background: C?.bgSurface || "#111827", border: `1px solid ${C?.border || "#1e293b"}`, color: C?.ink || "#f8fafc", fontSize: 12 }}>
                   Cancel
                 </button>
                 <button
@@ -100,7 +124,7 @@ export function PolicySandbox({ scans, cvssThreshold, setCvssThreshold, strictSe
                   disabled={savingPolicy}
                   style={{
                     padding: "8px 16px", borderRadius: 8,
-                    background: C.amber, border: "none", color: "#fff",
+                    background: C?.amber || "#f59e0b", border: "none", color: "#fff",
                     fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6,
                   }}
                 >
@@ -114,38 +138,38 @@ export function PolicySandbox({ scans, cvssThreshold, setCvssThreshold, strictSe
       </AnimatePresence>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <SectionTitle accent={C.amber} C={C}>Interactive Policy Engine Sandbox ("What-If" Simulator)</SectionTitle>
+        <SectionTitle accent={C?.amber || "#f59e0b"} C={C}>Interactive Policy Engine Sandbox ("What-If" Simulator)</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button
             onClick={() => setShowAdminModal(true)}
             disabled={savingPolicy}
             style={{
               padding: "5px 12px", borderRadius: 8,
-              background: C.amberSoft, border: `1px solid ${C.amberBord}`,
-              color: C.amber, fontSize: 11, fontWeight: 700,
-              display: "flex", alignItems: "center", gap: 5,
+              background: C?.amberSoft || "rgba(245,158,11,0.12)", border: `1px solid ${C?.amberBorder || "rgba(245,158,11,0.25)"}`,
+              color: C?.amber || "#f59e0b", fontSize: 11, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
             }}
           >
             {savingPolicy ? <Loader2 size={12} className="spin" /> : <Lock size={12} />}
             {saveStatus || "Save Rule to policy.yaml"}
           </button>
-          <Badge color={C.amber} C={C}>Policy Sandbox</Badge>
+          <Badge color={C?.amber || "#f59e0b"} C={C}>Policy Sandbox</Badge>
         </div>
       </div>
 
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ flex: 1, minWidth: 260 }}>
-          <label style={{ fontSize: 12, color: C.ink, fontWeight: 700, display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          <label style={{ fontSize: 12, color: C?.ink || "#f8fafc", fontWeight: 700, display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
             <span>Max Allowed CVSS Threshold:</span>
-            <span style={{ fontFamily: C.mono, color: C.amber }}>CVSS &gt;= {cvssThreshold.toFixed(1)} Blocks</span>
+            <span style={{ fontFamily: C?.mono, color: C?.amber || "#f59e0b" }}>CVSS &gt;= {Number(cvssThreshold).toFixed(1)} Blocks</span>
           </label>
           <input
             type="range" min="1.0" max="10.0" step="0.5"
             value={cvssThreshold}
             onChange={e => setCvssThreshold(parseFloat(e.target.value))}
-            style={{ width: "100%", accentColor: C.amber }}
+            style={{ width: "100%", accentColor: C?.amber || "#f59e0b" }}
           />
-          <div style={{ fontSize: 11, color: C.inkLow, marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: C?.inkLow || "#64748b", marginTop: 4 }}>
             Slide to simulate how tightening/relaxing policy rules impacts your pipeline block rate.
           </div>
         </div>
@@ -155,25 +179,25 @@ export function PolicySandbox({ scans, cvssThreshold, setCvssThreshold, strictSe
             type="checkbox" id="strict-secrets"
             checked={strictSecrets}
             onChange={e => setStrictSecrets(e.target.checked)}
-            style={{ width: 16, height: 16, accentColor: C.teal }}
+            style={{ width: 16, height: 16, accentColor: C?.cyan || "#06b6d4" }}
           />
-          <label htmlFor="strict-secrets" style={{ fontSize: 12, color: C.ink, fontWeight: 600 }}>
+          <label htmlFor="strict-secrets" style={{ fontSize: 12, color: C?.ink || "#f8fafc", fontWeight: 600 }}>
             Strict Block on Exposed Secrets (Gitleaks)
           </label>
         </div>
 
         <div style={{ display: "flex", gap: 12, marginLeft: "auto", flexWrap: "wrap" }}>
-          <div style={{ padding: "8px 14px", background: C.redSoft, border: `1px solid ${C.redBord}`, borderRadius: 10, textAlign: "center" }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.red, fontFamily: C.mono }}>{simulatedResults.blocked}</div>
-            <div style={{ fontSize: 10, color: C.red, fontWeight: 700 }}>Simulated Blocked</div>
+          <div style={{ padding: "8px 14px", background: C?.redSoft || "rgba(239,68,68,0.12)", border: `1px solid ${C?.redBorder || "rgba(239,68,68,0.25)"}`, borderRadius: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C?.red || "#ef4444", fontFamily: C?.mono }}>{simulatedResults.blocked}</div>
+            <div style={{ fontSize: 10, color: C?.red || "#ef4444", fontWeight: 700 }}>Simulated Blocked</div>
           </div>
-          <div style={{ padding: "8px 14px", background: C.tealSoft, border: `1px solid ${C.tealBord}`, borderRadius: 10, textAlign: "center" }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.teal, fontFamily: C.mono }}>{simulatedResults.allowed}</div>
-            <div style={{ fontSize: 10, color: C.teal, fontWeight: 700 }}>Simulated Allowed</div>
+          <div style={{ padding: "8px 14px", background: C?.greenSoft || "rgba(16,185,129,0.12)", border: `1px solid ${C?.greenBorder || "rgba(16,185,129,0.25)"}`, borderRadius: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C?.green || "#10b981", fontFamily: C?.mono }}>{simulatedResults.allowed}</div>
+            <div style={{ fontSize: 10, color: C?.green || "#10b981", fontWeight: 700 }}>Simulated Allowed</div>
           </div>
-          <div style={{ padding: "8px 14px", background: C.bgSurface, border: `1px solid ${C.border}`, borderRadius: 10, textAlign: "center" }}>
-            <div style={{ fontSize: 18, fontWeight: 900, color: C.ink, fontFamily: C.mono }}>{simulatedResults.blockRate}%</div>
-            <div style={{ fontSize: 10, color: C.inkLow, fontWeight: 700 }}>Simulated Block Rate</div>
+          <div style={{ padding: "8px 14px", background: C?.bgSurface || "#111827", border: `1px solid ${C?.border || "#1e293b"}`, borderRadius: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C?.ink || "#f8fafc", fontFamily: C?.mono }}>{simulatedResults.blockRate}%</div>
+            <div style={{ fontSize: 10, color: C?.inkLow || "#64748b", fontWeight: 700 }}>Simulated Block Rate</div>
           </div>
         </div>
       </div>
