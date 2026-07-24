@@ -764,25 +764,54 @@ jobs:
               -d '{ "pipeline_steps": { "deploy": { "result": "PASS", "detail": "secureflow-frontend deployed to Cloud Run" } } }' || true
           fi
 
-      # ── Step 16: OWASP ZAP DAST Scan (Post-Deploy Dynamic Security Test) ────
-      - name: Run OWASP ZAP API DAST Scan
+      # ── Step 16: Automated Distributed DAST Trigger ─────────────────────────
+      - name: Trigger Automated Distributed DAST Pipeline
         if: steps.gate.outputs.action == 'ALLOW'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+          REPO_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          echo "Starting OWASP ZAP DAST scan against live Cloud Run URL..."
+          TARGET_URL="https://secureflow-backend-1083585992526.us-central1.run.app"
+          DEPLOYMENT_URL="https://secureflow-backend-1083585992526.us-central1.run.app"
+
+          echo "Triggering backend DAST orchestration for target: $TARGET_URL..."
+
+          RUN_ID_VAL="${RUN_ID:-null}"
+          if [ "$RUN_ID_VAL" != "null" ] && [ -n "$RUN_ID_VAL" ]; then
+            RUN_ID_JSON="\"$RUN_ID_VAL\""
+          else
+            RUN_ID_JSON="null"
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO_NAME" \
+            --arg sha "$COMMIT_SHA" \
+            --arg branch "$BRANCH_NAME" \
+            --arg commit_msg "$COMMIT_MESSAGE" \
+            --arg scan_type "full-pipeline" \
+            --arg target_url "$TARGET_URL" \
+            --arg deployment_url "$DEPLOYMENT_URL" \
+            --arg environment "production" \
+            --argjson run_id "$RUN_ID_JSON" \
+            '{
+              repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
+              scan_type: $scan_type, target_url: $target_url, deployment_url: $deployment_url,
+              environment: $environment, run_id: $run_id
+            }')
+
+          RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results/start" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || echo '{"status":"trigger_failed"}')
+
+          echo "Backend DAST Trigger Response: $RESPONSE"
+
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Content-Type: application/json" \
-            -d '{ "status": "running", "pipeline_steps": { "zap": { "result": "RUNNING", "detail": "OWASP ZAP DAST probing live Cloud Run URL..." } } }' || true
-
-          TARGET_URL="https://secureflow-backend-1083585992526.us-central1.run.app/docs"
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET_URL" || echo "000")
-          echo "ZAP DAST Target: $TARGET_URL (HTTP Status: $HTTP_STATUS)"
-
-          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
-            -H "Content-Type: application/json" \
-            -d '{ "status": "complete", "pipeline_steps": { "zap": { "result": "PASS", "detail": "OWASP ZAP DAST scan completed (HTTP 200 OK)" }, "deploy": { "result": "PASS", "detail": "Cloud Run deployment finished successfully" } } }' || true
+            -d '{ "status": "complete", "pipeline_steps": { "zap": { "result": "QUEUED", "detail": "Distributed DAST scan queued on Worker VM via Celery/Redis" }, "deploy": { "result": "PASS", "detail": "Cloud Run deployment finished successfully" } } }' || true
 
       - name: Deploy Summary
         if: always() && steps.changes.outcome == 'success'

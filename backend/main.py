@@ -2,15 +2,17 @@
 SecureFlow — DevSecOps Backend API & Telemetry Service
 
 FastAPI service handling scan ingestion, policy enforcement,
-WebSocket streaming to dashboard, and AI remediation routing.
+distributed DAST task queueing via Celery/Redis, WebSocket streaming
+to dashboard, and AI remediation routing.
 """
 
 import os
 import json
 import yaml
 import asyncio
+import logging
 from datetime import datetime, timedelta
-from typing import Set
+from typing import Set, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, HTTPException
@@ -23,22 +25,41 @@ from models import Base, ScanResult
 from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label, load_policy_file
 from ai_analysis import analyze_scan, analyze_code_scan_failure, answer_copilot_question
 from slack_notifier import send_slack_alert
+from celery_client import (
+    publish_dast_task,
+    resolve_target_url,
+    REDIS_URL,
+    WORKER_QUEUE,
+    DEFAULT_TARGET_URL,
+    DAST_ENABLED,
+)
 
 # ---------------------------------------------------------------------------
-# Environment & database configuration
+# Logging & Environment configuration
 # ---------------------------------------------------------------------------
 
+logger = logging.getLogger("secureflow.backend")
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/secureflow")
-
 STALE_RUN_TIMEOUT_MINUTES = int(os.getenv("STALE_RUN_TIMEOUT_MINUTES", "20"))
 WATCHDOG_INTERVAL_SECONDS = int(os.getenv("WATCHDOG_INTERVAL_SECONDS", "30"))
 
 # Dynamically convert to postgresql+asyncpg for asyncio postgres driver
 ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://") if DATABASE_URL.startswith("postgresql://") else DATABASE_URL
 
-engine = create_async_engine(ASYNC_DATABASE_URL, pool_size=20, max_overflow=10)
+if ASYNC_DATABASE_URL.startswith("postgresql+asyncpg://"):
+    try:
+        import asyncpg  # noqa: F401
+    except ImportError:
+        logger.info("[database] asyncpg module not found — using sqlite+aiosqlite:///./secureflow_dev.db")
+        ASYNC_DATABASE_URL = "sqlite+aiosqlite:///./secureflow_dev.db"
+
+kw = {}
+if "postgresql" in ASYNC_DATABASE_URL:
+    kw = {"pool_size": 20, "max_overflow": 10}
+
+engine = create_async_engine(ASYNC_DATABASE_URL, **kw)
 AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 # ---------------------------------------------------------------------------
@@ -74,7 +95,44 @@ manager = ConnectionManager()
 # FastAPI app
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="SecureFlow — AI-Powered Security Gate for CI/CD", version="1.0.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Idempotently create tables and add missing DAST columns on app startup
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        dast_columns = [
+            ("dast_status", "VARCHAR"),
+            ("target_url", "VARCHAR"),
+            ("deployment_url", "VARCHAR"),
+            ("zap_findings", "JSON"),
+            ("zap_summary", "JSON"),
+            ("queued_at", "TIMESTAMP"),
+            ("dast_started_at", "TIMESTAMP"),
+            ("dast_completed_at", "TIMESTAMP"),
+            ("scan_duration", "INTEGER"),
+            ("worker_name", "VARCHAR"),
+            ("worker_id", "VARCHAR"),
+            ("queue_error", "TEXT"),
+            ("zap_report_path", "VARCHAR"),
+        ]
+        is_sqlite = "sqlite" in str(conn.engine.url)
+        for col_name, col_type in dast_columns:
+            try:
+                if is_sqlite:
+                    await conn.execute(text(f"ALTER TABLE scan_results ADD COLUMN {col_name} {col_type}"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+            except Exception as e:
+                logger.info(f"[startup migration] column '{col_name}' already exists or notice: {e}")
+
+    watchdog_task = asyncio.create_task(stale_run_watchdog())
+    yield
+    watchdog_task.cancel()
+
+
+app = FastAPI(title="SecureFlow — AI-Powered DevSecOps & Distributed DAST Gateway", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -89,8 +147,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-Instrumentator().instrument(app).expose(app)
 
 
 async def get_db():
@@ -131,6 +187,20 @@ def scan_to_broadcast_payload(scan: ScanResult, msg_type: str = "scan_complete")
         "status": scan.status,
         "started_at": utc_iso(scan.started_at),
         "created_at": utc_iso(scan.created_at),
+        # DAST lifecycle telemetry
+        "dast_status": scan.dast_status or "not_queued",
+        "target_url": scan.target_url,
+        "deployment_url": scan.deployment_url,
+        "zap_findings": scan.zap_findings or (scan.findings or {}).get("zap"),
+        "zap_summary": scan.zap_summary,
+        "queued_at": utc_iso(scan.queued_at),
+        "dast_started_at": utc_iso(scan.dast_started_at),
+        "dast_completed_at": utc_iso(scan.dast_completed_at),
+        "scan_duration": scan.scan_duration,
+        "worker_name": scan.worker_name,
+        "worker_id": scan.worker_id,
+        "queue_error": scan.queue_error,
+        "zap_report_path": scan.zap_report_path,
     }
 
 
@@ -174,27 +244,19 @@ async def stale_run_watchdog():
             print(f"[watchdog loop] error: {e}")
 
 
-@app.on_event("startup")
-async def start_watchdog():
-    # Asynchronously create tables on startup inside async loop
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    asyncio.create_task(stale_run_watchdog())
-
-
 # ---------------------------------------------------------------------------
 # Basic routes
 # ---------------------------------------------------------------------------
 
 @app.get("/")
 def root():
-    return {"message": "SecureFlow — AI-Powered Security Gate for CI/CD"}
+    return {"message": "SecureFlow — AI-Powered DevSecOps & Distributed DAST Gateway", "version": "2.0.0"}
 
 
 @app.get("/health")
 @app.head("/health")
 def health():
-    return {"status": "healthy"}
+    return {"status": "healthy", "dast_enabled": DAST_ENABLED}
 
 
 # ---------------------------------------------------------------------------
@@ -217,62 +279,132 @@ async def websocket_scans(ws: WebSocket):
 
 
 # ---------------------------------------------------------------------------
-# Pipeline lifecycle endpoints
+# Pipeline lifecycle & DAST Orchestration endpoints
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results/start")
 async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
+    """
+    Primary CI/CD pipeline start and DAST task orchestration trigger.
+    
+    1. Resolves target URL (1. request target_url, 2. deployment_url, 3. DEFAULT_TARGET_URL)
+    2. Creates or fetches ScanResult record
+    3. Idempotently publishes 'tasks.run_zap_scan' to Redis Celery queue asynchronously
+    4. Never blocks HTTP response or fails CI pipeline
+    """
     repo_name = data.get("repo_name", "unknown")
     branch = data.get("branch", "main")
+    run_id = data.get("run_id")
 
-    # Supersede older active runs on the same branch (concurrency cancellation)
-    result = await db.execute(
-        select(ScanResult)
-        .filter(ScanResult.repo_name == repo_name)
-        .filter(ScanResult.branch == branch)
-        .filter(ScanResult.status == "running")
-    )
-    prev_running = result.scalars().all()
-    for prev in prev_running:
-        prev.status = "superseded"
-        prev.action_taken = prev.action_taken or "SKIPPED"
-        prev.ai_explanation = prev.ai_explanation or "Superseded by newer commit build push."
+    # Target URL Resolution (1. request target_url, 2. deployment_url, 3. DEFAULT_TARGET_URL)
+    req_target_url = data.get("target_url")
+    req_deploy_url = data.get("deployment_url")
+    resolved_target = resolve_target_url(req_target_url, req_deploy_url)
 
-    scan = ScanResult(
-        commit_sha=data.get("commit_sha", "unknown"),
-        commit_message=data.get("commit_message", ""),
-        repo_name=repo_name,
-        branch=branch,
-        scan_type=data.get("scan_type", "full-pipeline"),
-        severity=None,
-        findings={},
-        ai_explanation="",
-        ai_fix="",
-        risk_score=None,
-        action_taken=None,
-        pipeline_steps={
+    if not resolved_target:
+        raise HTTPException(
+            status_code=400,
+            detail="Target URL cannot be determined. Provide 'target_url' or 'deployment_url' in request body or set DEFAULT_TARGET_URL environment variable."
+        )
+
+    scan = None
+    if run_id:
+        try:
+            run_id_int = int(run_id)
+            res = await db.execute(select(ScanResult).filter(ScanResult.id == run_id_int))
+            scan = res.scalars().first()
+        except (ValueError, TypeError):
+            scan = None
+
+    if scan:
+        # Update existing pipeline run
+        scan.target_url = resolved_target
+        if req_deploy_url:
+            scan.deployment_url = req_deploy_url
+    else:
+        # Supersede older active runs on the same branch (concurrency control)
+        result = await db.execute(
+            select(ScanResult)
+            .filter(ScanResult.repo_name == repo_name)
+            .filter(ScanResult.branch == branch)
+            .filter(ScanResult.status == "running")
+        )
+        prev_running = result.scalars().all()
+        for prev in prev_running:
+            prev.status = "superseded"
+            prev.action_taken = prev.action_taken or "SKIPPED"
+            prev.ai_explanation = prev.ai_explanation or "Superseded by newer commit build push."
+
+        pipeline_steps = {
             "checkout": {"result": "PASS", "detail": "code checked out"},
-        },
-        status="running",
-        started_at=datetime.utcnow(),
-    )
-    db.add(scan)
+            "zap": {"result": "PENDING", "detail": f"DAST target resolved: {resolved_target}"}
+        }
+
+        scan = ScanResult(
+            commit_sha=data.get("commit_sha", "unknown"),
+            commit_message=data.get("commit_message", ""),
+            repo_name=repo_name,
+            branch=branch,
+            scan_type=data.get("scan_type", "full-pipeline"),
+            severity=None,
+            findings={},
+            ai_explanation="",
+            ai_fix="",
+            risk_score=None,
+            action_taken=None,
+            pipeline_steps=pipeline_steps,
+            status="running",
+            started_at=datetime.utcnow(),
+            target_url=resolved_target,
+            deployment_url=req_deploy_url,
+            dast_status="not_queued"
+        )
+        db.add(scan)
+
     await db.commit()
     await db.refresh(scan)
 
-    await manager.broadcast({
-        "type": "scan_started",
-        "run_id": scan.id,
-        "commit_sha": scan.commit_sha,
-        "commit_message": scan.commit_message,
-        "repo_name": scan.repo_name,
-        "branch": scan.branch,
-        "status": "running",
-        "pipeline_steps": scan.pipeline_steps or {},
-        "started_at": utc_iso(scan.started_at),
-    })
+    # -----------------------------------------------------------------------
+    # Idempotent DAST Enqueueing via Celery Producer
+    # -----------------------------------------------------------------------
+    if scan.dast_status in ("queued", "running", "completed"):
+        logger.info(f"[start_scan_run] Scan {scan.id} DAST already in status '{scan.dast_status}'. Skipping queueing.")
+    else:
+        # Asynchronously publish task to Celery without blocking HTTP response
+        pub_res = await asyncio.to_thread(publish_dast_task, scan.id, resolved_target, req_deploy_url)
+        
+        steps = dict(scan.pipeline_steps or {})
+        if pub_res.get("success"):
+            scan.dast_status = "queued"
+            scan.queued_at = datetime.utcnow()
+            scan.queue_error = None
+            steps["zap"] = {
+                "result": "QUEUED",
+                "detail": f"DAST Task {pub_res.get('task_id')} queued for target {resolved_target}"
+            }
+        else:
+            err_msg = pub_res.get("error") or "Failed to publish task to Redis"
+            if pub_res.get("error") == "DAST_DISABLED":
+                scan.dast_status = "not_queued"
+                steps["zap"] = {"result": "SKIPPED", "detail": "DAST disabled via configuration"}
+            else:
+                scan.dast_status = "queue_failed"
+                scan.queue_error = err_msg
+                steps["zap"] = {"result": "FAILED", "detail": f"DAST queueing failed: {err_msg}"}
 
-    return {"status": "started", "run_id": scan.id}
+        scan.pipeline_steps = steps
+        await db.commit()
+        await db.refresh(scan)
+
+    await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_started"))
+
+    return {
+        "status": "started",
+        "run_id": scan.id,
+        "dast_status": scan.dast_status,
+        "target_url": resolved_target,
+        "deployment_url": scan.deployment_url
+    }
 
 
 @app.patch("/api/scan-results/{run_id}/progress")
@@ -301,10 +433,6 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
     return {"status": "progress updated", "run_id": run_id}
 
 
-# ---------------------------------------------------------------------------
-# Manual cleanup endpoint
-# ---------------------------------------------------------------------------
-
 @app.post("/api/scan-results/cleanup-stale")
 async def cleanup_stale_runs(db: AsyncSession = Depends(get_db), older_than_minutes: int = 0):
     cutoff = datetime.utcnow() - timedelta(minutes=older_than_minutes)
@@ -329,7 +457,7 @@ async def cleanup_stale_runs(db: AsyncSession = Depends(get_db), older_than_minu
 
 
 # ---------------------------------------------------------------------------
-# Main scan ingestion endpoint
+# Main scan ingestion & findings merging endpoint (Trivy, Gitleaks, Semgrep, ZAP)
 # ---------------------------------------------------------------------------
 
 @app.post("/api/scan-results")
@@ -342,6 +470,13 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
     gitleaks = data.get("gitleaks", [])
     semgrep = data.get("semgrep", [])
     trivy = data.get("findings", {})
+    zap_data = data.get("zap") or data.get("zap_findings")
+    zap_summary_input = data.get("zap_summary")
+    dast_status_input = data.get("dast_status")
+    worker_name_input = data.get("worker_name")
+    worker_id_input = data.get("worker_id")
+    scan_duration_input = data.get("duration") or data.get("scan_duration")
+    zap_report_path_input = data.get("zap_report_path")
 
     # Normalise scanner payloads
     if isinstance(gitleaks, dict):
@@ -360,6 +495,7 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
         "gitleaks": gitleaks,
         "semgrep": semgrep,
         "Results": trivy.get("Results", []) if isinstance(trivy, dict) else [],
+        "zap": zap_data or {},
     }
 
     explicit_action = (data.get("action") or "").upper()
@@ -372,29 +508,101 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
                 run_id = int(run_id)
             except (TypeError, ValueError):
                 run_id = None
+
         if run_id:
             res = await db.execute(select(ScanResult).filter(ScanResult.id == run_id))
             scan = res.scalars().first()
             if scan:
+                # -----------------------------------------------------------
+                # Multi-Scanner Findings Merging (Gitleaks, Semgrep, Trivy, ZAP)
+                # -----------------------------------------------------------
+                existing_findings = dict(scan.findings or {})
+                
+                # Merge Gitleaks
+                new_gl = (fields.get("findings") or {}).get("gitleaks") or gitleaks
+                if new_gl or "gitleaks" not in existing_findings:
+                    existing_findings["gitleaks"] = new_gl or existing_findings.get("gitleaks", [])
+
+                # Merge Semgrep
+                new_sg = (fields.get("findings") or {}).get("semgrep") or semgrep
+                if new_sg or "semgrep" not in existing_findings:
+                    existing_findings["semgrep"] = new_sg or existing_findings.get("semgrep", [])
+
+                # Merge Trivy Results
+                new_tv = (fields.get("findings") or {}).get("Results") or (trivy.get("Results", []) if isinstance(trivy, dict) else [])
+                if new_tv or "Results" not in existing_findings:
+                    existing_findings["Results"] = new_tv or existing_findings.get("Results", [])
+
+                # Merge ZAP findings
+                new_zap = zap_data or (fields.get("findings") or {}).get("zap")
+                if new_zap or "zap" not in existing_findings:
+                    existing_findings["zap"] = new_zap or existing_findings.get("zap", {})
+
+                fields["findings"] = existing_findings
+
                 for key, value in fields.items():
-                    if key == "findings" and scan.findings:
-                        existing_res = scan.findings.get("Results") or []
-                        incoming_res = (value or {}).get("Results") or []
-                        if existing_res and not incoming_res:
-                            continue
                     if key in ("ai_explanation", "ai_fix") and getattr(scan, key):
                         if not value:
                             continue
                     setattr(scan, key, value)
+
+                # DAST specific updates
+                if dast_status_input:
+                    scan.dast_status = dast_status_input
+                    if dast_status_input == "completed" and not scan.dast_completed_at:
+                        scan.dast_completed_at = datetime.utcnow()
+                elif zap_data and scan.dast_status in ("queued", "running", None, "not_queued"):
+                    scan.dast_status = "completed"
+                    scan.dast_completed_at = datetime.utcnow()
+
+                if zap_data:
+                    scan.zap_findings = zap_data
+                if zap_summary_input:
+                    scan.zap_summary = zap_summary_input
+                if worker_name_input:
+                    scan.worker_name = worker_name_input
+                if worker_id_input:
+                    scan.worker_id = worker_id_input
+                if scan_duration_input:
+                    try:
+                        scan.scan_duration = int(scan_duration_input)
+                    except (ValueError, TypeError):
+                        pass
+                if zap_report_path_input:
+                    scan.zap_report_path = zap_report_path_input
+
                 scan.status = "complete"
                 merged_steps = dict(scan.pipeline_steps or {})
                 merged_steps.update(pipeline_steps)
+
+                if scan.dast_status == "completed" or zap_data:
+                    merged_steps["zap"] = {
+                        "result": "PASS",
+                        "detail": f"OWASP ZAP DAST scan completed by {scan.worker_name or 'Worker VM'}"
+                    }
+                elif scan.dast_status in ("failed", "queue_failed"):
+                    merged_steps["zap"] = {
+                        "result": "FAILED",
+                        "detail": scan.queue_error or f"ZAP DAST scan failed on {scan.target_url or 'target'}"
+                    }
+
                 scan.pipeline_steps = merged_steps
                 await db.commit()
                 await db.refresh(scan)
                 return scan
 
         scan = ScanResult(**fields, pipeline_steps=pipeline_steps, status="complete")
+        if dast_status_input:
+            scan.dast_status = dast_status_input
+        if zap_data:
+            scan.zap_findings = zap_data
+        if zap_summary_input:
+            scan.zap_summary = zap_summary_input
+        if worker_name_input:
+            scan.worker_name = worker_name_input
+        if worker_id_input:
+            scan.worker_id = worker_id_input
+
         db.add(scan)
         await db.commit()
         await db.refresh(scan)
@@ -411,7 +619,7 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
             "branch": data.get("branch", "main"),
             "scan_type": scan_type,
             "severity": data.get("severity", "CLEAN"),
-            "findings": {},
+            "findings": normalized_findings,
             "ai_explanation": "",
             "ai_fix": "",
             "risk_score": None,
@@ -494,7 +702,7 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
             "branch": data.get("branch", "main"),
             "scan_type": scan_type,
             "severity": data.get("severity", "HIGH"),
-            "findings": normalized_findings if (gitleaks or semgrep) else {},
+            "findings": normalized_findings if (gitleaks or semgrep or zap_data) else {},
             "ai_explanation": data.get("ai_explanation", ""),
             "ai_fix": data.get("ai_fix", ""),
             "risk_score": None,
@@ -509,7 +717,6 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
     # -------------------------------------------------------------------
     custom_policy = data.get("policy") or data.get("policy_raw")
     if isinstance(custom_policy, str):
-        import yaml
         try:
             custom_policy = yaml.safe_load(custom_policy)
         except Exception:
@@ -669,6 +876,7 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
             "severity": s.severity,
             "action_taken": s.action_taken,
             "status": s.status,
+            "dast_status": s.dast_status,
             "risk_score": s.risk_score,
             "ai_explanation": (s.ai_explanation or "")[:400],
             "created_at": utc_iso(s.created_at),
@@ -744,7 +952,7 @@ async def reanalyze_scan(scan_id: int, db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# Dashboard read endpoint
+# Dashboard & Observability read endpoints
 # ---------------------------------------------------------------------------
 
 SCAN_RESULTS_LIMIT = int(os.getenv("SCAN_RESULTS_LIMIT", "200"))
@@ -784,15 +992,80 @@ async def get_scan_results(db: AsyncSession = Depends(get_db), limit: int = SCAN
             "created_at": utc_iso(r.created_at),
             "ai_confidence": min(99, max(60, int((r.risk_score or 0) * 10))) if r.risk_score is not None else None,
             "ai_feedback": r.ai_feedback,
+            # DAST Telemetry
+            "dast_status": r.dast_status or "not_queued",
+            "target_url": r.target_url,
+            "deployment_url": r.deployment_url,
+            "zap_findings": r.zap_findings or (r.findings or {}).get("zap"),
+            "zap_summary": r.zap_summary,
+            "queued_at": utc_iso(r.queued_at),
+            "dast_started_at": utc_iso(r.dast_started_at),
+            "dast_completed_at": utc_iso(r.dast_completed_at),
+            "scan_duration": r.scan_duration,
+            "worker_name": r.worker_name,
+            "worker_id": r.worker_id,
+            "queue_error": r.queue_error,
+            "zap_report_path": r.zap_report_path,
         }
         for r in rows
     ]
     return {"total": total, "limit": limit, "scans": scans}
 
 
-# Optional admin routes
+@app.get("/api/observability/metrics")
+@app.get("/api/observability/overview")
+async def get_observability_metrics(db: AsyncSession = Depends(get_db)):
+    res_total = await db.execute(select(func.count()).select_from(ScanResult))
+    total_scans = res_total.scalar() or 0
+
+    res_queued = await db.execute(select(func.count()).select_from(ScanResult).filter(ScanResult.dast_status == "queued"))
+    res_running = await db.execute(select(func.count()).select_from(ScanResult).filter(ScanResult.dast_status == "running"))
+    res_completed = await db.execute(select(func.count()).select_from(ScanResult).filter(ScanResult.dast_status == "completed"))
+    res_failed = await db.execute(select(func.count()).select_from(ScanResult).filter(ScanResult.dast_status.in_(["failed", "queue_failed"])))
+    res_avg_dur = await db.execute(select(func.avg(ScanResult.scan_duration)).filter(ScanResult.scan_duration != None))
+
+    dast_queued = res_queued.scalar() or 0
+    dast_running = res_running.scalar() or 0
+    dast_completed = res_completed.scalar() or 0
+    dast_failed = res_failed.scalar() or 0
+    avg_dur = round(float(res_avg_dur.scalar() or 0.0), 2)
+
+    return {
+        "total_scans": total_scans,
+        "dast_pipeline": {
+            "enabled": DAST_ENABLED,
+            "broker_host": REDIS_URL.split("@")[-1],
+            "worker_queue": WORKER_QUEUE,
+            "default_target_url": DEFAULT_TARGET_URL,
+            "queued_jobs": dast_queued,
+            "running_jobs": dast_running,
+            "completed_jobs": dast_completed,
+            "failed_jobs": dast_failed,
+            "avg_duration_seconds": avg_dur,
+        }
+    }
+
+
 @app.get("/api/migrate")
 async def migrate(db: AsyncSession = Depends(get_db)):
-    await db.execute(text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS commit_message TEXT"))
+    for col_name, col_type in [
+        ("dast_status", "VARCHAR"),
+        ("target_url", "VARCHAR"),
+        ("deployment_url", "VARCHAR"),
+        ("zap_findings", "JSON"),
+        ("zap_summary", "JSON"),
+        ("queued_at", "TIMESTAMP"),
+        ("dast_started_at", "TIMESTAMP"),
+        ("dast_completed_at", "TIMESTAMP"),
+        ("scan_duration", "INTEGER"),
+        ("worker_name", "VARCHAR"),
+        ("worker_id", "VARCHAR"),
+        ("queue_error", "TEXT"),
+        ("zap_report_path", "VARCHAR"),
+    ]:
+        try:
+            await db.execute(text(f"ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+        except Exception as e:
+            logger.info(f"[migrate endpoint] notice for {col_name}: {e}")
     await db.commit()
-    return {"status": "migrated"}# updated
+    return {"status": "migrated", "dast_schema": "up to date"}
