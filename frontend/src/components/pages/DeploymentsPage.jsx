@@ -73,7 +73,7 @@ export default function DeploymentsPage({ deployments = [], C }) {
                     </div>
                   )}
                   <div style={{ fontSize: 12, color: C.inkLow, minWidth: 100, textAlign: 'right' }}>
-                    {dep.timestamp ? new Date(dep.timestamp).toLocaleString() : 'Just now'}
+                    {dep.created_at ? new Date(dep.created_at).toLocaleString() : 'Just now'}
                   </div>
                 </div>
               </div>

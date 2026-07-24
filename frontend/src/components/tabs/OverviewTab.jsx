@@ -410,7 +410,7 @@ export function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, 
                       padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 800,
                       background: f.severity === "CRITICAL" ? C.redSoft : C.amberSoft,
                       color: f.severity === "CRITICAL" ? C.red : C.amber,
-                      border: `1px solid ${f.severity === "CRITICAL" ? C.redBord : C.amberBord}`
+                      border: `1px solid ${f.severity === "CRITICAL" ? C.redBorder : C.amberBorder}`
                     }}>
                       {f.severity}
                     </span>
@@ -423,7 +423,7 @@ export function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, 
                       onClick={() => onOpenDetail(f.scan)}
                       style={{
                         padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
-                        background: C.tealSoft, border: `1px solid ${C.tealBord}`, color: C.teal,
+                        background: C.tealSoft, border: `1px solid ${C.tealBorder}`, color: C.teal,
                         cursor: "pointer", display: "flex", alignItems: "center", gap: 4
                       }}
                     >
@@ -491,7 +491,7 @@ export function OverviewTab({ scans, totalScans, healthScore, avgRisk, blocked, 
                   onClick={() => onOpenWhyBlocked(scan)}
                   style={{
                     padding: "6px 12px", borderRadius: 8,
-                    background: C.redSoft, border: `1px solid ${C.redBord}`,
+                    background: C.redSoft, border: `1px solid ${C.redBorder}`,
                     color: C.red, fontSize: 12, fontWeight: 700,
                   }}
                 >

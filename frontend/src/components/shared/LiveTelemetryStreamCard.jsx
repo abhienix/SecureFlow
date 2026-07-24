@@ -96,7 +96,7 @@ export function LiveTelemetryStreamCard({ scans = [], C }) {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <h4 style={{ fontSize: 16, fontWeight: 800, color: C.ink }}>Live Security Telemetry Stream</h4>
-              <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: isPaused ? C.amberSoft : C.tealSoft, color: isPaused ? C.amber : C.teal, border: `1px solid ${isPaused ? C.amberBord : C.tealBord}` }}>
+              <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: isPaused ? C.amberSoft : C.tealSoft, color: isPaused ? C.amber : C.teal, border: `1px solid ${isPaused ? C.amberBorder : C.tealBorder}` }}>
                 {isPaused ? "FEED PAUSED" : "AUTOSCROLLING"}
               </span>
               <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: `${C.green}18`, color: C.green, border: `1px solid ${C.green}44`, display: "flex", alignItems: "center", gap: 4 }}>

@@ -35,7 +35,7 @@ export function AIInsightsTab({ scans, totalScans, feedback, onFeedback, onOpenC
       {/* Top AI Command Stat Bar */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14, marginBottom: 20 }}>
         <div style={{ padding: "14px 18px", background: C.bgCard, borderRadius: 14, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 10, background: C.violetSoft, border: `1px solid ${C.violetBord}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: C.violetSoft, border: `1px solid ${C.violetBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Brain size={20} color={C.violet} />
           </div>
           <div>
@@ -45,7 +45,7 @@ export function AIInsightsTab({ scans, totalScans, feedback, onFeedback, onOpenC
         </div>
 
         <div style={{ padding: "14px 18px", background: C.bgCard, borderRadius: 14, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 10, background: C.redSoft, border: `1px solid ${C.redBord}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: C.redSoft, border: `1px solid ${C.redBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <AlertCircle size={20} color={C.red} />
           </div>
           <div>
@@ -55,7 +55,7 @@ export function AIInsightsTab({ scans, totalScans, feedback, onFeedback, onOpenC
         </div>
 
         <div style={{ padding: "14px 18px", background: C.bgCard, borderRadius: 14, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.tealBord}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.tealBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Wrench size={20} color={C.teal} />
           </div>
           <div>
@@ -65,7 +65,7 @@ export function AIInsightsTab({ scans, totalScans, feedback, onFeedback, onOpenC
         </div>
 
         <div style={{ padding: "14px 18px", background: C.bgCard, borderRadius: 14, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 10, background: C.blueSoft, border: `1px solid ${C.blueBord}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: C.blueSoft, border: `1px solid ${C.blueBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <ShieldCheck size={20} color={C.blue} />
           </div>
           <div>
@@ -123,7 +123,7 @@ export function AIInsightsTab({ scans, totalScans, feedback, onFeedback, onOpenC
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{scan.repo_name}</span>
-                  <span style={{ fontSize: 11, fontFamily: C.mono, color: C.teal, background: C.tealSoft, padding: "2px 8px", borderRadius: 6, border: `1px solid ${C.tealBord}` }}>
+                  <span style={{ fontSize: 11, fontFamily: C.mono, color: C.teal, background: C.tealSoft, padding: "2px 8px", borderRadius: 6, border: `1px solid ${C.tealBorder}` }}>
                     {scan.commit_sha?.slice(0, 8)}
                   </span>
                   {scan.branch && <span style={{ fontSize: 11, color: C.inkLow }}>({scan.branch})</span>}

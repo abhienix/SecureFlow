@@ -44,7 +44,7 @@ export function WhyBlockedModal({ scan, onClose, feedback, onFeedback, C }) {
         }}>
           <div style={{
             width: 38, height: 38, borderRadius: 10,
-            background: C.redSoft, border: `1px solid ${C.redBord}`,
+            background: C.redSoft, border: `1px solid ${C.redBorder}`,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             <AlertCircle size={18} style={{ color: C.red }} />
@@ -61,9 +61,9 @@ export function WhyBlockedModal({ scan, onClose, feedback, onFeedback, C }) {
         <div style={{ overflowY: "auto", padding: "20px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", gap: 10 }}>
             {[
-              { label: "Critical", count: counts.CRITICAL, col: C.red,   bg: C.redSoft,   brd: C.redBord },
-              { label: "High",     count: counts.HIGH,     col: C.amber, bg: C.amberSoft, brd: C.amberBord },
-              { label: "Medium",   count: counts.MEDIUM,   col: C.blue,  bg: C.blueSoft,  brd: C.blueBord },
+              { label: "Critical", count: counts.CRITICAL, col: C.red,   bg: C.redSoft,   brd: C.redBorder },
+              { label: "High",     count: counts.HIGH,     col: C.amber, bg: C.amberSoft, brd: C.amberBorder },
+              { label: "Medium",   count: counts.MEDIUM,   col: C.blue,  bg: C.blueSoft,  brd: C.blueBorder },
             ].map(({ label, count, col, bg, brd }) => (
               <div key={label} style={{
                 flex: 1, background: bg, border: `1px solid ${brd}`,

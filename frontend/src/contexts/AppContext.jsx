@@ -110,7 +110,6 @@ export function AppProvider({ children }) {
 
       ws.onerror = () => {
         setWsConnected(false);
-        ws.close();
       };
     } catch (e) {
       console.warn("[WS] Connection failed:", e);
