@@ -1,122 +1,127 @@
 import React from "react";
-import { Search, RefreshCw, Download, Sparkles, FolderGit2, GitBranch, Globe } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useApp } from "../../contexts/AppContext";
+import {
+  Search, Bell, RefreshCw, Sparkles, Wifi, WifiOff, ChevronRight
+} from "lucide-react";
 
-export default function TopBar({
-  repositories = [],
-  selectedRepo,
-  onSelectRepo,
-  selectedBranch,
-  onSelectBranch,
-  onOpenCommandPalette,
-  onRegisterRepo,
-  onRescan,
-  onExport,
-  onAskAI,
-  wsConnected,
-  C
-}) {
+const ROUTE_LABELS = {
+  "/dashboard": "Dashboard",
+  "/repositories": "Repositories",
+  "/repositories/workspace": "Repository Workspace",
+  "/pipelines": "Pipelines",
+  "/deployments": "Deployments",
+  "/findings": "Unified Findings",
+  "/policies": "Policies",
+  "/observability": "Observability",
+  "/reports": "Reports",
+  "/copilot": "AI Copilot Workspace",
+  "/settings": "Settings",
+};
+
+export default function TopBar({ C, wsConnected, onOpenCommandPalette, onRescan, onToggleCopilot }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { notifications } = useApp();
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const currentLabel = ROUTE_LABELS[location.pathname] || "SecureFlow";
+  const parentPath = location.pathname.split("/").slice(0, -1).join("/");
+  const parentLabel = ROUTE_LABELS[parentPath];
+
   return (
     <header style={{
-      height: 56,
-      background: C?.bgSurface || "#0F1117",
-      borderBottom: `1px solid ${C?.borderDefault || "rgba(255,255,255,0.10)"}`,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "0 20px",
-      gap: 16
+      height: 52, minHeight: 52, display: "flex", alignItems: "center",
+      justifyContent: "space-between", padding: "0 20px",
+      background: C.bgSurface, borderBottom: `1px solid ${C.border}`,
+      gap: 16,
     }}>
-      {/* Left Selectors */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {/* Repo Picker */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, background: C?.bgCard, border: `1px solid ${C?.borderDefault}`, padding: "4px 10px", borderRadius: 6 }}>
-          <FolderGit2 size={14} color="#6366F1" />
-          <select
-            value={selectedRepo || ""}
-            onChange={(e) => onSelectRepo(e.target.value)}
-            style={{ background: "transparent", border: "none", color: C?.textPrimary, fontSize: 12, fontWeight: 700, outline: "none", cursor: "pointer" }}
-          >
-            <option value="all">All Repositories ({repositories.length || 6})</option>
-            {repositories.map((r) => (
-              <option key={r.id || r.name} value={r.name || r.repo_name}>
-                {r.name || r.repo_name}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* Left: Breadcrumbs */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button onClick={() => navigate("/dashboard")} style={{
+          background: "none", border: "none", color: C.inkLow, fontSize: 13,
+          fontWeight: 500, cursor: "pointer", padding: 0,
+        }}>SecureFlow</button>
 
-        {/* Branch Picker */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, background: C?.bgCard, border: `1px solid ${C?.borderDefault}`, padding: "4px 10px", borderRadius: 6 }}>
-          <GitBranch size={14} color={C?.textMuted} />
-          <select
-            value={selectedBranch}
-            onChange={(e) => onSelectBranch(e.target.value)}
-            style={{ background: "transparent", border: "none", color: C?.textPrimary, fontSize: 12, outline: "none", cursor: "pointer" }}
-          >
-            <option value="main">main</option>
-            <option value="develop">develop</option>
-            <option value="staging">staging</option>
-          </select>
-        </div>
+        {parentLabel && (
+          <>
+            <ChevronRight size={12} color={C.inkMuted} />
+            <button onClick={() => navigate(parentPath)} style={{
+              background: "none", border: "none", color: C.inkLow, fontSize: 13,
+              fontWeight: 500, cursor: "pointer", padding: 0,
+            }}>{parentLabel}</button>
+          </>
+        )}
 
-        {/* Environment Picker */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, background: C?.bgCard, border: `1px solid ${C?.borderDefault}`, padding: "4px 10px", borderRadius: 6 }}>
-          <Globe size={14} color="#22C55E" />
-          <span style={{ fontSize: 12, fontWeight: 700, color: C?.textPrimary }}>production (Cloud Run)</span>
-        </div>
+        <ChevronRight size={12} color={C.inkMuted} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{currentLabel}</span>
       </div>
 
-      {/* Center Command Palette Search Bar */}
-      <div
-        onClick={onOpenCommandPalette}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          background: C?.bgCard || "#13151A",
-          border: `1px solid ${C?.borderDefault || "rgba(255,255,255,0.10)"}`,
-          borderRadius: 6,
-          padding: "6px 14px",
-          width: 340,
-          cursor: "pointer",
-          color: C?.textMuted
-        }}
-      >
-        <Search size={14} />
-        <span style={{ fontSize: 12, flex: 1 }}>Search repositories, scans, findings...</span>
-        <kbd style={{ fontSize: 10, fontWeight: 800, padding: "2px 6px", background: C?.bgSecondary, borderRadius: 4, color: C?.textMuted, border: `1px solid ${C?.borderSubtle}` }}>
-          ⌘K
-        </kbd>
-      </div>
-
-      {/* Right Actions & Status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {/* Live WebSocket Status Pill */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 12,
-          background: wsConnected ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
-          border: `1px solid ${wsConnected ? "rgba(34,197,94,0.20)" : "rgba(239,68,68,0.20)"}`,
-          fontSize: 11, fontWeight: 800, color: wsConnected ? "#22C55E" : "#EF4444"
+      {/* Right: Actions */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {/* Command Palette Trigger */}
+        <button onClick={onOpenCommandPalette} style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "6px 12px",
+          borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg,
+          color: C.inkLow, fontSize: 12, cursor: "pointer", transition: "all 150ms",
         }}>
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: wsConnected ? "#22C55E" : "#EF4444" }} />
-          <span>{wsConnected ? "WebSocket Live" : "Disconnected"}</span>
-        </div>
+          <Search size={13} />
+          <span>Search...</span>
+          <span style={{
+            fontSize: 10, padding: "1px 6px", borderRadius: 4,
+            background: C.bgElevated, color: C.inkMuted, fontWeight: 600,
+            fontFamily: C.mono,
+          }}>⌘K</span>
+        </button>
 
-        {/* Quick Action Buttons */}
-        <button onClick={onRescan} className="btn-ghost" title="Rescan Pipeline" style={{ padding: "6px 10px", fontSize: 12 }}>
+        {/* Refresh */}
+        <button onClick={onRescan} style={{
+          width: 34, height: 34, borderRadius: 8, border: `1px solid ${C.border}`,
+          background: "transparent", color: C.inkLow, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "all 150ms",
+        }} title="Refresh data">
           <RefreshCw size={14} />
-          <span>Rescan</span>
         </button>
 
-        <button onClick={onExport} className="btn-ghost" title="Export Report" style={{ padding: "6px 10px", fontSize: 12 }}>
-          <Download size={14} />
-          <span>Export</span>
+        {/* Notifications */}
+        <button style={{
+          width: 34, height: 34, borderRadius: 8, border: `1px solid ${C.border}`,
+          background: "transparent", color: C.inkLow, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          position: "relative", transition: "all 150ms",
+        }} title="Notifications">
+          <Bell size={14} />
+          {unreadCount > 0 && (
+            <span style={{
+              position: "absolute", top: 4, right: 4, width: 8, height: 8,
+              borderRadius: "50%", background: C.red, border: `2px solid ${C.bgSurface}`,
+            }} />
+          )}
         </button>
 
-        <button onClick={onAskAI} className="btn-primary" style={{ padding: "6px 12px", fontSize: 12 }}>
-          <Sparkles size={14} />
-          <span>Ask AI</span>
+        {/* AI Copilot Drawer Trigger */}
+        <button onClick={onToggleCopilot} style={{
+          display: "flex", alignItems: "center", gap: 6, padding: "6px 12px",
+          borderRadius: 8, border: `1px solid ${C.accentBorder}`,
+          background: C.accentSoft, color: C.accent, fontSize: 12,
+          fontWeight: 600, cursor: "pointer", transition: "all 150ms",
+        }} title="Open Global AI Security Copilot">
+          <Sparkles size={13} />
+          <span>AI Copilot</span>
         </button>
+
+        {/* WebSocket Status */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 5, padding: "5px 10px",
+          borderRadius: 8, fontSize: 11, fontWeight: 600,
+          background: wsConnected ? C.greenSoft : C.redSoft,
+          color: wsConnected ? C.green : C.red,
+          border: `1px solid ${wsConnected ? C.greenBorder : C.redBorder}`,
+        }}>
+          {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+          <span>{wsConnected ? "Live" : "Offline"}</span>
+        </div>
       </div>
     </header>
   );

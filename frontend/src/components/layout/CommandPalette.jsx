@@ -1,91 +1,122 @@
-import React, { useState, useEffect } from "react";
-import { Search, X, ShieldCheck, FolderGit2, GitPullRequest, Rocket, ShieldAlert, FileText, Activity, Download, Sparkles, Settings } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Search, ShieldCheck, FolderGit2, GitPullRequest, Rocket, ShieldAlert,
+  FileText, Activity, Download, Sparkles, Settings
+} from "lucide-react";
+
+const COMMANDS = [
+  { id: "dashboard", label: "Dashboard", path: "/dashboard", Icon: ShieldCheck, section: "Navigation" },
+  { id: "repositories", label: "Repositories", path: "/repositories", Icon: FolderGit2, section: "Navigation" },
+  { id: "pipelines", label: "Pipelines", path: "/pipelines", Icon: GitPullRequest, section: "Navigation" },
+  { id: "deployments", label: "Deployments", path: "/deployments", Icon: Rocket, section: "Navigation" },
+  { id: "findings", label: "Unified Findings", path: "/findings", Icon: ShieldAlert, section: "Navigation" },
+  { id: "policies", label: "Policies", path: "/policies", Icon: FileText, section: "Navigation" },
+  { id: "observability", label: "Observability", path: "/observability", Icon: Activity, section: "Navigation" },
+  { id: "reports", label: "Reports", path: "/reports", Icon: Download, section: "Navigation" },
+  { id: "copilot", label: "AI Copilot", path: "/copilot", Icon: Sparkles, section: "Navigation" },
+  { id: "settings", label: "Settings", path: "/settings", Icon: Settings, section: "Navigation" },
+];
 
 export default function CommandPalette({ isOpen, onClose, onNavigate, C }) {
   const [query, setQuery] = useState("");
+  const inputRef = useRef(null);
 
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        if (isOpen) onClose();
-      }
-      if (e.key === "Escape" && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    if (isOpen) {
+      setQuery("");
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  const COMMANDS = [
-    { id: "dashboard", label: "Go to Executive Dashboard", icon: ShieldCheck, category: "Navigation" },
-    { id: "repositories", label: "Go to Repositories Portfolio", icon: FolderGit2, category: "Navigation" },
-    { id: "pipelines", label: "Go to Security Pipeline Execution Center", icon: GitPullRequest, category: "Navigation" },
-    { id: "deployments", label: "Go to Google Cloud Run Deployments", icon: Rocket, category: "Navigation" },
-    { id: "findings", label: "Go to Unified Security Findings", icon: ShieldAlert, category: "Navigation" },
-    { id: "policies", label: "Go to Security Policy Engine (policy.yaml)", icon: FileText, category: "Navigation" },
-    { id: "observability", label: "Go to Prometheus Observability & Workers", icon: Activity, category: "Navigation" },
-    { id: "reports", label: "Go to Reports & Compliance Audit Exporter", icon: Download, category: "Navigation" },
-    { id: "copilot", label: "Open Contextual AI Security Workspace", icon: Sparkles, category: "Navigation" },
-    { id: "settings", label: "Go to Platform Settings & Keys", icon: Settings, category: "Navigation" }
-  ];
+  const filtered = COMMANDS.filter(cmd =>
+    cmd.label.toLowerCase().includes(query.toLowerCase())
+  );
 
-  const filtered = COMMANDS.filter(c => c.label.toLowerCase().includes(query.toLowerCase()));
+  const grouped = filtered.reduce((acc, cmd) => {
+    if (!acc[cmd.section]) acc[cmd.section] = [];
+    acc[cmd.section].push(cmd);
+    return acc;
+  }, {});
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.70)", backdropFilter: "blur(6px)",
-      display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh"
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+      backdropFilter: "blur(4px)", zIndex: 9999,
+      display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "15vh",
     }}>
-      <div style={{
-        width: 600, maxWidth: "90vw", background: C?.bgCard || "#13151A", border: `1px solid ${C?.borderDefault || "rgba(255,255,255,0.10)"}`,
-        borderRadius: 10, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.8)"
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 520, maxHeight: "60vh", borderRadius: 16,
+        background: C?.bgCard || "#0f172a", border: `1px solid ${C?.border || "#1e293b"}`,
+        boxShadow: C?.shadowLg || "0 8px 32px rgba(0,0,0,0.5)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
       }}>
-        {/* Input */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${C?.borderSubtle}` }}>
-          <Search size={18} color={C?.textMuted} />
+        {/* Search Input */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, padding: "14px 16px",
+          borderBottom: `1px solid ${C?.border || "#1e293b"}`,
+        }}>
+          <Search size={18} color={C?.inkMid || "#94a3b8"} />
           <input
-            type="text"
-            autoFocus
+            ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type a command or search workspace..."
-            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: C?.textPrimary, fontSize: 14 }}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search pages, commands..."
+            style={{
+              flex: 1, background: "none", border: "none", outline: "none",
+              color: C?.ink || "#f8fafc", fontSize: 15, fontWeight: 500,
+              fontFamily: C?.sans,
+            }}
           />
-          <button onClick={onClose} style={{ background: "none", border: "none", color: C?.textMuted, cursor: "pointer" }}>
-            <X size={18} />
-          </button>
+          <button onClick={onClose} style={{
+            background: C?.bgElevated || "#1e293b", border: "none", borderRadius: 6,
+            padding: "3px 8px", color: C?.inkMuted || "#475569", fontSize: 11,
+            fontWeight: 600, cursor: "pointer",
+          }}>ESC</button>
         </div>
 
         {/* Results */}
-        <div style={{ maxHeight: 360, overflowY: "auto", padding: "8px" }}>
-          {filtered.map((cmd) => {
-            const Icon = cmd.icon;
-            return (
-              <div
-                key={cmd.id}
-                onClick={() => {
-                  onNavigate(cmd.id);
-                  onClose();
-                }}
-                style={{
-                  display: "flex", alignItems: "center", justifyBetween: "space-between", padding: "10px 14px",
-                  borderRadius: 6, cursor: "pointer", gap: 12, color: C?.textPrimary
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(99,102,241,0.12)"}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Icon size={16} color="#6366F1" />
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{cmd.label}</span>
-                </div>
-                <span style={{ fontSize: 10, color: C?.textMuted, textTransform: "uppercase" }}>{cmd.category}</span>
-              </div>
-            );
-          })}
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
+          {Object.entries(grouped).map(([section, items]) => (
+            <div key={section}>
+              <div style={{
+                fontSize: 10, fontWeight: 700, color: C?.inkMuted || "#475569",
+                padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: "0.5px",
+              }}>{section}</div>
+              {items.map(cmd => {
+                const Icon = cmd.Icon;
+                return (
+                  <button key={cmd.id} onClick={() => onNavigate(cmd.path)} style={{
+                    display: "flex", alignItems: "center", gap: 10, width: "100%",
+                    padding: "10px 12px", borderRadius: 8, border: "none",
+                    background: "transparent", color: C?.ink || "#f8fafc",
+                    fontSize: 14, fontWeight: 500, cursor: "pointer",
+                    transition: "background 100ms",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = C?.bgHover || "#1e293b"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
+                    <Icon size={16} color={C?.accent || "#6366F1"} />
+                    <span>{cmd.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div style={{ padding: 20, textAlign: "center", color: C?.inkMuted || "#475569", fontSize: 13 }}>
+              No results for "{query}"
+            </div>
+          )}
         </div>
       </div>
     </div>

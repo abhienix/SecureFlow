@@ -1,184 +1,189 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { THEMES, BACKEND } from "./theme";
-import { normaliseScan } from "./utils/formatters";
+import React, { Suspense, lazy, useState, useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import { AppProvider, useApp } from "./contexts/AppContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
 import LoginGate from "./components/LoginGate";
 import Sidebar from "./components/layout/Sidebar";
 import TopBar from "./components/layout/TopBar";
 import CommandPalette from "./components/layout/CommandPalette";
+import GlobalAICopilot from "./components/GlobalAICopilot";
 
-import DashboardPage from "./components/pages/DashboardPage";
-import RepositoriesPage from "./components/pages/RepositoriesPage";
-import RepositoryWorkspacePage from "./components/pages/RepositoryWorkspacePage";
-import PipelinesPage from "./components/pages/PipelinesPage";
-import DeploymentsPage from "./components/pages/DeploymentsPage";
-import FindingsPage from "./components/pages/FindingsPage";
-import PoliciesPage from "./components/pages/PoliciesPage";
-import ObservabilityPage from "./components/pages/ObservabilityPage";
-import ReportsPage from "./components/pages/ReportsPage";
-import AICopilotWorkspacePage from "./components/pages/AICopilotWorkspacePage";
-import SettingsPage from "./components/pages/SettingsPage"; // reusing clean modal if needed
+// Lazy-loaded pages for code splitting
+const DashboardPage = lazy(() => import("./components/pages/DashboardPage"));
+const RepositoriesPage = lazy(() => import("./components/pages/RepositoriesPage"));
+const RepositoryWorkspacePage = lazy(() => import("./components/pages/RepositoryWorkspacePage"));
+const PipelinesPage = lazy(() => import("./components/pages/PipelinesPage"));
+const DeploymentsPage = lazy(() => import("./components/pages/DeploymentsPage"));
+const FindingsPage = lazy(() => import("./components/pages/FindingsPage"));
+const PoliciesPage = lazy(() => import("./components/pages/PoliciesPage"));
+const ObservabilityPage = lazy(() => import("./components/pages/ObservabilityPage"));
+const ReportsPage = lazy(() => import("./components/pages/ReportsPage"));
+const AICopilotWorkspacePage = lazy(() => import("./components/pages/AICopilotWorkspacePage"));
+const SettingsPage = lazy(() => import("./components/pages/SettingsPage"));
 
-export default function App() {
-  const C = THEMES.dark;
+function PageLoader({ C }) {
+  return (
+    <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+      {[1, 2, 3].map(i => (
+        <div key={i} className="skeleton" style={{
+          height: i === 1 ? 32 : 120, borderRadius: 12,
+          background: C?.skeleton || "rgba(255,255,255,0.04)",
+        }} />
+      ))}
+    </div>
+  );
+}
 
-  const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem("sf_auth") === "true");
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const [scans, setScans] = useState([]);
-  const [repositories, setRepositories] = useState([]);
-  const [deployments, setDeployments] = useState([]);
-  const [findings, setFindings] = useState([]);
-  const [metrics, setMetrics] = useState({});
-  const [wsConnected, setWsConnected] = useState(false);
+function PageError({ C }) {
+  return (
+    <div style={{
+      padding: 40, textAlign: "center", display: "flex", flexDirection: "column",
+      alignItems: "center", gap: 16, color: C?.inkMid || "#94a3b8",
+    }}>
+      <div style={{
+        width: 64, height: 64, borderRadius: 16,
+        background: C?.redSoft || "rgba(239,68,68,0.12)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 28,
+      }}>⚠️</div>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: C?.ink || "#f8fafc" }}>Page Not Found or Error</h2>
+      <p style={{ fontSize: 14, maxWidth: 400 }}>The requested route could not be found or encountered an error.</p>
+      <button
+        onClick={() => window.location.href = "/dashboard"}
+        style={{
+          padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
+          background: C?.accent || "#6366F1", color: "#fff", fontWeight: 600, fontSize: 13,
+        }}
+      >Back to Dashboard</button>
+    </div>
+  );
+}
 
-  const [selectedRepoFilter, setSelectedRepoFilter] = useState("all");
-  const [selectedBranchFilter, setSelectedBranchFilter] = useState("main");
-  const [activeRepoDetail, setActiveRepoDetail] = useState(null);
+function AppShell() {
+  const { C } = useTheme();
+  const { scans, repositories, deployments, findings, metrics, wsConnected, loading, error, fetchAllData } = useApp();
+  const navigate = useNavigate();
   const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false);
-
-  // Fetch all backend APIs
-  const fetchAllData = useCallback(async () => {
-    try {
-      const [scansRes, reposRes, depsRes, findingsRes, metricsRes] = await Promise.all([
-        fetch(`${BACKEND}/api/scan-results`).then(r => r.json()).catch(() => ({ scans: [] })),
-        fetch(`${BACKEND}/api/repositories`).then(r => r.json()).catch(() => ({ repositories: [] })),
-        fetch(`${BACKEND}/api/deployments`).then(r => r.json()).catch(() => ({ deployments: [] })),
-        fetch(`${BACKEND}/api/findings`).then(r => r.json()).catch(() => ({ findings: [] })),
-        fetch(`${BACKEND}/api/observability/metrics`).then(r => r.json()).catch(() => ({}))
-      ]);
-
-      const rawScans = Array.isArray(scansRes) ? scansRes : (scansRes.scans || []);
-      setScans(rawScans.map(normaliseScan));
-      setRepositories(reposRes.repositories || []);
-      setDeployments(depsRes.deployments || []);
-      setFindings(findingsRes.findings || []);
-      setMetrics(metricsRes || {});
-      setWsConnected(true);
-    } catch (e) {
-      console.error("API sync error:", e);
-      setWsConnected(false);
-    }
-  }, []);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState(null);
 
   useEffect(() => {
-    fetchAllData();
-    const interval = setInterval(fetchAllData, 6000);
-    return () => clearInterval(interval);
-  }, [fetchAllData]);
-
-  if (!isAuthenticated) {
-    return (
-      <LoginGate
-        onAuthenticate={() => {
-          setIsAuthenticated(true);
-          sessionStorage.setItem("sf_auth", "true");
-        }}
-        C={C}
-      />
-    );
-  }
-
-  const handleSelectRepo = (repoObj) => {
-    setActiveRepoDetail(repoObj);
-    setActiveTab("repository_workspace");
-  };
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setIsCmdPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: C.bgBase || "#0A0B0D", color: C.textPrimary || "#F1F5F9" }}>
-      {/* Persistent Left Sidebar */}
-      <Sidebar
-        activeTab={activeTab}
-        onTabChange={(tab) => {
-          setActiveTab(tab);
-          if (tab !== "repository_workspace") setActiveRepoDetail(null);
-        }}
-        scansCount={scans.length}
-        openFindingsCount={findings.length}
-        C={C}
-      />
+    <div style={{
+      display: "flex", minHeight: "100vh",
+      background: C.bg, color: C.ink,
+      fontFamily: C.sans,
+    }}>
+      <Sidebar C={C} scansCount={scans.length} openFindingsCount={findings.length} />
 
-      {/* Main Content Area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh", overflow: "hidden" }}>
-        {/* Top Navigation & Bar */}
         <TopBar
+          C={C}
           repositories={repositories}
-          selectedRepo={selectedRepoFilter}
-          onSelectRepo={setSelectedRepoFilter}
-          selectedBranch={selectedBranchFilter}
-          onSelectBranch={setSelectedBranchFilter}
+          wsConnected={wsConnected}
           onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
           onRescan={fetchAllData}
-          onExport={() => setActiveTab("reports")}
-          onAskAI={() => setActiveTab("copilot")}
-          wsConnected={wsConnected}
-          C={C}
+          onToggleCopilot={() => setIsCopilotOpen(prev => !prev)}
         />
 
-        {/* Dynamic Workspace Container */}
-        <main style={{ flex: 1, padding: "24px", overflowY: "auto", background: C.bgBase || "#0A0B0D" }}>
-          {activeTab === "dashboard" && (
-            <DashboardPage scans={scans} repositories={repositories} metrics={metrics} C={C} onNavigate={setActiveTab} />
-          )}
+        {error && (
+          <div style={{
+            padding: "10px 24px", background: C.redSoft, borderBottom: `1px solid ${C.redBorder}`,
+            color: C.red, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <span>⚠️</span> {error}
+            <button onClick={fetchAllData} style={{
+              marginLeft: "auto", padding: "4px 12px", borderRadius: 6, border: `1px solid ${C.redBorder}`,
+              background: "transparent", color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            }}>Retry</button>
+          </div>
+        )}
 
-          {activeTab === "repositories" && (
-            <RepositoriesPage
-              repositories={repositories}
-              onSelectRepo={handleSelectRepo}
-              onRegisterRepo={() => setActiveTab("repositories")}
-              C={C}
-            />
-          )}
-
-          {activeTab === "repository_workspace" && (
-            <RepositoryWorkspacePage
-              repo={activeRepoDetail}
-              scans={scans}
-              onBack={() => setActiveTab("repositories")}
-              C={C}
-            />
-          )}
-
-          {activeTab === "pipelines" && (
-            <PipelinesPage scans={scans} C={C} />
-          )}
-
-          {activeTab === "deployments" && (
-            <DeploymentsPage deployments={deployments} C={C} />
-          )}
-
-          {activeTab === "findings" && (
-            <FindingsPage findings={findings} C={C} />
-          )}
-
-          {activeTab === "policies" && (
-            <PoliciesPage C={C} />
-          )}
-
-          {activeTab === "observability" && (
-            <ObservabilityPage metrics={metrics} C={C} />
-          )}
-
-          {activeTab === "reports" && (
-            <ReportsPage C={C} />
-          )}
-
-          {activeTab === "copilot" && (
-            <AICopilotWorkspacePage scans={scans} C={C} />
-          )}
-
-          {activeTab === "settings" && (
-            <SettingsPage C={C} />
+        <main style={{ flex: 1, padding: 24, overflowY: "auto", background: C.bg }}>
+          {loading ? (
+            <PageLoader C={C} />
+          ) : (
+            <Suspense fallback={<PageLoader C={C} />}>
+              <Routes>
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/dashboard" element={
+                  <DashboardPage scans={scans} repositories={repositories} metrics={metrics} C={C} />
+                } />
+                <Route path="/repositories" element={
+                  <RepositoriesPage
+                    repositories={repositories} C={C}
+                    onSelectRepo={(repo) => { setSelectedRepo(repo); navigate("/repositories/workspace"); }}
+                  />
+                } />
+                <Route path="/repositories/workspace" element={
+                  <RepositoryWorkspacePage repo={selectedRepo} scans={scans} onBack={() => navigate("/repositories")} C={C} />
+                } />
+                <Route path="/pipelines" element={<PipelinesPage scans={scans} C={C} />} />
+                <Route path="/deployments" element={<DeploymentsPage deployments={deployments} C={C} />} />
+                <Route path="/findings" element={<FindingsPage findings={findings} C={C} />} />
+                <Route path="/policies" element={<PoliciesPage C={C} />} />
+                <Route path="/observability" element={<ObservabilityPage metrics={metrics} C={C} />} />
+                <Route path="/reports" element={<ReportsPage C={C} />} />
+                <Route path="/copilot" element={<AICopilotWorkspacePage scans={scans} C={C} />} />
+                <Route path="/settings" element={<SettingsPage C={C} />} />
+                <Route path="*" element={<PageError C={C} />} />
+              </Routes>
+            </Suspense>
           )}
         </main>
       </div>
 
-      {/* Global Command Palette (⌘K / Ctrl+K) */}
       <CommandPalette
         isOpen={isCmdPaletteOpen}
         onClose={() => setIsCmdPaletteOpen(false)}
-        onNavigate={(tab) => setActiveTab(tab)}
+        onNavigate={(path) => { navigate(path); setIsCmdPaletteOpen(false); }}
+        C={C}
+      />
+
+      <GlobalAICopilot
+        isOpen={isCopilotOpen}
+        onClose={() => setIsCopilotOpen(false)}
         C={C}
       />
     </div>
+  );
+}
+
+function AuthenticatedApp() {
+  const { isAuthenticated, login } = useAuth();
+  const { C } = useTheme();
+
+  if (!isAuthenticated) {
+    return <LoginGate onAuthenticate={(usr, pwd) => login(usr, pwd)} C={C} />;
+  }
+
+  return (
+    <AppProvider>
+      <AppShell />
+    </AppProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <ThemeProvider>
+        <AuthProvider>
+          <AuthenticatedApp />
+        </AuthProvider>
+      </ThemeProvider>
+    </BrowserRouter>
   );
 }

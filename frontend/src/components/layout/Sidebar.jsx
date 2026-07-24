@@ -1,133 +1,168 @@
-import React from "react";
+import React, { useState } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import { useTheme } from "../../contexts/ThemeContext";
 import {
-  ShieldCheck, FolderGit2, GitPullRequest, Rocket, ShieldAlert, FileText, Activity,
-  Download, Sparkles, Settings
+  ShieldCheck, FolderGit2, GitPullRequest, Rocket, ShieldAlert, FileText,
+  Activity, Download, Sparkles, Settings, Sun, Moon, Monitor,
+  PanelLeftClose, PanelLeft
 } from "lucide-react";
 
-export default function Sidebar({ activeTab, onTabChange, scansCount = 0, openFindingsCount = 0, C }) {
-  const NAV_SECTIONS = [
-    {
-      section: "OVERVIEW",
-      items: [
-        { id: "dashboard", label: "Dashboard", Icon: ShieldCheck, badge: "Live" },
-        { id: "repositories", label: "Repositories", Icon: FolderGit2 }
-      ]
-    },
-    {
-      section: "SECURITY PIPELINES",
-      items: [
-        { id: "pipelines", label: "Pipelines", Icon: GitPullRequest, count: scansCount },
-        { id: "deployments", label: "Deployments", Icon: Rocket },
-        { id: "findings", label: "Unified Findings", Icon: ShieldAlert, count: openFindingsCount, color: "#FF4444" },
-        { id: "policies", label: "Policies", Icon: FileText }
-      ]
-    },
-    {
-      section: "OBSERVABILITY & AI",
-      items: [
-        { id: "observability", label: "Observability", Icon: Activity },
-        { id: "reports", label: "Reports & Audit", Icon: Download },
-        { id: "copilot", label: "AI Workspace", Icon: Sparkles, badge: "AI", color: "#6366F1" }
-      ]
-    },
-    {
-      section: "ADMIN",
-      items: [
-        { id: "settings", label: "Settings", Icon: Settings }
-      ]
-    }
-  ];
+const NAV_SECTIONS = [
+  {
+    section: "OVERVIEW",
+    items: [
+      { path: "/dashboard", label: "Dashboard", Icon: ShieldCheck, badge: "Live" },
+      { path: "/repositories", label: "Repositories", Icon: FolderGit2 },
+    ],
+  },
+  {
+    section: "SECURITY",
+    items: [
+      { path: "/pipelines", label: "Pipelines", Icon: GitPullRequest, countKey: "scansCount" },
+      { path: "/deployments", label: "Deployments", Icon: Rocket },
+      { path: "/findings", label: "Findings", Icon: ShieldAlert, countKey: "openFindingsCount", color: "#ef4444" },
+      { path: "/policies", label: "Policies", Icon: FileText },
+    ],
+  },
+  {
+    section: "OPERATIONS",
+    items: [
+      { path: "/observability", label: "Observability", Icon: Activity },
+      { path: "/reports", label: "Reports", Icon: Download },
+      { path: "/copilot", label: "AI Copilot", Icon: Sparkles, badge: "AI" },
+    ],
+  },
+  {
+    section: "ADMIN",
+    items: [
+      { path: "/settings", label: "Settings", Icon: Settings },
+    ],
+  },
+];
+
+const THEME_ICONS = { dark: Moon, light: Sun, system: Monitor };
+
+export default function Sidebar({ C, scansCount = 0, openFindingsCount = 0 }) {
+  const { mode, cycleTheme } = useTheme();
+  const [collapsed, setCollapsed] = useState(false);
+  const location = useLocation();
+
+  const counts = { scansCount, openFindingsCount };
+  const ThemeIcon = THEME_ICONS[mode];
+  const sidebarWidth = collapsed ? 64 : 240;
 
   return (
     <aside style={{
-      width: 240,
-      background: C?.bgSurface || "#0F1117",
-      borderRight: `1px solid ${C?.borderDefault || "rgba(255,255,255,0.10)"}`,
-      display: "flex",
-      flexDirection: "column",
-      height: "100vh",
-      padding: "16px 12px",
-      gap: 20,
-      userSelect: "none"
+      width: sidebarWidth, minWidth: sidebarWidth,
+      background: C.bgSurface, borderRight: `1px solid ${C.border}`,
+      display: "flex", flexDirection: "column", height: "100vh",
+      padding: collapsed ? "16px 8px" : "16px 12px", gap: 16,
+      transition: "width 200ms ease, min-width 200ms ease, padding 200ms ease",
+      userSelect: "none", overflow: "hidden",
     }}>
       {/* Brand Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 8px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "0 4px" : "0 8px", minHeight: 40 }}>
         <div style={{
-          width: 32, height: 32, borderRadius: 8,
+          width: 32, height: 32, minWidth: 32, borderRadius: 8,
           background: "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 0 16px rgba(99,102,241,0.4)"
+          boxShadow: "0 0 16px rgba(99,102,241,0.3)",
         }}>
-          <ShieldCheck size={20} color="#FFFFFF" />
+          <ShieldCheck size={18} color="#FFFFFF" />
         </div>
-        <div>
-          <h2 style={{ fontSize: 16, fontWeight: 900, color: C?.textPrimary || "#F1F5F9", letterSpacing: "-0.5px" }}>
-            SecureFlow
-          </h2>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "#6366F1", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            DevSecOps Platform
-          </span>
-        </div>
+        {!collapsed && (
+          <div style={{ overflow: "hidden" }}>
+            <h2 style={{ fontSize: 15, fontWeight: 800, color: C.ink, letterSpacing: "-0.3px", whiteSpace: "nowrap" }}>
+              SecureFlow
+            </h2>
+            <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              DevSecOps Platform
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Navigation Sections */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1, overflowY: "auto" }}>
+      {/* Navigation */}
+      <nav style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1, overflowY: "auto", overflowX: "hidden" }}>
         {NAV_SECTIONS.map((sec, idx) => (
-          <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: C?.textMuted || "#475569", padding: "0 8px", textTransform: "uppercase" }}>
-              {sec.section}
-            </span>
-
+          <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {!collapsed && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: C.inkMuted, padding: "4px 8px",
+                textTransform: "uppercase", letterSpacing: "0.8px",
+              }}>
+                {sec.section}
+              </span>
+            )}
             {sec.items.map((item) => {
-              const isActive = activeTab === item.id;
+              const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + "/");
               const Icon = item.Icon;
+              const count = item.countKey ? counts[item.countKey] : undefined;
+
               return (
-                <button
-                  key={item.id}
-                  onClick={() => onTabChange(item.id)}
+                <NavLink
+                  key={item.path}
+                  to={item.path}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "8px 10px",
-                    borderRadius: 6,
-                    border: "none",
-                    background: isActive ? "rgba(99,102,241,0.12)" : "transparent",
-                    color: isActive ? "#F1F5F9" : (C?.textSecondary || "#94A3B8"),
-                    fontSize: 13,
-                    fontWeight: isActive ? 700 : 500,
-                    cursor: "pointer",
-                    transition: "all 150ms ease"
+                    display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "space-between",
+                    padding: collapsed ? "10px" : "7px 10px", borderRadius: 8, textDecoration: "none",
+                    background: isActive ? C.accentSoft : "transparent",
+                    color: isActive ? C.ink : C.inkMid,
+                    fontSize: 13, fontWeight: isActive ? 600 : 500, cursor: "pointer",
+                    transition: "all 150ms ease", position: "relative",
+                    borderLeft: isActive ? `2px solid ${C.accent}` : "2px solid transparent",
                   }}
+                  title={collapsed ? item.label : undefined}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Icon size={16} color={isActive ? "#6366F1" : (C?.textMuted || "#475569")} />
-                    <span>{item.label}</span>
+                    <Icon size={16} color={isActive ? C.accent : C.inkLow} />
+                    {!collapsed && <span>{item.label}</span>}
                   </div>
 
-                  {item.badge && (
+                  {!collapsed && item.badge && (
                     <span style={{
-                      fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 10,
-                      background: "rgba(99,102,241,0.20)", color: "#6366F1"
-                    }}>
-                      {item.badge}
-                    </span>
+                      fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 10,
+                      background: C.accentSoft, color: C.accent,
+                    }}>{item.badge}</span>
                   )}
 
-                  {item.count !== undefined && item.count > 0 && (
+                  {!collapsed && count > 0 && (
                     <span style={{
-                      fontSize: 10, fontWeight: 800, padding: "2px 6px", borderRadius: 10,
-                      background: item.color ? "rgba(255,68,68,0.20)" : "rgba(255,255,255,0.10)",
-                      color: item.color || C?.textPrimary
-                    }}>
-                      {item.count}
-                    </span>
+                      fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10,
+                      background: item.color ? C.redSoft : C.accentSoft,
+                      color: item.color || C.accent, minWidth: 20, textAlign: "center",
+                    }}>{count}</span>
                   )}
-                </button>
+                </NavLink>
               );
             })}
           </div>
         ))}
+      </nav>
+
+      {/* Bottom Controls */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+        {/* Theme Toggle */}
+        <button onClick={cycleTheme} style={{
+          display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start",
+          gap: 10, padding: "7px 10px", borderRadius: 8, border: "none",
+          background: "transparent", color: C.inkMid, fontSize: 12, fontWeight: 500,
+          cursor: "pointer", transition: "all 150ms ease", width: "100%",
+        }} title={`Theme: ${mode}`}>
+          <ThemeIcon size={16} />
+          {!collapsed && <span style={{ textTransform: "capitalize" }}>{mode} Theme</span>}
+        </button>
+
+        {/* Collapse Toggle */}
+        <button onClick={() => setCollapsed(!collapsed)} style={{
+          display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start",
+          gap: 10, padding: "7px 10px", borderRadius: 8, border: "none",
+          background: "transparent", color: C.inkMuted, fontSize: 12, fontWeight: 500,
+          cursor: "pointer", transition: "all 150ms ease", width: "100%",
+        }} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
+          {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+          {!collapsed && <span>Collapse</span>}
+        </button>
       </div>
     </aside>
   );

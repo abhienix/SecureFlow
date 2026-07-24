@@ -1,64 +1,110 @@
-import React from "react";
-import { Globe, Database } from "lucide-react";
+import React from 'react';
+import { GitBranch, Cloud, Database, Sparkles, Shield, Settings } from 'lucide-react';
 
 export default function SettingsPage({ C }) {
+  const settingsData = [
+    {
+      id: 'general',
+      title: 'General',
+      icon: <Settings size={18} color={C.accent} />,
+      items: [
+        { label: 'Platform Name', value: 'SecureFlow Enterprise' },
+        { label: 'Version', value: 'v2.4.1-stable' },
+        { label: 'Environment', value: 'Production' }
+      ]
+    },
+    {
+      id: 'github',
+      title: 'GitHub Integration',
+      icon: <GitBranch size={18} color={C.accent} />,
+      items: [
+        { label: 'Connection Status', value: <span style={{ color: C.green, fontWeight: 600 }}>Connected</span> },
+        { label: 'Organization', value: 'acme-corp' },
+        { label: 'Webhook URL', value: 'https://api.secureflow.dev/webhook/github' }
+      ]
+    },
+    {
+      id: 'cloudrun',
+      title: 'Cloud Run',
+      icon: <Cloud size={18} color={C.accent} />,
+      items: [
+        { label: 'Service Name', value: 'secureflow-scanner' },
+        { label: 'Region', value: 'us-central1' },
+        { label: 'Service URL', value: 'https://secureflow-scanner-xyz.a.run.app' }
+      ]
+    },
+    {
+      id: 'redis',
+      title: 'Redis & Celery',
+      icon: <Database size={18} color={C.accent} />,
+      items: [
+        { label: 'Broker URL', value: 'redis://redis-master.internal:6379/0' },
+        { label: 'Queue Name', value: 'sec-scan-tasks' },
+        { label: 'Worker Status', value: <span style={{ color: C.green, fontWeight: 600 }}>Active (4 Nodes)</span> }
+      ]
+    },
+    {
+      id: 'ai',
+      title: 'AI Models',
+      icon: <Sparkles size={18} color={C.accent} />,
+      items: [
+        { label: 'Provider', value: 'Groq' },
+        { label: 'Model Name', value: 'llama3-70b-8192' },
+        { label: 'Status', value: <span style={{ color: C.green, fontWeight: 600 }}>Online</span> }
+      ]
+    },
+    {
+      id: 'security',
+      title: 'Security',
+      icon: <Shield size={18} color={C.accent} />,
+      items: [
+        { label: 'Authentication Method', value: 'SAML SSO (Okta)' },
+        { label: 'Session Timeout', value: '60 minutes' },
+        { label: 'MFA Enforced', value: 'Yes' }
+      ]
+    }
+  ];
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Header */}
       <div>
-        <h1 style={{ fontSize: 22, fontWeight: 900, color: C?.textPrimary || "#F1F5F9" }}>
-          Platform Settings & Integrations
-        </h1>
-        <span style={{ fontSize: 13, color: C?.textMuted || "#475569" }}>
-          Configure API credentials, GitHub webhooks, Cloud Run GCP connections, Celery Redis queues, and AI model routing
-        </span>
+        <h1 style={{ fontSize: 22, fontWeight: 900, color: C.ink, margin: '0 0 4px 0' }}>Settings</h1>
+        <div style={{ fontSize: 13, color: C.inkLow }}>Platform Configuration & Integrations</div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-        {/* Card 1: Cloud & CI/CD Integrations */}
-        <div style={{
-          background: C?.bgCard || "#13151A", border: `1px solid ${C?.borderDefault}`, borderRadius: 8, padding: 20,
-          display: "flex", flexDirection: "column", gap: 14
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Globe size={20} color="#6366F1" />
-            <h3 style={{ fontSize: 16, fontWeight: 800, color: C?.textPrimary }}>Cloud & CI/CD Integrations</h3>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ background: C?.bgSecondary, padding: 12, borderRadius: 6 }}>
-              <span style={{ fontWeight: 700, color: C?.textPrimary }}>GitHub Actions Integration</span>
-              <span style={{ display: "block", fontSize: 11, color: C?.textMuted }}>Connected to repository `abhienix/SecureFlow`</span>
+      {/* Grid of Setting Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 20 }}>
+        {settingsData.map(section => (
+          <div key={section.id} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
+            {/* Section Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 8, background: C.bgElevated, border: `1px solid ${C.border}` }}>
+                {section.icon}
+              </div>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: C.ink, margin: 0 }}>{section.title}</h2>
             </div>
 
-            <div style={{ background: C?.bgSecondary, padding: 12, borderRadius: 6 }}>
-              <span style={{ fontWeight: 700, color: C?.textPrimary }}>Google Cloud Run</span>
-              <span style={{ display: "block", fontSize: 11, color: C?.textMuted }}>Target: `https://secureflow-backend-1083585992526.us-central1.run.app`</span>
+            {/* Key-Value Rows */}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {section.items.map((item, idx) => (
+                <div 
+                  key={idx} 
+                  style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    padding: '12px 0',
+                    borderBottom: idx < section.items.length - 1 ? `1px solid ${C.border}` : 'none'
+                  }}
+                >
+                  <span style={{ fontSize: 13, color: C.inkLow }}>{item.label}</span>
+                  <span style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>{item.value}</span>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
-
-        {/* Card 2: Queue & Worker Settings */}
-        <div style={{
-          background: C?.bgCard || "#13151A", border: `1px solid ${C?.borderDefault}`, borderRadius: 8, padding: 20,
-          display: "flex", flexDirection: "column", gap: 14
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Database size={20} color="#22C55E" />
-            <h3 style={{ fontSize: 16, fontWeight: 800, color: C?.textPrimary }}>Redis & Celery DAST Queue</h3>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ background: C?.bgSecondary, padding: 12, borderRadius: 6 }}>
-              <span style={{ fontWeight: 700, color: C?.textPrimary }}>Redis Broker Connection</span>
-              <span style={{ display: "block", fontSize: 11, color: C?.textMuted }}>URL: `redis://localhost:6379/0` (Queue: `celery`)</span>
-            </div>
-
-            <div style={{ background: C?.bgSecondary, padding: 12, borderRadius: 6 }}>
-              <span style={{ fontWeight: 700, color: C?.textPrimary }}>Celery Worker Engine</span>
-              <span style={{ display: "block", fontSize: 11, color: C?.textMuted }}>Task: `tasks.run_zap_scan` (Worker-01 Ubuntu VM)</span>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   );
