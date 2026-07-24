@@ -1,5 +1,4 @@
 import React from "react";
-import { FileText, ShieldAlert, CheckCircle2, Sliders } from "lucide-react";
 import PolicySandbox from "../shared/PolicySandbox";
 
 export default function PoliciesPage({ policies = {}, C }) {

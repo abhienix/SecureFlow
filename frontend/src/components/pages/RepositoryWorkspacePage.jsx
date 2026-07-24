@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import {
-  ArrowLeft, FolderGit2, ShieldAlert, Terminal, Rocket, Key, Code2, Box, Globe, FileText, Sparkles, CheckCircle2
+  ArrowLeft, FolderGit2, Terminal, Rocket, Key, Code2, Box, Globe, FileText, Sparkles, CheckCircle2
 } from "lucide-react";
-import MetricCard from "../ui/MetricCard";
 import SeverityBadge from "../ui/SeverityBadge";
 import ScanStatusDot from "../ui/ScanStatusDot";
 import DataTable from "../ui/DataTable";

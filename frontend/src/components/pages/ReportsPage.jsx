@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Download, FileText, CheckCircle2, ShieldCheck, FileSpreadsheet, Lock } from "lucide-react";
+import { Download, FileText, ShieldCheck, FileSpreadsheet, Lock } from "lucide-react";
 
 export default function ReportsPage({ C }) {
   const [downloading, setDownloading] = useState(null);

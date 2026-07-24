@@ -1,5 +1,5 @@
 import React from "react";
-import { Cpu, Server, Database, Activity, RefreshCw, Layers } from "lucide-react";
+import { Cpu, Server, Database, Activity, Layers } from "lucide-react";
 import MetricCard from "../ui/MetricCard";
 import LiveTelemetryStreamCard from "../shared/LiveTelemetryStreamCard";
 

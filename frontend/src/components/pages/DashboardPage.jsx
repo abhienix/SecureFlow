@@ -1,7 +1,7 @@
 import React from "react";
 import {
   ShieldCheck, ShieldAlert, GitPullRequest, Rocket, Cpu, Server, Activity,
-  Database, RefreshCw, Key, Code2, Box, Globe, Zap
+  Database, Key, Code2, Box, Globe
 } from "lucide-react";
 import MetricCard from "../ui/MetricCard";
 import SeverityBadge from "../ui/SeverityBadge";
@@ -12,7 +12,6 @@ import SeverityDonut from "../charts/SeverityDonut";
 import { SCANNERS_REGISTRY } from "../../utils/scannersRegistry";
 
 export default function DashboardPage({ scans = [], repositories = [], metrics = {}, C, onNavigate }) {
-  const latestScan = scans[0] || {};
   const totalScans = scans.length || 1;
   const passedScans = scans.filter(s => s.action_taken === "ALLOW").length;
   const blockedScans = scans.filter(s => s.action_taken === "BLOCK").length;

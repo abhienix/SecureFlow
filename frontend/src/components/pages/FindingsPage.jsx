@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { ShieldAlert, Filter, Search, X, Sparkles, Key, Code2, Box, Globe, ChevronRight } from "lucide-react";
+import { Search, X, Sparkles, ChevronRight } from "lucide-react";
 import SeverityBadge from "../ui/SeverityBadge";
-import { SCANNERS_REGISTRY, getScannerMeta } from "../../utils/scannersRegistry";
+import { getScannerMeta } from "../../utils/scannersRegistry";
 
 export default function FindingsPage({ findings = [], C }) {
   const [selectedScanner, setSelectedScanner] = useState("all");

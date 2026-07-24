@@ -1,5 +1,5 @@
 import React from "react";
-import { Rocket, Globe, ShieldCheck, ShieldAlert, RefreshCw, Cpu, ExternalLink } from "lucide-react";
+import { Rocket, Globe, ExternalLink } from "lucide-react";
 import SeverityBadge from "../ui/SeverityBadge";
 import ScanStatusDot from "../ui/ScanStatusDot";
 

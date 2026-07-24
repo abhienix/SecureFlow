@@ -1,5 +1,5 @@
 import React from "react";
-import { Search, Command, RefreshCw, Plus, Download, Sparkles, FolderGit2, GitBranch, Globe } from "lucide-react";
+import { Search, RefreshCw, Download, Sparkles, FolderGit2, GitBranch, Globe } from "lucide-react";
 
 export default function TopBar({
   repositories = [],
