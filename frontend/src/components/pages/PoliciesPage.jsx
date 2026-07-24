@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, ShieldAlert, FileText, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { ShieldAlert, FileText, RefreshCw, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import PolicySandbox from '../shared/PolicySandbox';
 
@@ -7,6 +7,7 @@ export default function PoliciesPage({ C }) {
   const { scans, BACKEND } = useApp();
   const [loading, setLoading] = useState(true);
   const [policyData, setPolicyData] = useState(null);
+  const [showRawYaml, setShowRawYaml] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -21,7 +22,6 @@ export default function PoliciesPage({ C }) {
       } catch (err) {
         console.error('Failed to fetch policies:', err);
         setError("Could not load backend policy.yaml configuration.");
-        // Fallback policy data so page never renders blank
         setPolicyData({
           policy: {
             default: { block_on: ["CRITICAL", "HIGH"], warn_on: ["MEDIUM"], cvss_threshold: 7.0 },
@@ -52,40 +52,100 @@ export default function PoliciesPage({ C }) {
     return (
       <div className="fade-in" style={{ padding: 40, textAlign: 'center', color: C?.inkMid || '#94a3b8' }}>
         <RefreshCw size={24} className="spin" style={{ marginBottom: 12, color: C?.accent || '#6366F1' }} />
-        <div>Loading Policy Engine (`policy.yaml`)...</div>
+        <div>Loading Policy Engine Configuration...</div>
       </div>
     );
   }
 
   const rules = policyData?.rules || [];
-  const rawPolicy = policyData?.policy ? JSON.stringify(policyData.policy, null, 2) : '{\n  "default": {\n    "block_on": ["CRITICAL", "HIGH"],\n    "cvss_threshold": 7.0\n  }\n}';
+  const rawPolicyYaml = policyData?.policy ? JSON.stringify(policyData.policy, null, 2) : '{\n  "default": {\n    "block_on": ["CRITICAL", "HIGH"],\n    "cvss_threshold": 7.0\n  }\n}';
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
-      <div>
-        <h1 style={{ fontSize: 22, fontWeight: 900, color: C?.ink || "#f8fafc", margin: '0 0 4px 0' }}>
-          Security Policy Management Center
-        </h1>
-        <div style={{ fontSize: 13, color: C?.inkLow || "#64748b" }}>
-          Define deployment blocking rules, CVSS score thresholds, allowed CVE exceptions, and DAST header gates
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 900, color: C?.ink || "#f8fafc", margin: '0 0 4px 0' }}>
+            Security Policy Management Center
+          </h1>
+          <div style={{ fontSize: 13, color: C?.inkLow || "#64748b" }}>
+            Define deployment blocking rules, CVSS score thresholds, allowed CVE exceptions, and DAST header gates
+          </div>
         </div>
+
+        <button
+          onClick={() => setShowRawYaml(prev => !prev)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
+            borderRadius: 8, border: `1px solid ${C?.border || "#1e293b"}`,
+            background: C?.bgSurface || "#111827", color: C?.inkMid || "#94a3b8",
+            fontSize: 12, fontWeight: 600, cursor: "pointer"
+          }}
+        >
+          <FileText size={14} color={C?.accent || "#6366F1"} />
+          <span>{showRawYaml ? "Hide policy.yaml Source" : "View policy.yaml Source"}</span>
+          {showRawYaml ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
       </div>
 
       {error && (
         <div style={{ padding: "10px 14px", borderRadius: 8, background: C?.amberSoft || "rgba(245,158,11,0.12)", color: C?.amber || "#f59e0b", fontSize: 12, fontWeight: 600 }}>
-          ⚠️ Notice: {error} (Loaded fallback policy rules)
+          ⚠️ Notice: {error} (Loaded active fallback policy rules)
         </div>
       )}
+
+      {/* Collapsible raw policy.yaml viewer */}
+      {showRawYaml && (
+        <div style={{
+          padding: 16, background: C?.bgSurface || "#111827",
+          border: `1px solid ${C?.accentBorder || "rgba(99,102,241,0.25)"}`, borderRadius: 12
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C?.accent || "#6366F1", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <FileText size={14} />
+            <span>Raw Declarative Policy Source (`policy.yaml`)</span>
+          </div>
+          <pre style={{ margin: 0, padding: 12, background: "#090d16", color: C?.cyan || "#06b6d4", borderRadius: 8, fontSize: 12, overflowX: "auto", fontFamily: C?.mono || "monospace" }}>
+            <code>{rawPolicyYaml}</code>
+          </pre>
+        </div>
+      )}
+
+      {/* Summary KPI Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        <div style={{ ...cardStyle, padding: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C?.inkMuted, textTransform: "uppercase" }}>Policy Mode</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C?.green || "#10b981", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <Lock size={16} /> Strict Enforcement
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C?.inkMuted, textTransform: "uppercase" }}>Max CVSS Limit</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C?.amber || "#f59e0b", marginTop: 4 }}>
+            CVSS ≥ 7.0 (Block)
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C?.inkMuted, textTransform: "uppercase" }}>Blocked Builds</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C?.red || "#ef4444", marginTop: 4 }}>
+            {scans.filter(s => s.action_taken === "BLOCK").length || 3} pipelines
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C?.inkMuted, textTransform: "uppercase" }}>Passed Builds</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C?.green || "#10b981", marginTop: 4 }}>
+            {scans.filter(s => s.action_taken === "ALLOW").length || 12} pipelines
+          </div>
+        </div>
+      </div>
 
       {/* Interactive Policy Sandbox */}
       <PolicySandbox scans={scans} C={C} />
 
-      {/* Active Policy Rules Table */}
+      {/* Active Gate Rules Table */}
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
           <ShieldAlert size={18} color={C?.accent || "#6366F1"} />
-          <div style={{ fontSize: 16, fontWeight: 700, color: C?.ink || "#f8fafc" }}>Active Gate Rules</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C?.ink || "#f8fafc" }}>Active Security Gate Rules</div>
         </div>
         
         {rules.length === 0 ? (
@@ -126,46 +186,6 @@ export default function PoliciesPage({ C }) {
             </table>
           </div>
         )}
-      </div>
-
-      {/* Raw policy.yaml + Enforcement History */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <div style={cardStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-            <FileText size={18} color={C?.accent || "#6366F1"} />
-            <div style={{ fontSize: 16, fontWeight: 700, color: C?.ink || "#f8fafc" }}>Active `policy.yaml` Definition</div>
-          </div>
-          <pre style={{ margin: 0, padding: 14, background: C?.bgSurface || '#111827', color: C?.cyan || '#06b6d4', borderRadius: 8, fontSize: 12, overflowX: 'auto', fontFamily: C?.mono }}>
-            <code>{rawPolicy}</code>
-          </pre>
-        </div>
-
-        <div style={cardStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-            <Shield size={18} color={C?.accent || "#6366F1"} />
-            <div style={{ fontSize: 16, fontWeight: 700, color: C?.ink || "#f8fafc" }}>Policy Decision History</div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div style={{ background: C?.bgSurface || "#111827", padding: 16, borderRadius: 8, border: `1px solid ${C?.border || "#1e293b"}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: C?.red || '#ef4444', marginBottom: 8 }}>
-                <AlertTriangle size={16} />
-                <span style={{ fontWeight: 600, fontSize: 13 }}>Blocked Builds</span>
-              </div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: C?.ink || "#f8fafc" }}>
-                {scans.filter(s => s.action_taken === "BLOCK").length || 3}
-              </div>
-            </div>
-            <div style={{ background: C?.bgSurface || "#111827", padding: 16, borderRadius: 8, border: `1px solid ${C?.border || "#1e293b"}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: C?.green || '#10b981', marginBottom: 8 }}>
-                <CheckCircle size={16} />
-                <span style={{ fontWeight: 600, fontSize: 13 }}>Passed Builds</span>
-              </div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: C?.ink || "#f8fafc" }}>
-                {scans.filter(s => s.action_taken === "ALLOW").length || 12}
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
