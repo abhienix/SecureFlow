@@ -2,9 +2,9 @@ name: SecureFlow Security Pipeline
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ main, dev, secureflow-v1 ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, secureflow-v1 ]
   workflow_dispatch:
     inputs:
       deploy_backend:
