@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { Sparkles, X, Send, Bot, User, Terminal, RefreshCw } from "lucide-react";
 import { useApp } from "../contexts/AppContext";
+import FormattedCopilotMessage from "./shared/FormattedCopilotMessage";
 
 export default function GlobalAICopilot({ C, isOpen, onClose }) {
   const location = useLocation();
@@ -177,9 +178,8 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
                 background: msg.sender === "user" ? C.accent : C.bgSurface,
                 color: msg.sender === "user" ? "#ffffff" : C.ink,
                 border: msg.sender === "ai" ? `1px solid ${C.border}` : "none",
-                whiteSpace: "pre-wrap"
               }}>
-                {msg.text}
+                {msg.sender === "user" ? msg.text : <FormattedCopilotMessage text={msg.text} C={C} />}
                 <div style={{
                   fontSize: 10, opacity: 0.6, marginTop: 4, textAlign: "right"
                 }}>

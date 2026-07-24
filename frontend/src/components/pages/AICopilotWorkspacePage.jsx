@@ -82,8 +82,10 @@ export default function AICopilotWorkspacePage({ scans = [], C }) {
                 {m.role === "assistant" && <Bot size={20} color="#6366F1" />}
                 <div style={{
                   padding: "10px 14px", borderRadius: 8, fontSize: 13, lineHeight: 1.5,
-                  background: m.role === "user" ? "#6366F1" : (C?.bgSecondary || "#0F1117"),
-                  color: "#F1F5F9", maxWidth: "85%"
+                  background: m.role === "user" ? (C?.accent || "#6366F1") : (C?.bgSurface || "#111827"),
+                  color: m.role === "user" ? "#ffffff" : (C?.ink || "#f8fafc"),
+                  border: m.role === "assistant" ? `1px solid ${C?.border || "#1e293b"}` : "none",
+                  maxWidth: "85%"
                 }}>
                   <FormattedCopilotMessage text={m.text} C={C} />
                 </div>

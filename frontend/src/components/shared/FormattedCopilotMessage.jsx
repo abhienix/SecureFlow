@@ -1,6 +1,7 @@
 import React from "react";
 
 export function renderFormattedInline(str, C, onCveClick) {
+  if (!str) return null;
   const parts = str.split(/(\bCVE-\d{4}-\d+\b|\*\*.*?\*\*|`.*?`)/gi);
   return parts.map((part, idx) => {
     if (/^CVE-\d{4}-\d+$/i.test(part)) {
@@ -8,14 +9,14 @@ export function renderFormattedInline(str, C, onCveClick) {
         <span
           key={idx}
           onClick={() => onCveClick?.(`How to fix ${part} in code?`)}
-          title={`Click to ask Void how to fix ${part}`}
+          title={`Click to ask Copilot how to fix ${part}`}
           style={{
             display: "inline-flex", alignItems: "center", gap: 3,
-            background: C.isDark ? "rgba(239, 68, 68, 0.2)" : "#FEE2E2",
-            color: C.isDark ? "#F87171" : "#DC2626",
-            border: `1px solid ${C.isDark ? "rgba(239, 68, 68, 0.4)" : "#FCA5A5"}`,
+            background: C?.redSoft || "rgba(239,68,68,0.12)",
+            color: C?.red || "#ef4444",
+            border: `1px solid ${C?.redBorder || "rgba(239,68,68,0.25)"}`,
             padding: "1px 6px", borderRadius: 6, fontSize: 11, fontWeight: 800,
-            fontFamily: C.mono, cursor: "pointer", margin: "0 2px"
+            fontFamily: C?.mono || "monospace", cursor: "pointer", margin: "0 2px"
           }}
         >
           🚨 {part}
@@ -23,13 +24,18 @@ export function renderFormattedInline(str, C, onCveClick) {
       );
     }
     if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={idx} style={{ color: C.isDark ? "#F8FAFC" : "#0F172A", fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
+      return (
+        <strong key={idx} style={{ color: C?.ink || "#f8fafc", fontWeight: 700 }}>
+          {part.slice(2, -2)}
+        </strong>
+      );
     }
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
         <code key={idx} style={{
-          background: C.isDark ? "rgba(0,242,254,0.12)" : "rgba(0,0,0,0.06)",
-          color: C.cyan, padding: "1px 5px", borderRadius: 4, fontSize: 11, fontFamily: C.mono
+          background: C?.bgSurface || "rgba(99,102,241,0.1)",
+          color: C?.accent || "#6366F1", padding: "1px 6px", borderRadius: 4,
+          fontSize: 12, fontFamily: C?.mono || "monospace", fontWeight: 600
         }}>
           {part.slice(1, -1)}
         </code>
@@ -41,9 +47,66 @@ export function renderFormattedInline(str, C, onCveClick) {
 
 export function FormattedCopilotMessage({ text, C, onCveClick }) {
   if (!text) return null;
+
+  // Split text by code blocks ```
+  const codeBlockRegex = /```([a-zA-Z]*)\n([\s\S]*?)```/g;
+  const elements = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    // Add text before code block
+    if (match.index > lastIndex) {
+      const textBefore = text.substring(lastIndex, match.index);
+      elements.push(
+        <RenderTextLines key={`text-${lastIndex}`} text={textBefore} C={C} onCveClick={onCveClick} />
+      );
+    }
+
+    const lang = match[1] || "code";
+    const codeContent = match[2];
+
+    elements.push(
+      <div key={`code-${match.index}`} style={{
+        margin: "10px 0", borderRadius: 8, overflow: "hidden",
+        border: `1px solid ${C?.border || "#1e293b"}`,
+        background: "#090d16", boxShadow: C?.shadow || "0 2px 8px rgba(0,0,0,0.2)"
+      }}>
+        <div style={{
+          padding: "6px 12px", background: "#111827", borderBottom: "1px solid #1e293b",
+          fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase",
+          fontFamily: C?.mono || "monospace", display: "flex", justifyContent: "space-between"
+        }}>
+          <span>{lang}</span>
+          <span>Copilot Snippet</span>
+        </div>
+        <pre style={{
+          margin: 0, padding: 14, overflowX: "auto",
+          fontSize: 12, lineHeight: 1.5, color: "#38bdf8",
+          fontFamily: C?.mono || "monospace", background: "#090d16"
+        }}>
+          <code>{codeContent}</code>
+        </pre>
+      </div>
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    const textAfter = text.substring(lastIndex);
+    elements.push(
+      <RenderTextLines key={`text-${lastIndex}`} text={textAfter} C={C} onCveClick={onCveClick} />
+    );
+  }
+
+  return <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{elements}</div>;
+}
+
+function RenderTextLines({ text, C, onCveClick }) {
   const lines = text.split("\n");
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <>
       {lines.map((line, i) => {
         const trimmed = line.trim();
         if (!trimmed) return <div key={i} style={{ height: 4 }} />;
@@ -51,7 +114,7 @@ export function FormattedCopilotMessage({ text, C, onCveClick }) {
         if (trimmed.startsWith("#")) {
           const title = trimmed.replace(/^#+\s*/, "");
           return (
-            <div key={i} style={{ fontWeight: 800, fontSize: 13, color: C.cyan, marginTop: 4, marginBottom: 2 }}>
+            <div key={i} style={{ fontWeight: 800, fontSize: 14, color: C?.accent || "#6366F1", marginTop: 8, marginBottom: 4 }}>
               {title}
             </div>
           );
@@ -61,18 +124,18 @@ export function FormattedCopilotMessage({ text, C, onCveClick }) {
           const isPlus = trimmed.startsWith("+ ");
           const content = trimmed.replace(/^(\*|-|\+|\d+\.)\s*/, "");
           return (
-            <div key={i} style={{ display: "flex", gap: 6, alignItems: "flex-start", paddingLeft: 4 }}>
-              <span style={{ color: isPlus ? C.amber : C.teal, fontWeight: 800, fontSize: 12 }}>
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", paddingLeft: 4 }}>
+              <span style={{ color: isPlus ? (C?.amber || "#f59e0b") : (C?.accent || "#6366F1"), fontWeight: 800, fontSize: 13 }}>
                 {isPlus ? "⚡" : "•"}
               </span>
-              <span style={{ flex: 1 }}>{renderFormattedInline(content, C, onCveClick)}</span>
+              <span style={{ flex: 1, lineHeight: 1.5 }}>{renderFormattedInline(content, C, onCveClick)}</span>
             </div>
           );
         }
 
-        return <div key={i}>{renderFormattedInline(trimmed, C, onCveClick)}</div>;
+        return <div key={i} style={{ lineHeight: 1.5 }}>{renderFormattedInline(trimmed, C, onCveClick)}</div>;
       })}
-    </div>
+    </>
   );
 }
 
