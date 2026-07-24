@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { AppProvider, useApp } from "./contexts/AppContext";
@@ -10,18 +10,18 @@ import TopBar from "./components/layout/TopBar";
 import CommandPalette from "./components/layout/CommandPalette";
 import GlobalAICopilot from "./components/GlobalAICopilot";
 
-// Lazy-loaded pages for code splitting
-const DashboardPage = lazy(() => import("./components/pages/DashboardPage"));
-const RepositoriesPage = lazy(() => import("./components/pages/RepositoriesPage"));
-const RepositoryWorkspacePage = lazy(() => import("./components/pages/RepositoryWorkspacePage"));
-const PipelinesPage = lazy(() => import("./components/pages/PipelinesPage"));
-const DeploymentsPage = lazy(() => import("./components/pages/DeploymentsPage"));
-const FindingsPage = lazy(() => import("./components/pages/FindingsPage"));
-const PoliciesPage = lazy(() => import("./components/pages/PoliciesPage"));
-const ObservabilityPage = lazy(() => import("./components/pages/ObservabilityPage"));
-const ReportsPage = lazy(() => import("./components/pages/ReportsPage"));
-const AICopilotWorkspacePage = lazy(() => import("./components/pages/AICopilotWorkspacePage"));
-const SettingsPage = lazy(() => import("./components/pages/SettingsPage"));
+// Static imports for instant 0ms tab switching
+import DashboardPage from "./components/pages/DashboardPage";
+import RepositoriesPage from "./components/pages/RepositoriesPage";
+import RepositoryWorkspacePage from "./components/pages/RepositoryWorkspacePage";
+import PipelinesPage from "./components/pages/PipelinesPage";
+import DeploymentsPage from "./components/pages/DeploymentsPage";
+import FindingsPage from "./components/pages/FindingsPage";
+import PoliciesPage from "./components/pages/PoliciesPage";
+import ObservabilityPage from "./components/pages/ObservabilityPage";
+import ReportsPage from "./components/pages/ReportsPage";
+import AICopilotWorkspacePage from "./components/pages/AICopilotWorkspacePage";
+import SettingsPage from "./components/pages/SettingsPage";
 
 function PageLoader({ C }) {
   return (
@@ -115,32 +115,30 @@ function AppShell() {
           {loading ? (
             <PageLoader C={C} />
           ) : (
-            <Suspense fallback={<PageLoader C={C} />}>
-              <Routes>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={
-                  <DashboardPage scans={scans} repositories={repositories} metrics={metrics} C={C} />
-                } />
-                <Route path="/repositories" element={
-                  <RepositoriesPage
-                    repositories={repositories} C={C}
-                    onSelectRepo={(repo) => { setSelectedRepo(repo); navigate("/repositories/workspace"); }}
-                  />
-                } />
-                <Route path="/repositories/workspace" element={
-                  <RepositoryWorkspacePage repo={selectedRepo} scans={scans} onBack={() => navigate("/repositories")} C={C} />
-                } />
-                <Route path="/pipelines" element={<PipelinesPage scans={scans} C={C} />} />
-                <Route path="/deployments" element={<DeploymentsPage deployments={deployments} C={C} />} />
-                <Route path="/findings" element={<FindingsPage findings={findings} C={C} />} />
-                <Route path="/policies" element={<PoliciesPage C={C} />} />
-                <Route path="/observability" element={<ObservabilityPage metrics={metrics} C={C} />} />
-                <Route path="/reports" element={<ReportsPage C={C} />} />
-                <Route path="/copilot" element={<AICopilotWorkspacePage scans={scans} C={C} />} />
-                <Route path="/settings" element={<SettingsPage C={C} />} />
-                <Route path="*" element={<PageError C={C} />} />
-              </Routes>
-            </Suspense>
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={
+                <DashboardPage scans={scans} repositories={repositories} metrics={metrics} C={C} />
+              } />
+              <Route path="/repositories" element={
+                <RepositoriesPage
+                  repositories={repositories} C={C}
+                  onSelectRepo={(repo) => { setSelectedRepo(repo); navigate("/repositories/workspace"); }}
+                />
+              } />
+              <Route path="/repositories/workspace" element={
+                <RepositoryWorkspacePage repo={selectedRepo} scans={scans} onBack={() => navigate("/repositories")} C={C} />
+              } />
+              <Route path="/pipelines" element={<PipelinesPage scans={scans} C={C} />} />
+              <Route path="/deployments" element={<DeploymentsPage deployments={deployments} C={C} />} />
+              <Route path="/findings" element={<FindingsPage findings={findings} C={C} />} />
+              <Route path="/policies" element={<PoliciesPage C={C} />} />
+              <Route path="/observability" element={<ObservabilityPage metrics={metrics} C={C} />} />
+              <Route path="/reports" element={<ReportsPage C={C} />} />
+              <Route path="/copilot" element={<AICopilotWorkspacePage scans={scans} C={C} />} />
+              <Route path="/settings" element={<SettingsPage C={C} />} />
+              <Route path="*" element={<PageError C={C} />} />
+            </Routes>
           )}
         </main>
       </div>
