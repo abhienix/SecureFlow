@@ -1,5 +1,5 @@
 import React from "react";
-import { Settings, Sliders, Key, Globe, Database, Cpu, Bell, ShieldCheck } from "lucide-react";
+import { Globe, Database } from "lucide-react";
 
 export default function SettingsPage({ C }) {
   return (

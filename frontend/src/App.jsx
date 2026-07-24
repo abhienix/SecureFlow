@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { THEMES, BACKEND } from "./theme";
 import { normaliseScan } from "./utils/formatters";
 
@@ -17,12 +17,9 @@ import PoliciesPage from "./components/pages/PoliciesPage";
 import ObservabilityPage from "./components/pages/ObservabilityPage";
 import ReportsPage from "./components/pages/ReportsPage";
 import AICopilotWorkspacePage from "./components/pages/AICopilotWorkspacePage";
-import SettingsPage from "./components/pages/SettingsPage";
-
-import RegisterRepoModal from "./components/modals/ScanDetailModal"; // reusing clean modal if needed
+import SettingsPage from "./components/pages/SettingsPage"; // reusing clean modal if needed
 
 export default function App() {
-  const [themeMode] = useState("dark");
   const C = THEMES.dark;
 
   const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem("sf_auth") === "true");
@@ -33,7 +30,6 @@ export default function App() {
   const [findings, setFindings] = useState([]);
   const [metrics, setMetrics] = useState({});
   const [wsConnected, setWsConnected] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   const [selectedRepoFilter, setSelectedRepoFilter] = useState("all");
   const [selectedBranchFilter, setSelectedBranchFilter] = useState("main");
@@ -61,8 +57,6 @@ export default function App() {
     } catch (e) {
       console.error("API sync error:", e);
       setWsConnected(false);
-    } finally {
-      setLoading(false);
     }
   }, []);
 

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Sparkles, Send, Bot, Code2, Terminal, ShieldAlert, Cpu, CheckCircle2, ChevronRight } from "lucide-react";
+import { Sparkles, Send, Bot, Code2 } from "lucide-react";
 import FormattedCopilotMessage from "../shared/FormattedCopilotMessage";
 import FormattedRemedyView from "../shared/FormattedRemedyView";
 import { BACKEND } from "../../theme";

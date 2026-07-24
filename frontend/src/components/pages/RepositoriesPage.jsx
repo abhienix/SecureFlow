@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { FolderGit2, Search, Filter, Plus, ShieldCheck, ShieldAlert, Globe, Cpu, ChevronRight, Activity } from "lucide-react";
-import SeverityBadge from "../ui/SeverityBadge";
+import { FolderGit2, Search, Filter, Plus, ChevronRight } from "lucide-react";
 import ScanStatusDot from "../ui/ScanStatusDot";
 
 export default function RepositoriesPage({ repositories = [], onSelectRepo, onRegisterRepo, C }) {

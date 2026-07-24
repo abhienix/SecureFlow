@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Terminal, GitBranch, ShieldCheck, ShieldAlert, Cpu, Globe, Rocket, CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { Terminal, ChevronDown, ChevronUp } from "lucide-react";
 import SeverityBadge from "../ui/SeverityBadge";
 import ScanStatusDot from "../ui/ScanStatusDot";
 import PipelineFullView from "../shared/PipelineFullView";
