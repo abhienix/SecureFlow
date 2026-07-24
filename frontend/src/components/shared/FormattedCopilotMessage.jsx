@@ -9,14 +9,15 @@ export function renderFormattedInline(str, C, onCveClick) {
         <span
           key={idx}
           onClick={() => onCveClick?.(`How to fix ${part} in code?`)}
-          title={`Click to ask Copilot how to fix ${part}`}
+          title={`Click to ask Void how to fix ${part}`}
           style={{
             display: "inline-flex", alignItems: "center", gap: 3,
             background: C?.redSoft || "rgba(239,68,68,0.12)",
             color: C?.red || "#ef4444",
             border: `1px solid ${C?.redBorder || "rgba(239,68,68,0.25)"}`,
             padding: "1px 6px", borderRadius: 6, fontSize: 11, fontWeight: 800,
-            fontFamily: C?.mono || "monospace", cursor: "pointer", margin: "0 2px"
+            fontFamily: C?.mono || "monospace", cursor: "pointer", margin: "0 2px",
+            wordBreak: "break-word"
           }}
         >
           🚨 {part}
@@ -25,7 +26,7 @@ export function renderFormattedInline(str, C, onCveClick) {
     }
     if (part.startsWith("**") && part.endsWith("**")) {
       return (
-        <strong key={idx} style={{ color: C?.ink || "#f8fafc", fontWeight: 700 }}>
+        <strong key={idx} style={{ color: C?.ink || "#f8fafc", fontWeight: 700, wordBreak: "break-word" }}>
           {part.slice(2, -2)}
         </strong>
       );
@@ -35,7 +36,8 @@ export function renderFormattedInline(str, C, onCveClick) {
         <code key={idx} style={{
           background: C?.bgSurface || "rgba(99,102,241,0.1)",
           color: C?.accent || "#6366F1", padding: "1px 6px", borderRadius: 4,
-          fontSize: 12, fontFamily: C?.mono || "monospace", fontWeight: 600
+          fontSize: 12, fontFamily: C?.mono || "monospace", fontWeight: 600,
+          wordBreak: "break-all"
         }}>
           {part.slice(1, -1)}
         </code>
@@ -70,7 +72,8 @@ export function FormattedCopilotMessage({ text, C, onCveClick }) {
       <div key={`code-${match.index}`} style={{
         margin: "10px 0", borderRadius: 8, overflow: "hidden",
         border: `1px solid ${C?.border || "#1e293b"}`,
-        background: "#090d16", boxShadow: C?.shadow || "0 2px 8px rgba(0,0,0,0.2)"
+        background: "#090d16", boxShadow: C?.shadow || "0 2px 8px rgba(0,0,0,0.2)",
+        maxWidth: "100%", boxSizing: "border-box"
       }}>
         <div style={{
           padding: "6px 12px", background: "#111827", borderBottom: "1px solid #1e293b",
@@ -78,12 +81,13 @@ export function FormattedCopilotMessage({ text, C, onCveClick }) {
           fontFamily: C?.mono || "monospace", display: "flex", justifyContent: "space-between"
         }}>
           <span>{lang}</span>
-          <span>Copilot Snippet</span>
+          <span>Void Code Snippet</span>
         </div>
         <pre style={{
-          margin: 0, padding: 14, overflowX: "auto",
+          margin: 0, padding: 12, overflowX: "auto", maxWidth: "100%",
           fontSize: 12, lineHeight: 1.5, color: "#38bdf8",
-          fontFamily: C?.mono || "monospace", background: "#090d16"
+          fontFamily: C?.mono || "monospace", background: "#090d16",
+          whiteSpace: "pre-wrap", wordBreak: "break-all", boxSizing: "border-box"
         }}>
           <code>{codeContent}</code>
         </pre>
@@ -100,7 +104,7 @@ export function FormattedCopilotMessage({ text, C, onCveClick }) {
     );
   }
 
-  return <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{elements}</div>;
+  return <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%", overflowX: "hidden" }}>{elements}</div>;
 }
 
 function RenderTextLines({ text, C, onCveClick }) {
@@ -114,7 +118,7 @@ function RenderTextLines({ text, C, onCveClick }) {
         if (trimmed.startsWith("#")) {
           const title = trimmed.replace(/^#+\s*/, "");
           return (
-            <div key={i} style={{ fontWeight: 800, fontSize: 14, color: C?.accent || "#6366F1", marginTop: 8, marginBottom: 4 }}>
+            <div key={i} style={{ fontWeight: 800, fontSize: 14, color: C?.accent || "#6366F1", marginTop: 8, marginBottom: 4, wordBreak: "break-word", overflowWrap: "anywhere" }}>
               {title}
             </div>
           );
@@ -124,16 +128,22 @@ function RenderTextLines({ text, C, onCveClick }) {
           const isPlus = trimmed.startsWith("+ ");
           const content = trimmed.replace(/^(\*|-|\+|\d+\.)\s*/, "");
           return (
-            <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", paddingLeft: 4 }}>
-              <span style={{ color: isPlus ? (C?.amber || "#f59e0b") : (C?.accent || "#6366F1"), fontWeight: 800, fontSize: 13 }}>
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", paddingLeft: 4, width: "100%", minWidth: 0 }}>
+              <span style={{ color: isPlus ? (C?.amber || "#f59e0b") : (C?.accent || "#6366F1"), fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
                 {isPlus ? "⚡" : "•"}
               </span>
-              <span style={{ flex: 1, lineHeight: 1.5 }}>{renderFormattedInline(content, C, onCveClick)}</span>
+              <span style={{ flex: 1, minWidth: 0, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere" }}>
+                {renderFormattedInline(content, C, onCveClick)}
+              </span>
             </div>
           );
         }
 
-        return <div key={i} style={{ lineHeight: 1.5 }}>{renderFormattedInline(trimmed, C, onCveClick)}</div>;
+        return (
+          <div key={i} style={{ lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere", width: "100%" }}>
+            {renderFormattedInline(trimmed, C, onCveClick)}
+          </div>
+        );
       })}
     </>
   );

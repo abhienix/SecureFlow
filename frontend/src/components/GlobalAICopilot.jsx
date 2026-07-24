@@ -112,7 +112,7 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
 
       {/* Drawer */}
       <div style={{
-        position: "absolute", top: 0, right: 0, bottom: 0, width: 440, maxWidth: "100vw",
+        position: "absolute", top: 0, right: 0, bottom: 0, width: 500, maxWidth: "94vw",
         background: C.bgCard, borderLeft: `1px solid ${C.border}`,
         boxShadow: "-8px 0 32px rgba(0,0,0,0.3)", pointerEvents: "auto",
         display: "flex", flexDirection: "column", animation: "slideIn 200ms ease-out",
@@ -153,12 +153,12 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
         </div>
 
         {/* Messages Body */}
-        <div style={{ flex: 1, padding: 16, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ flex: 1, padding: 16, overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column", gap: 14 }}>
           {messages.map(msg => (
             <div key={msg.id} style={{
               display: "flex", gap: 10,
               alignSelf: msg.sender === "user" ? "flex-end" : "flex-start",
-              maxWidth: "88%",
+              maxWidth: "92%", minWidth: 0,
             }}>
               {msg.sender === "ai" && (
                 <div style={{
@@ -174,6 +174,8 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
                 background: msg.sender === "user" ? C.accent : C.bgSurface,
                 color: msg.sender === "user" ? "#ffffff" : C.ink,
                 border: msg.sender === "ai" ? `1px solid ${C.border}` : "none",
+                minWidth: 0, maxWidth: "100%", wordBreak: "break-word", overflowWrap: "anywhere",
+                boxSizing: "border-box"
               }}>
                 {msg.sender === "user" ? msg.text : <FormattedCopilotMessage text={msg.text} C={C} />}
                 <div style={{
