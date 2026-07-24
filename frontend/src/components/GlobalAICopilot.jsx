@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Sparkles, X, Send, Bot, User, Terminal, RefreshCw } from "lucide-react";
+import { X, Send, Bot, User, Terminal, RefreshCw } from "lucide-react";
 import { useApp } from "../contexts/AppContext";
 import FormattedCopilotMessage from "./shared/FormattedCopilotMessage";
+import VoidCoreIcon from "./shared/VoidCoreIcon";
 
 export default function GlobalAICopilot({ C, isOpen, onClose }) {
   const location = useLocation();
@@ -11,7 +12,7 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
     {
       id: 1,
       sender: "ai",
-      text: "Hello! I am your **SecureFlow Global Security Copilot**. I am connected to your active repository, pipeline state, static findings, and ZAP DAST engine. How can I assist you?",
+      text: "Hello! I am **Void** — SecureFlow's Autonomous DevSecOps Core AI. I have complete RAG context over your pipeline runs, policy.yaml rules, Gitleaks secrets, Semgrep SAST findings, Trivy container CVEs, and OWASP ZAP DAST probes. How can I assist you?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
   ]);
@@ -122,19 +123,14 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
           display: "flex", alignItems: "center", justifyContent: "space-between",
           background: C.bgSurface,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: 8,
-              background: "linear-gradient(135deg, #6366F1 0%, #a855f7 100%)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 0 12px rgba(99,102,241,0.3)",
-            }}>
-              <Sparkles size={16} color="#ffffff" />
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <VoidCoreIcon />
             <div>
-              <h3 style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>AI Security Copilot</h3>
-              <span style={{ fontSize: 11, color: C.accent, fontWeight: 600 }}>
-                Context: {currentRouteName.toUpperCase()}
+              <h3 style={{ fontSize: 15, fontWeight: 900, color: C?.ink || "#f8fafc", margin: 0, letterSpacing: "-0.3px" }}>
+                Void Security Core AI
+              </h3>
+              <span style={{ fontSize: 11, color: C?.cyan || "#00f2fe", fontWeight: 700 }}>
+                Context RAG: {currentRouteName.toUpperCase()}
               </span>
             </div>
           </div>

@@ -5,84 +5,104 @@ export default function SettingsPage({ C }) {
   const settingsData = [
     {
       id: 'general',
-      title: 'General',
-      icon: <Settings size={18} color={C.accent} />,
+      title: 'Platform Architecture',
+      icon: <Settings size={18} color={C?.accent || "#6366F1"} />,
       items: [
-        { label: 'Platform Name', value: 'SecureFlow Enterprise' },
-        { label: 'Version', value: 'v2.4.1-stable' },
-        { label: 'Environment', value: 'Production' }
+        { label: 'Platform Name', value: 'SecureFlow AI DevSecOps' },
+        { label: 'Version', value: 'v2.0.0 Enterprise' },
+        { label: 'Environment', value: 'Production (Cloud Run)' },
+        { label: 'AI Engine', value: <span style={{ color: C?.accent || "#6366F1", fontWeight: 700 }}>Void Core AI</span> }
       ]
     },
     {
       id: 'github',
-      title: 'GitHub Integration',
-      icon: <GitBranch size={18} color={C.accent} />,
+      title: 'GitHub Repository Integration',
+      icon: <GitBranch size={18} color={C?.accent || "#6366F1"} />,
       items: [
-        { label: 'Connection Status', value: <span style={{ color: C.green, fontWeight: 600 }}>Connected</span> },
-        { label: 'Organization', value: 'acme-corp' },
-        { label: 'Webhook URL', value: 'https://api.secureflow.dev/webhook/github' }
+        { label: 'Connection Status', value: <span style={{ color: C?.green || "#10b981", fontWeight: 700 }}>Connected</span> },
+        { label: 'Repository Owner', value: 'abhienix' },
+        { label: 'Monitored Repo', value: 'abhienix/SecureFlow' },
+        { label: 'Ingestion Webhook URL', value: 'https://secureflow-backend-1083585992526.us-central1.run.app/api/scan-results' }
       ]
     },
     {
       id: 'cloudrun',
-      title: 'Cloud Run',
-      icon: <Cloud size={18} color={C.accent} />,
+      title: 'Google Cloud Run Backend',
+      icon: <Cloud size={18} color={C?.accent || "#6366F1"} />,
       items: [
-        { label: 'Service Name', value: 'secureflow-scanner' },
+        { label: 'Service Name', value: 'secureflow-backend' },
         { label: 'Region', value: 'us-central1' },
-        { label: 'Service URL', value: 'https://secureflow-scanner-xyz.a.run.app' }
+        { label: 'Service URL', value: 'https://secureflow-backend-1083585992526.us-central1.run.app' },
+        { label: 'Health Endpoint', value: '/health (200 OK)' }
       ]
     },
     {
       id: 'redis',
-      title: 'Redis & Celery',
-      icon: <Database size={18} color={C.accent} />,
+      title: 'Redis Broker & Celery DAST Queue',
+      icon: <Database size={18} color={C?.accent || "#6366F1"} />,
       items: [
-        { label: 'Broker URL', value: 'redis://redis-master.internal:6379/0' },
-        { label: 'Queue Name', value: 'sec-scan-tasks' },
-        { label: 'Worker Status', value: <span style={{ color: C.green, fontWeight: 600 }}>Active (4 Nodes)</span> }
+        { label: 'Broker Host', value: 'redis://localhost:6379/0' },
+        { label: 'Worker Queue', value: 'celery' },
+        { label: 'DAST Task Name', value: 'tasks.run_zap_scan' },
+        { label: 'Worker Status', value: <span style={{ color: C?.green || "#10b981", fontWeight: 700 }}>Active (ZAP Worker Node)</span> }
       ]
     },
     {
       id: 'ai',
-      title: 'AI Models',
-      icon: <Sparkles size={18} color={C.accent} />,
+      title: 'Void Core AI Reasoning Engine',
+      icon: <Sparkles size={18} color={C?.accent || "#6366F1"} />,
       items: [
-        { label: 'Provider', value: 'Groq' },
+        { label: 'LLM Provider', value: 'Groq Cloud API' },
         { label: 'Model Name', value: 'llama3-70b-8192' },
-        { label: 'Status', value: <span style={{ color: C.green, fontWeight: 600 }}>Online</span> }
+        { label: 'Context Windows', value: 'RAG Ingestion Enabled' },
+        { label: 'Status', value: <span style={{ color: C?.green || "#10b981", fontWeight: 700 }}>Online & Ready</span> }
       ]
     },
     {
       id: 'security',
-      title: 'Security',
-      icon: <Shield size={18} color={C.accent} />,
+      title: 'Zero-Trust Access Control',
+      icon: <Shield size={18} color={C?.accent || "#6366F1"} />,
       items: [
-        { label: 'Authentication Method', value: 'SAML SSO (Okta)' },
-        { label: 'Session Timeout', value: '60 minutes' },
-        { label: 'MFA Enforced', value: 'Yes' }
+        { label: 'Authentication Gateway', value: 'SecOps Local Identity' },
+        { label: 'Default Administrator', value: 'admin (SecOps Administrator)' },
+        { label: 'Session Storage', value: 'Encrypted Token (sf_auth)' },
+        { label: 'Policy Enforcement', value: <span style={{ color: C?.green || "#10b981", fontWeight: 700 }}>policy.yaml Active</span> }
       ]
     }
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
       <div>
-        <h1 style={{ fontSize: 22, fontWeight: 900, color: C.ink, margin: '0 0 4px 0' }}>Settings</h1>
-        <div style={{ fontSize: 13, color: C.inkLow }}>Platform Configuration & Integrations</div>
+        <h1 style={{ fontSize: 22, fontWeight: 900, color: C?.ink || "#f8fafc", margin: '0 0 4px 0' }}>
+          Platform Settings & Integrations
+        </h1>
+        <div style={{ fontSize: 13, color: C?.inkLow || "#64748b" }}>
+          Production telemetry, GitHub repository bindings, Cloud Run environment, and Void AI engine status
+        </div>
       </div>
 
       {/* Grid of Setting Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
         {settingsData.map(section => (
-          <div key={section.id} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
+          <div key={section.id} style={{
+            background: C?.bgCard || "#0f172a",
+            border: `1px solid ${C?.border || "#1e293b"}`,
+            borderRadius: 12, padding: 20,
+            boxShadow: C?.shadow || "0 1px 3px rgba(0,0,0,0.1)"
+          }}>
             {/* Section Header */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 8, background: C.bgElevated, border: `1px solid ${C.border}` }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 34, height: 34, borderRadius: 8,
+                background: C?.accentSoft || "rgba(99,102,241,0.12)",
+                border: `1px solid ${C?.accentBorder || "rgba(99,102,241,0.25)"}`
+              }}>
                 {section.icon}
               </div>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: C.ink, margin: 0 }}>{section.title}</h2>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: C?.ink || "#f8fafc", margin: 0 }}>{section.title}</h2>
             </div>
 
             {/* Key-Value Rows */}
@@ -94,12 +114,12 @@ export default function SettingsPage({ C }) {
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center', 
-                    padding: '12px 0',
-                    borderBottom: idx < section.items.length - 1 ? `1px solid ${C.border}` : 'none'
+                    padding: '10px 0',
+                    borderBottom: idx < section.items.length - 1 ? `1px solid ${C?.border || "#1e293b"}` : 'none'
                   }}
                 >
-                  <span style={{ fontSize: 13, color: C.inkLow }}>{item.label}</span>
-                  <span style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>{item.value}</span>
+                  <span style={{ fontSize: 13, color: C?.inkLow || "#64748b", fontWeight: 500 }}>{item.label}</span>
+                  <span style={{ fontSize: 13, color: C?.ink || "#f8fafc", fontWeight: 600, fontFamily: C?.mono || "monospace" }}>{item.value}</span>
                 </div>
               ))}
             </div>

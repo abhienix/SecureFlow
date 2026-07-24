@@ -100,15 +100,15 @@ export default function TopBar({ C, wsConnected, onOpenCommandPalette, onRescan,
           )}
         </button>
 
-        {/* AI Copilot Drawer Trigger */}
+        {/* Void AI Drawer Trigger */}
         <button onClick={onToggleCopilot} style={{
           display: "flex", alignItems: "center", gap: 6, padding: "6px 12px",
           borderRadius: 8, border: `1px solid ${C.accentBorder}`,
           background: C.accentSoft, color: C.accent, fontSize: 12,
-          fontWeight: 600, cursor: "pointer", transition: "all 150ms",
-        }} title="Open Global AI Security Copilot">
+          fontWeight: 700, cursor: "pointer", transition: "all 150ms",
+        }} title="Open Void Autonomous AI Engine">
           <Sparkles size={13} />
-          <span>AI Copilot</span>
+          <span>Void AI</span>
         </button>
 
         {/* WebSocket Status */}

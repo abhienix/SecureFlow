@@ -1,14 +1,15 @@
 import React, { useState } from "react";
-import { Sparkles, Send, Bot, Code2 } from "lucide-react";
+import { Send, Bot, Code2 } from "lucide-react";
 import FormattedCopilotMessage from "../shared/FormattedCopilotMessage";
 import FormattedRemedyView from "../shared/FormattedRemedyView";
-import { BACKEND } from "../../theme";
+import VoidCoreIcon from "../shared/VoidCoreIcon";
+import { BACKEND } from "../../contexts/AppContext";
 
 export default function AICopilotWorkspacePage({ scans = [], C }) {
   const [messages, setMessages] = useState([
     {
       role: "assistant",
-      text: "SecureFlow AI Security Copilot initialized. I have complete RAG context over your pipeline runs, policy.yaml rules, Gitleaks secrets, Semgrep SAST findings, Trivy container CVEs, and OWASP ZAP DAST probes."
+      text: "Hello! I am Void — SecureFlow's Autonomous DevSecOps Core AI. I have complete RAG context over your pipeline runs, policy.yaml rules, Gitleaks secrets, Semgrep SAST findings, Trivy container CVEs, and OWASP ZAP DAST probes."
     }
   ]);
   const [input, setInput] = useState("");
@@ -34,7 +35,7 @@ export default function AICopilotWorkspacePage({ scans = [], C }) {
       const data = await res.json();
       setMessages(prev => [...prev, { role: "assistant", text: data?.answer || "Analysis complete." }]);
     } catch {
-      setMessages(prev => [...prev, { role: "assistant", text: "Unable to reach SecureFlow AI Copilot API." }]);
+      setMessages(prev => [...prev, { role: "assistant", text: "Unable to reach Void AI API." }]);
     } finally {
       setSending(false);
     }
@@ -49,13 +50,13 @@ export default function AICopilotWorkspacePage({ scans = [], C }) {
   ];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, height: "calc(100vh - 120px)" }}>
+    <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 16, height: "calc(100vh - 120px)" }}>
       {/* Header */}
       <div>
-        <h1 style={{ fontSize: 22, fontWeight: 900, color: C?.textPrimary || "#F1F5F9" }}>
-          AI Security Workspace
+        <h1 style={{ fontSize: 22, fontWeight: 900, color: C?.ink || "#f8fafc", margin: "0 0 4px 0" }}>
+          Void Security Core AI Workspace
         </h1>
-        <span style={{ fontSize: 13, color: C?.textMuted || "#475569" }}>
+        <span style={{ fontSize: 13, color: C?.inkLow || "#64748b" }}>
           Contextual RAG AI Security Engine analyzing live pipeline telemetry, scanner findings, and code patches
         </span>
       </div>
@@ -65,15 +66,15 @@ export default function AICopilotWorkspacePage({ scans = [], C }) {
         
         {/* Left Panel: Chat Thread & Input */}
         <div style={{
-          background: C?.bgCard || "#13151A", border: `1px solid ${C?.borderDefault}`, borderRadius: 8,
+          background: C?.bgCard || "#0f172a", border: `1px solid ${C?.border || "#1e293b"}`, borderRadius: 12,
           padding: 16, display: "flex", flexDirection: "column", gap: 12
         }}>
-          <div style={{ display: "flex", alignItems: "center", justifyBetween: "space-between", borderBottom: `1px solid ${C?.borderSubtle}`, paddingBottom: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Sparkles size={18} color="#6366F1" />
-              <h3 style={{ fontSize: 14, fontWeight: 800, color: C?.textPrimary }}>AI Conversation</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C?.border || "#1e293b"}`, paddingBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <VoidCoreIcon />
+              <h3 style={{ fontSize: 15, fontWeight: 800, color: C?.ink || "#f8fafc", margin: 0 }}>Void AI Conversation</h3>
             </div>
-            <span style={{ fontSize: 11, color: "#22C55E", fontWeight: 700 }}>RAG Active</span>
+            <span style={{ fontSize: 11, color: C?.green || "#10b981", fontWeight: 700 }}>RAG Active</span>
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, paddingRight: 4 }}>

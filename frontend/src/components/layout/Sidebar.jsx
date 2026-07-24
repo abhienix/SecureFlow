@@ -29,7 +29,7 @@ const NAV_SECTIONS = [
     items: [
       { path: "/observability", label: "Observability", Icon: Activity },
       { path: "/reports", label: "Reports", Icon: Download },
-      { path: "/copilot", label: "AI Copilot", Icon: Sparkles, badge: "AI" },
+      { path: "/copilot", label: "Void AI", Icon: Sparkles, badge: "AI" },
     ],
   },
   {
