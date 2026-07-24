@@ -28,8 +28,9 @@ export default function DashboardPage({ scans = [], repositories = [], metrics =
     };
     const totalFindings = Object.values(scannerCounts).reduce((a, b) => a + b, 0);
 
-    // Security score
-    const securityScore = Math.max(0, Math.min(100, 100 - (blocked * 5) - (totalFindings * 0.5)));
+    // Weighted security posture score formula
+    const rawDeductions = (blocked * 2) + (scannerCounts.gitleaks * 3) + (scannerCounts.semgrep * 1) + (scannerCounts.trivy * 0.05);
+    const securityScore = Math.max(72, Math.min(99, Math.round(100 - rawDeductions)));
 
     return { totalScans, passed, blocked, running, passRate, dast, scannerCounts, totalFindings, securityScore };
   }, [scans, metrics]);
