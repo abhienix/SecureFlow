@@ -23,7 +23,7 @@ export function RunningPipelineBanner({ scans, C }) {
       style={{
         marginBottom: 20, padding: "16px 20px",
         background: `linear-gradient(135deg, ${C.blueSoft} 0%, ${C.cyanSoft} 100%)`,
-        border: `1px solid ${C.blueBord}`,
+        border: `1px solid ${C.blueBorder}`,
         borderRadius: 16,
         boxShadow: `0 8px 32px ${C.blue}14`,
         position: "relative",
@@ -42,7 +42,7 @@ export function RunningPipelineBanner({ scans, C }) {
             transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
             style={{
               width: 28, height: 28, borderRadius: "50%",
-              border: `2px solid ${C.blueBord}`,
+              border: `2px solid ${C.blueBorder}`,
               borderTopColor: C.blue,
             }}
           />

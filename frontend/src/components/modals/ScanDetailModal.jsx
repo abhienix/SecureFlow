@@ -61,7 +61,7 @@ export function ScanDetailModal({ scan, onClose, feedback, onFeedback, onWhyBloc
       {scan.action_taken === "BLOCK" && (
         <button onClick={() => onWhyBlocked(scan)} style={{
           marginTop: 20, padding: "12px", width: "100%",
-          background: C.redSoft, border: `1px solid ${C.redBord}`,
+          background: C.redSoft, border: `1px solid ${C.redBorder}`,
           borderRadius: 10, color: C.red, fontWeight: 700, fontSize: 13,
           display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
         }}>

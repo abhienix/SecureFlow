@@ -11,11 +11,11 @@ export function ExportReportModal({ scans, healthScore, avgRisk, onClose, C }) {
   const [downloaded, setDownloaded] = useState(false);
 
   const verifyAuthorization = () => {
-    if (passcode.trim() === "SEC-AUDIT-2026" || passcode.trim().length >= 4 || isAuthorized) {
+    if (passcode.trim() === "SEC-AUDIT-2026" || isAuthorized) {
       setIsAuthorized(true);
       setAuthError("");
     } else {
-      setAuthError("Invalid Passcode. Enter 'SEC-AUDIT-2026' or 4-digit Auditor PIN.");
+      setAuthError("Invalid Passcode. Enter 'SEC-AUDIT-2026' to authorize audit access.");
     }
   };
 
@@ -127,7 +127,7 @@ export function ExportReportModal({ scans, healthScore, avgRisk, onClose, C }) {
               style={{
                 padding: "6px 12px", borderRadius: 8,
                 background: isAuthorized ? C.greenSoft : C.tealSoft,
-                border: `1px solid ${isAuthorized ? C.greenBord : C.tealBord}`,
+                border: `1px solid ${isAuthorized ? C.greenBorder : C.tealBorder}`,
                 color: isAuthorized ? C.green : C.teal,
                 fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 4,
               }}

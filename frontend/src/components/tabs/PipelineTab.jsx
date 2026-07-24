@@ -82,7 +82,7 @@ export function PipelineDetailedCard({ scan, onOpenWhyBlocked, onOpenDetail, C }
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {scan.action_taken === "BLOCK" && (
-            <button onClick={() => onOpenWhyBlocked(scan)} style={{ padding: "7px 14px", borderRadius: 8, background: C.redSoft, border: `1px solid ${C.redBord}`, color: C.red, fontSize: 12, fontWeight: 700 }}>
+            <button onClick={() => onOpenWhyBlocked(scan)} style={{ padding: "7px 14px", borderRadius: 8, background: C.redSoft, border: `1px solid ${C.redBorder}`, color: C.red, fontSize: 12, fontWeight: 700 }}>
               Why Blocked?
             </button>
           )}

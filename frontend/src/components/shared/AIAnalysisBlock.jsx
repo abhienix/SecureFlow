@@ -198,7 +198,7 @@ const AIFeedbackRow = ({ scanId, feedback, onFeedback, C }) => {
             display: "flex", alignItems: "center", gap: 4,
             padding: "4px 10px", borderRadius: 999,
             background: myFb === type ? (type === "accept" ? C.greenSoft : C.redSoft) : C.bgSurface,
-            border: `1px solid ${myFb === type ? (type === "accept" ? C.greenBord : C.redBord) : C.border}`,
+            border: `1px solid ${myFb === type ? (type === "accept" ? C.greenBorder : C.redBorder) : C.border}`,
             color: myFb === type ? (type === "accept" ? C.green : C.red) : C.inkMid,
             fontSize: 11, fontWeight: 600,
           }}

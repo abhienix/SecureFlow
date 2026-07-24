@@ -141,7 +141,7 @@ export function AICopilot({ scans, onClose, C }) {
                       onClick={() => send("How to fix top CVEs in code step-by-step?")}
                       style={{
                         padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700,
-                        background: C.tealSoft, border: `1px solid ${C.tealBord}`, color: C.teal,
+                        background: C.tealSoft, border: `1px solid ${C.tealBorder}`, color: C.teal,
                         cursor: "pointer", display: "flex", alignItems: "center", gap: 3
                       }}
                     >

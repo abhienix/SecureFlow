@@ -238,9 +238,12 @@ async def stale_run_watchdog():
                                "the pipeline likely crashed, was cancelled, or failed before "
                                "reporting back. Check the GitHub Actions run logs for this commit."
                         )
+
+                    if stale_runs:
                         await db.commit()
-                        await db.refresh(scan)
-                        await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_timeout"))
+                        for scan in stale_runs:
+                            await db.refresh(scan)
+                            await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_timeout"))
                 except Exception as ex:
                     await db.rollback()
                     print(f"[watchdog db transaction] error: {ex}")
@@ -474,10 +477,13 @@ async def cleanup_stale_runs(db: AsyncSession = Depends(get_db), older_than_minu
         scan.action_taken = scan.action_taken or "UNKNOWN"
         scan.severity = scan.severity or "UNKNOWN"
         scan.ai_explanation = scan.ai_explanation or "Manually cleared stale run."
+
+    if stale_runs:
         await db.commit()
-        await db.refresh(scan)
-        await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_timeout"))
-        cleared.append(scan.id)
+        for scan in stale_runs:
+            await db.refresh(scan)
+            await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_timeout"))
+            cleared.append(scan.id)
     return {"status": "cleaned", "cleared_run_ids": cleared, "count": len(cleared)}
 
 
@@ -827,8 +833,7 @@ def update_policy(data: dict):
     try:
         with open(policy_path, 'r') as f:
             policy = yaml.safe_load(f) or {}
-        if "default" in policy:
-            policy["default"]["cvss_threshold"] = val
+        policy.setdefault("default", {})["cvss_threshold"] = val
         if "repos" in policy and "SecureFlow" in policy["repos"]:
             policy["repos"]["SecureFlow"]["cvss_threshold"] = val
         with open(policy_path, 'w') as f:
@@ -1073,20 +1078,21 @@ async def get_observability_metrics(db: AsyncSession = Depends(get_db)):
 
 @app.get("/api/migrate")
 async def migrate(db: AsyncSession = Depends(get_db)):
+    is_sqlite = "sqlite" in str(db.bind.url) if db.bind else False
     migration_statements = [
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_status VARCHAR"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS target_url VARCHAR"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS deployment_url VARCHAR"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_findings JSON"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_summary JSON"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queued_at TIMESTAMP"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_started_at TIMESTAMP"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_completed_at TIMESTAMP"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS scan_duration INTEGER"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_name VARCHAR"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_id VARCHAR"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queue_error TEXT"),
-        text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_report_path VARCHAR"),
+        text("ALTER TABLE scan_results ADD COLUMN dast_status VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_status VARCHAR"),
+        text("ALTER TABLE scan_results ADD COLUMN target_url VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS target_url VARCHAR"),
+        text("ALTER TABLE scan_results ADD COLUMN deployment_url VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS deployment_url VARCHAR"),
+        text("ALTER TABLE scan_results ADD COLUMN zap_findings JSON") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_findings JSON"),
+        text("ALTER TABLE scan_results ADD COLUMN zap_summary JSON") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_summary JSON"),
+        text("ALTER TABLE scan_results ADD COLUMN queued_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queued_at TIMESTAMP"),
+        text("ALTER TABLE scan_results ADD COLUMN dast_started_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_started_at TIMESTAMP"),
+        text("ALTER TABLE scan_results ADD COLUMN dast_completed_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_completed_at TIMESTAMP"),
+        text("ALTER TABLE scan_results ADD COLUMN scan_duration INTEGER") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS scan_duration INTEGER"),
+        text("ALTER TABLE scan_results ADD COLUMN worker_name VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_name VARCHAR"),
+        text("ALTER TABLE scan_results ADD COLUMN worker_id VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_id VARCHAR"),
+        text("ALTER TABLE scan_results ADD COLUMN queue_error TEXT") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queue_error TEXT"),
+        text("ALTER TABLE scan_results ADD COLUMN zap_report_path VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_report_path VARCHAR"),
     ]
     for stmt in migration_statements:
         try:

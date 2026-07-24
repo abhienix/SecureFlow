@@ -32,6 +32,9 @@ def get_policy_for_repo(repo_name, custom_policy=None):
     So we strip the owner part before looking it up.
 
     If there's no specific rule for this repo, fall back to "default".
+
+    Returns (merged_policy_dict, policy_name) where policy_name is
+    the short repo name if a repo-specific policy was found, or "default".
     """
     policy = custom_policy if (custom_policy and isinstance(custom_policy, dict)) else load_policy_file()
     repo_rules = policy.get('repos', {})
@@ -40,12 +43,9 @@ def get_policy_for_repo(repo_name, custom_policy=None):
     short_repo_name = repo_name.split('/')[-1]
 
     if short_repo_name in repo_rules:
-        # Merge repo-specific rules on top of defaults using dict unpacking —
-        # this way a repo only needs to override what's different, and inherits
-        # everything else from default. Avoids duplicating the full policy per repo.
-        return {**default_rules, **repo_rules[short_repo_name]}
+        return {**default_rules, **repo_rules[short_repo_name]}, short_repo_name
 
-    return default_rules
+    return default_rules, "default"
 
 
 
@@ -179,7 +179,7 @@ def evaluate_policy(scan_findings, repo_name, custom_policy=None):
             "allowlisted": [],
         }
 
-    policy = get_policy_for_repo(repo_name, custom_policy=custom_policy)
+    policy, policy_used = get_policy_for_repo(repo_name, custom_policy=custom_policy)
 
     # Pull thresholds from policy — these can differ per repo.
     # CRITICAL and HIGH block by default; MEDIUM only warns; LOW is ignored.
@@ -247,13 +247,6 @@ def evaluate_policy(scan_findings, repo_name, custom_policy=None):
         reason = f"{len(blocked_vulns)} vulnerabilities triggered the block policy"
     else:
         reason = "no policy violations found"
-
-    # Record which policy was actually applied — useful for audit trails
-    # and for understanding why two repos might get different decisions
-    # on the same CVE
-    short_repo_name = repo_name.split('/')[-1]
-    all_repo_rules = load_policy_file().get('repos', {})
-    policy_used = short_repo_name if short_repo_name in all_repo_rules else "default"
 
     return {
         "action": action,
