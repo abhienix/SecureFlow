@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Search, ShieldAlert, FileText, Settings, Radar, GitPullRequest } from "lucide-react";
+import { Search, ShieldAlert, FileText, Settings, Radar, GitPullRequest, Zap } from "lucide-react";
+import { useGlobalSearch } from "../../hooks/useApi";
 
 const COMMANDS = [
   { id: "overview", label: "Overview", path: "/overview", Icon: Radar, section: "Navigation" },
@@ -12,6 +13,7 @@ const COMMANDS = [
 export default function CommandPalette({ isOpen, onClose, onNavigate, C }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef(null);
+  const { data: searchData } = useGlobalSearch(query);
 
   useEffect(() => {
     if (isOpen) {
@@ -29,15 +31,11 @@ export default function CommandPalette({ isOpen, onClose, onNavigate, C }) {
 
   if (!isOpen) return null;
 
-  const filtered = COMMANDS.filter(cmd =>
+  const filteredNav = COMMANDS.filter(cmd =>
     cmd.label.toLowerCase().includes(query.toLowerCase())
   );
 
-  const grouped = filtered.reduce((acc, cmd) => {
-    if (!acc[cmd.section]) acc[cmd.section] = [];
-    acc[cmd.section].push(cmd);
-    return acc;
-  }, {});
+  const backendResults = searchData?.results || [];
 
   return (
     <div onClick={onClose} style={{
@@ -46,7 +44,7 @@ export default function CommandPalette({ isOpen, onClose, onNavigate, C }) {
       display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "15vh",
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        width: 520, maxHeight: "60vh", borderRadius: 16,
+        width: 540, maxHeight: "65vh", borderRadius: 16,
         background: C?.bgCard || "#0f172a", border: `1px solid ${C?.border || "#1e293b"}`,
         boxShadow: C?.shadowLg || "0 8px 32px rgba(0,0,0,0.5)",
         display: "flex", flexDirection: "column", overflow: "hidden",
@@ -61,10 +59,10 @@ export default function CommandPalette({ isOpen, onClose, onNavigate, C }) {
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search pages, commands..."
+            placeholder="Search pipelines, CVEs, findings, commits, files..."
             style={{
               flex: 1, background: "none", border: "none", outline: "none",
-              color: C?.ink || "#f8fafc", fontSize: 15, fontWeight: 500,
+              color: C?.ink || "#f8fafc", fontSize: 14, fontWeight: 500,
               fontFamily: C?.sans,
             }}
           />
@@ -77,34 +75,71 @@ export default function CommandPalette({ isOpen, onClose, onNavigate, C }) {
 
         {/* Results */}
         <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
-          {Object.entries(grouped).map(([section, items]) => (
-            <div key={section}>
+          {/* Backend Live Resource Search Results */}
+          {backendResults.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
               <div style={{
-                fontSize: 10, fontWeight: 700, color: C?.inkMuted || "#475569",
+                fontSize: 10, fontWeight: 700, color: C?.accent || "#6366F1",
                 padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: "0.5px",
-              }}>{section}</div>
-              {items.map(cmd => {
-                const Icon = cmd.Icon;
-                return (
-                  <button key={cmd.id} onClick={() => onNavigate(cmd.path)} style={{
-                    display: "flex", alignItems: "center", gap: 10, width: "100%",
-                    padding: "10px 12px", borderRadius: 8, border: "none",
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                <Zap size={12} /> Backend Search Results ({backendResults.length})
+              </div>
+              {backendResults.map((res: any) => (
+                <button
+                  key={res.id}
+                  onClick={() => onNavigate(res.path)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
                     background: "transparent", color: C?.ink || "#f8fafc",
-                    fontSize: 14, fontWeight: 500, cursor: "pointer",
+                    fontSize: 13, cursor: "pointer", textAlign: "left",
                     transition: "background 100ms",
-                    textAlign: "left",
                   }}
                   onMouseEnter={e => e.currentTarget.style.background = C?.bgHover || "#1e293b"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                  >
-                    <Icon size={16} color={C?.accent || "#6366F1"} />
-                    <span>{cmd.label}</span>
-                  </button>
-                );
-              })}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: C?.ink || "#f8fafc" }}>{res.title}</div>
+                    <div style={{ fontSize: 11, color: C?.inkMuted || "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{res.subtitle}</div>
+                  </div>
+                  {res.badge && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6, background: C?.accentSoft || "rgba(99,102,241,0.15)", color: C?.accent || "#6366F1" }}>
+                      {res.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
             </div>
-          ))}
-          {filtered.length === 0 && (
+          )}
+
+          {/* Navigation Links */}
+          <div>
+            <div style={{
+              fontSize: 10, fontWeight: 700, color: C?.inkMuted || "#475569",
+              padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: "0.5px",
+            }}>Navigation</div>
+            {filteredNav.map(cmd => {
+              const Icon = cmd.Icon;
+              return (
+                <button key={cmd.id} onClick={() => onNavigate(cmd.path)} style={{
+                  display: "flex", alignItems: "center", gap: 10, width: "100%",
+                  padding: "10px 12px", borderRadius: 8, border: "none",
+                  background: "transparent", color: C?.ink || "#f8fafc",
+                  fontSize: 13, fontWeight: 500, cursor: "pointer",
+                  transition: "background 100ms", textAlign: "left",
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = C?.bgHover || "#1e293b"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <Icon size={16} color={C?.accent || "#6366F1"} />
+                  <span>{cmd.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {filteredNav.length === 0 && backendResults.length === 0 && (
             <div style={{ padding: 20, textAlign: "center", color: C?.inkMuted || "#475569", fontSize: 13 }}>
               No results for "{query}"
             </div>

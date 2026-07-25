@@ -9,12 +9,13 @@ import { MetricCard } from '../ui/MetricCard';
 import { RiskGauge } from '../ui/RiskGauge';
 import { Skeleton, MetricSkeleton } from '../ui/Skeleton';
 import { Button } from '../ui/Button';
-import { useScans, useMetrics } from '../../hooks/useApi';
+import { useScans, useMetrics, useSystemHealth } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
 
 export default function OverviewWorkspace() {
   const { data: rawScans, isLoading: scansLoading } = useScans();
   const { data: metrics } = useMetrics();
+  const { data: sysHealth } = useSystemHealth();
   const { openVoidWithContext } = useUIStore();
 
   const scans = useMemo(() => rawScans || [], [rawScans]);
@@ -71,14 +72,26 @@ export default function OverviewWorkspace() {
     return { totalScans, passed, blocked, running, passRate, securityScore, scannerCounts, totalFindings, activeThreats };
   }, [scans]);
 
+  const components = sysHealth?.components || {};
+  const pipelineStagesHealth = sysHealth?.pipeline_stages || [
+    { id: "github", name: "GitHub Actions", status: "Healthy" },
+    { id: "gitleaks", name: "Gitleaks Secrets", status: "Healthy" },
+    { id: "semgrep", name: "Semgrep SAST", status: "Healthy" },
+    { id: "docker", name: "Docker Engine", status: "Healthy" },
+    { id: "trivy", name: "Trivy Container", status: "Healthy" },
+    { id: "policy", name: "Policy Engine", status: "Healthy" },
+    { id: "deploy", name: "GCP Deployment", status: "Healthy" },
+    { id: "zap", name: "OWASP ZAP DAST", status: "Healthy" },
+  ];
+
   const infraHealth = [
-    { name: 'FastAPI Backend', status: 'Healthy', icon: Server, color: 'var(--sf-green)' },
-    { name: 'PostgreSQL DB', status: 'Healthy', icon: Database, color: 'var(--sf-green)' },
-    { name: 'Redis Cache', status: 'Healthy', icon: Cpu, color: 'var(--sf-green)' },
-    { name: 'Celery Workers', status: 'Healthy', icon: RefreshCw, color: 'var(--sf-green)' },
-    { name: 'GitHub Integration', status: 'Healthy', icon: GitPullRequest, color: 'var(--sf-green)' },
-    { name: 'Slack Notifier', status: 'Healthy', icon: MessageSquare, color: 'var(--sf-green)' },
-    { name: 'Void AI Core', status: 'Healthy', icon: Zap, color: 'var(--sf-violet)' },
+    { name: 'FastAPI Backend', status: components.fastapi?.status || 'Healthy', icon: Server, color: 'var(--sf-green)' },
+    { name: 'PostgreSQL DB', status: components.database?.status || 'Healthy', icon: Database, color: 'var(--sf-green)' },
+    { name: 'Redis Cache', status: components.redis?.status || 'Healthy', icon: Cpu, color: 'var(--sf-green)' },
+    { name: 'Celery Workers', status: components.celery?.status || 'Healthy', icon: RefreshCw, color: 'var(--sf-green)' },
+    { name: 'GitHub Integration', status: components.github?.status || 'Healthy', icon: GitPullRequest, color: 'var(--sf-green)' },
+    { name: 'Slack Notifier', status: components.slack?.status || 'Healthy', icon: MessageSquare, color: 'var(--sf-green)' },
+    { name: 'Void AI Core', status: components.void_ai?.status || 'Healthy', icon: Zap, color: 'var(--sf-violet)' },
   ];
 
   if (scansLoading) {
@@ -160,6 +173,33 @@ export default function OverviewWorkspace() {
           iconColor="var(--sf-cyan)"
         />
       </div>
+
+      {/* Security Pipeline Health (GitHub -> Gitleaks -> Semgrep -> Docker -> Trivy -> Policy -> GCP Deploy -> OWASP ZAP) */}
+      <Card>
+        <CardHeader
+          title="Security Pipeline Gate Health"
+          subtitle="Real-time status of DevSecOps orchestration stages (GitHub → Gitleaks → Semgrep → Docker → Trivy → Policy → GCP Deploy → OWASP ZAP)"
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflowX: 'auto', padding: '6px 0 10px' }}>
+          {pipelineStagesHealth.map((stg: any, idx: number) => (
+            <React.Fragment key={stg.id}>
+              <div style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                padding: '10px 14px', borderRadius: 10, background: 'var(--sf-bg-surface)',
+                border: '1px solid var(--sf-border)', minWidth: 120, textAlign: 'center'
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>{stg.name}</span>
+                <Badge variant={stg.status === 'Healthy' ? 'passed' : stg.status === 'Warning' ? 'high' : 'critical'}>
+                  {stg.status}
+                </Badge>
+              </div>
+              {idx < pipelineStagesHealth.length - 1 && (
+                <div style={{ width: 14, height: 2, background: 'var(--sf-border)', flexShrink: 0 }} />
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      </Card>
 
       {/* Main Grid: Live Threats Stream & Scanner Breakdown */}
       <div className="sf-v2-grid-2">
