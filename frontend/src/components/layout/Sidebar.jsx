@@ -119,8 +119,17 @@ export default function Sidebar({ C }) {
                   {!collapsed && count > 0 && (
                     <span style={{
                       fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10,
-                      background: item.color ? C.redSoft : C.accentSoft,
-                      color: item.color || C.accent, minWidth: 20, textAlign: "center",
+                      background: item.path === "/pipelines"
+                        ? C.bgElevated
+                        : openFindingsCount > 0
+                        ? "#dc2626"
+                        : C.bgElevated,
+                      color: item.path === "/pipelines"
+                        ? C.inkMid
+                        : openFindingsCount > 0
+                        ? "#ffffff"
+                        : C.inkMid,
+                      minWidth: 20, textAlign: "center",
                     }}>{count}</span>
                   )}
                 </NavLink>

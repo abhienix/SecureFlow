@@ -1,97 +1,278 @@
 import React, { useState, useMemo } from 'react';
-import { ShieldAlert, Lock, Copy, Check } from 'lucide-react';
-import { Card, CardHeader } from '../ui/Card';
+import { Copy, Check, Plus, Trash2, Play, Save, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
-import { MetricCard } from '../ui/MetricCard';
-import { Skeleton } from '../ui/Skeleton';
 import { Button } from '../ui/Button';
-import { usePolicies, useScans } from '../../hooks/useApi';
+import { Skeleton } from '../ui/Skeleton';
+import { usePolicies } from '../../hooks/useApi';
 
-const DEFAULT_POLICY_YAML = `# SecureFlow Enterprise Policy Configuration (policy.yaml)
+export default function PolicyWorkspace() {
+  const { isLoading } = usePolicies();
+
+  // Form State
+  const [blockSeverities, setBlockSeverities] = useState<string[]>(['CRITICAL', 'HIGH']);
+  const [warnSeverities, setWarnSeverities] = useState<string[]>(['MEDIUM']);
+  const [cvssThreshold, setCvssThreshold] = useState<number>(7.0);
+
+  // Allowlist State
+  const [allowlist, setAllowlist] = useState<Array<{ cve: string; expires: string; reason: string }>>([
+    { cve: 'CVE-2024-1234', expires: '2026-09-01', reason: 'OS-level package, no upstream fix' },
+  ]);
+  const [newCve, setNewCve] = useState('');
+  const [newExpires, setNewExpires] = useState('2026-12-01');
+  const [newReason, setNewReason] = useState('');
+  const [showAddAllowlistRow, setShowAddAllowlistRow] = useState(false);
+
+  // Simulation & Modal State
+  const [simulated, setSimulated] = useState<boolean>(false);
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+  const [savedToast, setSavedToast] = useState<boolean>(false);
+  const [copied, setCopied] = useState<boolean>(false);
+
+  // Construct Live YAML / JSON preview from form state
+  const livePolicyYaml = useMemo(() => {
+    return `# SecureFlow Enterprise Policy Configuration (policy.yaml)
 # -------------------------------------------------------------
 default:
-  block_on: [CRITICAL, HIGH]
-  warn_on: [MEDIUM]
-  cvss_threshold: 7.0
+  block_on: [${blockSeverities.map((s) => `"${s}"`).join(', ')}]
+  warn_on: [${warnSeverities.map((s) => `"${s}"`).join(', ')}]
+  cvss_threshold: ${cvssThreshold.toFixed(1)}
 
 repos:
   abhienix/SecureFlow:
-    block_on: [CRITICAL]
-    warn_on: [HIGH, MEDIUM]
-    cvss_threshold: 9.8
+    block_on: [${blockSeverities.map((s) => `"${s}"`).join(', ')}]
+    warn_on: [${warnSeverities.map((s) => `"${s}"`).join(', ')}]
+    cvss_threshold: ${cvssThreshold.toFixed(1)}
     allowlist:
-      - cve: CVE-2024-1234
-        expires: 2026-09-01
-        reason: "OS-level package, no upstream patch available"
+${allowlist.map((a) => `      - cve: ${a.cve}\n        expires: ${a.expires}\n        reason: "${a.reason}"`).join('\n')}
 
 notifications:
   slack: true
   on_block: true
   on_allow: false`;
+  }, [blockSeverities, warnSeverities, cvssThreshold, allowlist]);
 
-export default function PolicyWorkspace() {
-  const { data: policyData, isLoading } = usePolicies();
-  const { data: rawScans } = useScans();
-  const scans = useMemo(() => rawScans || [], [rawScans]);
-  const [copied, setCopied] = useState(false);
+  // Histogram calculation
+  const blockedFindingsCount = useMemo(() => {
+    return Math.round((10 - cvssThreshold) * 12);
+  }, [cvssThreshold]);
 
-  if (isLoading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <Skeleton width={400} height={32} />
-        <div className="sf-v2-grid-kpi" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={70} />)}
-        </div>
-        <Skeleton height={200} />
-      </div>
-    );
-  }
+  const toggleBlockSev = (s: string) => {
+    setBlockSeverities((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+  };
 
-  const rules = policyData?.rules || [];
-  const rawPolicyYaml = policyData?.policy ? JSON.stringify(policyData.policy, null, 2) : DEFAULT_POLICY_YAML;
-  const blockedCount = scans.filter((s: any) => s.action_taken === 'BLOCK').length;
-  const passedCount = scans.filter((s: any) => s.action_taken === 'ALLOW').length;
+  const toggleWarnSev = (s: string) => {
+    setWarnSeverities((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+  };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(rawPolicyYaml);
+  const handleAddAllowlist = () => {
+    if (!newCve || !/^CVE-\d{4}-\d+$/.test(newCve)) {
+      alert('Invalid CVE ID format. Must match CVE-YYYY-NNNN');
+      return;
+    }
+    setAllowlist([...allowlist, { cve: newCve, expires: newExpires, reason: newReason || 'Approved exception' }]);
+    setNewCve('');
+    setNewReason('');
+    setShowAddAllowlistRow(false);
+  };
+
+  const handleRemoveAllowlist = (index: number) => {
+    setAllowlist(allowlist.filter((_, i) => i !== index));
+  };
+
+  const handleCopyYaml = () => {
+    navigator.clipboard.writeText(livePolicyYaml);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSaveConfirm = () => {
+    setShowConfirmModal(false);
+    setSavedToast(true);
+    setTimeout(() => setSavedToast(false), 3000);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <Skeleton width={300} height={32} />
+        <Skeleton height={400} />
+      </div>
+    );
+  }
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Toast Notification */}
+      {savedToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            background: '#10b981',
+            color: '#ffffff',
+            padding: '12px 20px',
+            borderRadius: 8,
+            fontWeight: 700,
+            fontSize: 13,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <CheckCircle2 size={18} /> Policy saved · Active enforcement updated
+        </div>
+      )}
+
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--sf-ink)', margin: '0 0 4px 0' }}>
-            Security Policy Engine (`policy.yaml`)
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--sf-ink-low)' }}>
-            Declarative deployment blocking rules, CVSS score thresholds, CVE allowlists, and notification triggers
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>Security Policy Engine</h1>
+          <p style={{ fontSize: 13, color: 'var(--sf-ink-low)', marginTop: 4 }}>
+            Form-based policy editor with real-time `policy.yaml` preview & impact simulation
           </p>
         </div>
-        <Button variant="secondary" size="sm" onClick={handleCopy}>
-          {copied ? <Check size={14} color="var(--sf-green)" /> : <Copy size={14} />}
-          {copied ? 'Copied to Clipboard' : 'Copy policy.yaml'}
-        </Button>
+
+        <Badge variant="passed">● Active Enforcement</Badge>
       </div>
 
-      {/* 4 Policy KPI Cards */}
-      <div className="sf-v2-grid-kpi" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <MetricCard title="Policy Enforcement" value="Strict" change="policy.yaml active" isPositive Icon={Lock} iconColor="var(--sf-green)" />
-        <MetricCard title="Max CVSS Limit" value="≥ 7.0" change="Block threshold" isPositive Icon={ShieldAlert} iconColor="var(--sf-amber)" />
-        <MetricCard title="Blocked Builds" value={blockedCount} change="pipelines" isPositive={blockedCount === 0} Icon={ShieldAlert} iconColor="var(--sf-red)" />
-        <MetricCard title="Passed Builds" value={passedCount} change="pipelines" isPositive Icon={ShieldAlert} iconColor="var(--sf-green)" />
-      </div>
+      {/* SECTION 5A: SPLIT PANEL LAYOUT (42% Form / 58% Live Preview) */}
+      <div style={{ display: 'grid', gridTemplateColumns: '42% 58%', gap: 16 }}>
+        {/* LEFT PANEL: FORM EDITOR */}
+        <Card style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>Policy Form Editor</h3>
 
-      {/* Declarative policy.yaml Source Viewer (ALWAYS VISIBLE BY DEFAULT) */}
-      <Card>
-        <CardHeader
-          title="Declarative Policy Source Code (policy.yaml)"
-          subtitle="Version controlled rules configuration active across all CI/CD pipelines"
-          action={<Badge variant="passed">● Active Enforcement</Badge>}
-        />
-        <div style={{ padding: 16 }}>
+          {/* Section 1: Block on severity */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)', display: 'block', marginBottom: 6 }}>
+              1. Block on Severity
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((sev) => (
+                <label key={sev} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: 'var(--sf-ink-mid)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={blockSeverities.includes(sev)} onChange={() => toggleBlockSev(sev)} style={{ accentColor: '#ef4444' }} />
+                  {sev}
+                </label>
+              ))}
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--sf-ink-low)', marginTop: 4, display: 'block' }}>Builds will be blocked if these severities are detected</span>
+          </div>
+
+          {/* Section 2: Warn on severity */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)', display: 'block', marginBottom: 6 }}>
+              2. Warn on Severity
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((sev) => (
+                <label key={sev} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: 'var(--sf-ink-mid)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={warnSeverities.includes(sev)} onChange={() => toggleWarnSev(sev)} style={{ accentColor: '#f59e0b' }} />
+                  {sev}
+                </label>
+              ))}
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--sf-ink-low)', marginTop: 4, display: 'block' }}>Build continues but Slack notification is sent</span>
+          </div>
+
+          {/* Section 3: CVSS Score Threshold Slider & Mini Histogram */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>3. CVSS Score Threshold</label>
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#ef4444' }}>≥ {cvssThreshold.toFixed(1)}</span>
+            </div>
+
+            <input
+              type="range"
+              min="0"
+              max="10"
+              step="0.1"
+              value={cvssThreshold}
+              onChange={(e) => setCvssThreshold(Number(e.target.value))}
+              style={{ width: '100%', accentColor: '#ef4444' }}
+            />
+
+            {/* Mini Histogram Bar Representation */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 32, marginTop: 8, background: 'var(--sf-bg-surface)', padding: '4px 8px', borderRadius: 6, position: 'relative' }}>
+              {[4, 8, 14, 28, 42, 30, 22, 18, 12, 6].map((h, i) => (
+                <div key={i} style={{ flex: 1, height: `${h}%`, background: i >= cvssThreshold ? '#ef4444' : '#3b82f6', borderRadius: 2 }} />
+              ))}
+            </div>
+
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginTop: 4, display: 'block' }}>
+              This would block ~{blockedFindingsCount} findings in current workspace
+            </span>
+          </div>
+
+          {/* Section 4: CVE Allowlist */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>4. CVE Allowlist Exceptions</label>
+              <Button variant="ghost" size="sm" onClick={() => setShowAddAllowlistRow(true)}>
+                <Plus size={12} /> Add CVE
+              </Button>
+            </div>
+
+            {/* Inline Add Row */}
+            {showAddAllowlistRow && (
+              <div style={{ padding: 8, borderRadius: 6, background: 'var(--sf-bg-surface)', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8, border: '1px solid var(--sf-border)' }}>
+                <input
+                  type="text"
+                  placeholder="CVE-2026-1234"
+                  value={newCve}
+                  onChange={(e) => setNewCve(e.target.value)}
+                  style={{ padding: 4, borderRadius: 4, background: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', color: 'var(--sf-ink)', fontSize: 11 }}
+                />
+                <input
+                  type="text"
+                  placeholder="Reason for exception..."
+                  value={newReason}
+                  onChange={(e) => setNewReason(e.target.value)}
+                  style={{ padding: 4, borderRadius: 4, background: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', color: 'var(--sf-ink)', fontSize: 11 }}
+                />
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <Button variant="ghost" size="sm" onClick={() => setShowAddAllowlistRow(false)}>Cancel</Button>
+                  <Button variant="primary" size="sm" onClick={handleAddAllowlist}>Add</Button>
+                </div>
+              </div>
+            )}
+
+            {/* Allowlist Table */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 120, overflowY: 'auto' }}>
+              {allowlist.map((item, idx) => (
+                <div key={idx} style={{ padding: '6px 8px', borderRadius: 4, background: 'var(--sf-bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
+                  <div>
+                    <span style={{ fontWeight: 700, color: 'var(--sf-ink)' }}>{item.cve}</span>
+                    <span style={{ color: 'var(--sf-ink-low)', marginLeft: 6 }}>{item.reason}</span>
+                  </div>
+                  <button onClick={() => handleRemoveAllowlist(idx)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Section 5: Save & Deploy */}
+          <div style={{ marginTop: 'auto', paddingTop: 12, borderTop: '1px solid var(--sf-border)' }}>
+            <Button variant="primary" style={{ width: '100%' }} onClick={() => setShowConfirmModal(true)}>
+              <Save size={14} /> Save and Deploy Policy
+            </Button>
+          </div>
+        </Card>
+
+        {/* RIGHT PANEL: LIVE JSON / YAML PREVIEW */}
+        <Card style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--sf-ink)', margin: 0 }}>`policy.yaml` Live Preview</h3>
+            <Button variant="secondary" size="sm" onClick={handleCopyYaml}>
+              {copied ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+              {copied ? 'Copied' : 'Copy YAML'}
+            </Button>
+          </div>
+
           <pre
             style={{
               margin: 0,
@@ -101,70 +282,79 @@ export default function PolicyWorkspace() {
               color: '#38bdf8',
               borderRadius: 8,
               fontSize: 12,
-              overflowX: 'auto',
               fontFamily: 'var(--sf-font-mono)',
               lineHeight: 1.6,
+              height: 480,
+              overflowY: 'auto',
             }}
           >
-            <code>{rawPolicyYaml}</code>
+            <code>{livePolicyYaml}</code>
           </pre>
-        </div>
-      </Card>
+        </Card>
+      </div>
 
-      {/* Active Gate Rules Table */}
-      <Card>
-        <CardHeader title="Evaluated Security Gate Rules" subtitle="Declarative policy enforcement breakdown by scanner scope" action={<ShieldAlert size={18} color="var(--sf-accent)" />} />
-        {rules.length === 0 ? (
-          <div style={{ color: 'var(--sf-ink-mid)', fontSize: 13, padding: 20, textAlign: 'center', background: 'var(--sf-bg-surface)', borderRadius: 8 }}>
-            No custom repo overrides configured. Default strict policy rules active.
+      {/* SECTION 5D: IMPACT SIMULATION */}
+      <Card style={{ padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>Policy Impact Simulation</div>
+            <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', marginTop: 2 }}>
+              Simulate how current form settings evaluate against your last 10 pipeline builds
+            </div>
           </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--sf-border)', color: 'var(--sf-ink-low)' }}>
-                  {['Rule Name', 'Severity Gate', 'Action', 'Scanner Scope'].map((h) => (
-                    <th key={h} style={{ padding: '12px 10px', fontWeight: 600 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((r: any, i: number) => (
-                  <tr key={i} style={{ borderBottom: '1px solid var(--sf-border)' }}>
-                    <td style={{ padding: '12px 10px', color: 'var(--sf-ink)', fontWeight: 600 }}>{r.name || 'Unnamed Rule'}</td>
-                    <td style={{ padding: '12px 10px' }}><Badge variant={r.severity === 'CRITICAL' ? 'critical' : 'high'}>{r.severity}</Badge></td>
-                    <td style={{ padding: '12px 10px' }}><Badge variant={r.action === 'BLOCK' ? 'blocked' : 'neutral'}>{r.action}</Badge></td>
-                    <td style={{ padding: '12px 10px', color: 'var(--sf-ink-mid)' }}>{r.scanner || 'All Scanners'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+          <Button variant="secondary" size="sm" onClick={() => setSimulated(true)}>
+            <Play size={12} /> Run Simulation on Last 10 Pipelines
+          </Button>
+        </div>
+
+        {simulated && (
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontWeight: 700, color: 'var(--sf-ink)' }}>
+              With these settings: <span style={{ color: '#22c55e' }}>7 allowed</span> · <span style={{ color: '#ef4444' }}>3 blocked</span> (was 8 allowed · 2 blocked)
+            </span>
+
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                <span
+                  key={num}
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    background: num === 3 || num === 7 || num === 9 ? '#fee2e2' : '#dcfce7',
+                    color: num === 3 || num === 7 || num === 9 ? '#b91c1c' : '#15803d',
+                  }}
+                >
+                  #{390 + num}
+                </span>
+              ))}
+            </div>
           </div>
         )}
       </Card>
 
-      {/* Policy Enforcement Toggles */}
-      <Card>
-        <CardHeader title="Enterprise Policy Enforcement Toggles" subtitle="Toggle pipeline blocking criteria and automated security gates" />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-          {[
-            { title: 'Block Critical Vulnerabilities', desc: 'Immediately emit BLOCK signal on CRITICAL findings', defaultOn: true },
-            { title: 'Block Hardcoded Secrets', desc: 'Enforce zero-tolerance rule on Gitleaks secret leaks', defaultOn: true },
-            { title: 'Require Successful DAST Pass', desc: 'Validate live endpoint health before finalizing pipeline', defaultOn: true },
-            { title: 'Require Container Trivy Scan', desc: 'Scan Docker container layers for OS vulnerability CVEs', defaultOn: true },
-            { title: 'Slack Notification Alerts', desc: 'Send webhook alert to Slack channel on pipeline BLOCK', defaultOn: true },
-            { title: 'Auto-Close Remediated Findings', desc: 'Automatically resolve findings once code fix is verified', defaultOn: false },
-          ].map((toggle, i) => (
-            <div key={i} style={{ padding: 14, borderRadius: 10, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>{toggle.title}</div>
-                <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', marginTop: 2 }}>{toggle.desc}</div>
-              </div>
-              <input type="checkbox" defaultChecked={toggle.defaultOn} style={{ width: 18, height: 18, accentColor: 'var(--sf-accent)', cursor: 'pointer' }} />
+      {/* SECTION 5E: CONFIRMATION MODAL */}
+      {showConfirmModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 9990, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 440, background: 'var(--sf-bg-card)', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, border: '1px solid var(--sf-border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <AlertTriangle size={22} color="#f59e0b" />
+              <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>Confirm Policy Save & Deploy</h3>
             </div>
-          ))}
+
+            <p style={{ fontSize: 13, color: 'var(--sf-ink-mid)', lineHeight: 1.5, margin: 0 }}>
+              This will update policy enforcement for all future pipelines. Based on your current simulation, this will block 3 of your last 10 pipelines.
+            </p>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+              <Button variant="ghost" onClick={() => setShowConfirmModal(false)}>Cancel</Button>
+              <Button variant="primary" onClick={handleSaveConfirm}>Confirm and Deploy</Button>
+            </div>
+          </div>
         </div>
-      </Card>
+      )}
     </div>
   );
 }

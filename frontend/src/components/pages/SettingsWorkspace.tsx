@@ -97,46 +97,57 @@ export default function SettingsWorkspace() {
                   { key: 'dark', label: 'Dark Mode', Icon: Moon },
                   { key: 'light', label: 'Light Mode', Icon: Sun },
                   { key: 'system', label: 'System Preference', Icon: Monitor },
-                ].map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => setMode(t.key as any)}
-                    style={{
-                      padding: 16,
-                      borderRadius: 10,
-                      background: mode === t.key ? 'var(--sf-accent-soft)' : 'var(--sf-bg-surface)',
-                      border: `1px solid ${mode === t.key ? 'var(--sf-accent)' : 'var(--sf-border)'}`,
-                      color: 'var(--sf-ink)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: 8,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <t.Icon size={20} color={mode === t.key ? 'var(--sf-accent)' : 'var(--sf-ink-mid)'} />
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{t.label}</span>
-                  </button>
-                ))}
+                ].map((t) => {
+                  const isSel = mode === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => setMode(t.key as any)}
+                      style={{
+                        position: 'relative',
+                        padding: 16,
+                        borderRadius: 10,
+                        background: isSel ? 'var(--sf-accent-soft)' : 'var(--sf-bg-surface)',
+                        border: isSel ? '2px solid #3b82f6' : '1px solid var(--sf-border)',
+                        color: 'var(--sf-ink)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 8,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isSel && (
+                        <div style={{ position: 'absolute', top: 6, right: 6, width: 18, height: 18, borderRadius: '50%', background: '#3b82f6', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900 }}>
+                          ✓
+                        </div>
+                      )}
+                      <t.Icon size={20} color={isSel ? '#3b82f6' : 'var(--sf-ink-mid)'} />
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{t.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             {/* Density & Animation Controls */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, paddingTop: 16, borderTop: '1px solid var(--sf-border)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
               <div style={{ padding: 14, borderRadius: 10, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>Compact Mode</div>
-                  <div style={{ fontSize: 11, color: 'var(--sf-ink-low)' }}>High-density table rows and tighter margins</div>
+                  <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', marginTop: 2 }}>Reduce table padding and row heights for high-density monitoring</div>
+                  <div style={{ fontSize: 10, color: '#38bdf8', fontWeight: 600, marginTop: 4 }}>Preview: Row height 52px → 36px</div>
                 </div>
-                <input type="checkbox" checked={compactMode} onChange={(e) => setCompactMode(e.target.checked)} style={{ width: 18, height: 18, accentColor: 'var(--sf-accent)' }} />
+                <input type="checkbox" checked={compactMode} onChange={(e) => setCompactMode(e.target.checked)} style={{ width: 18, height: 18, accentColor: 'var(--sf-accent)', cursor: 'pointer' }} />
               </div>
 
               <div style={{ padding: 14, borderRadius: 10, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>UI Micro-Animations</div>
-                  <div style={{ fontSize: 11, color: 'var(--sf-ink-low)' }}>Smooth transitions and stage status pulses</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>Micro-Animations</div>
+                  <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', marginTop: 2 }}>Enable smooth CSS keyframes, pulse effects, and drawer transitions</div>
+                  <div style={{ fontSize: 10, color: '#38bdf8', fontWeight: 600, marginTop: 4 }}>Preview: 150ms ease-out transitions</div>
                 </div>
-                <input type="checkbox" checked={animationsEnabled} onChange={(e) => setAnimationsEnabled(e.target.checked)} style={{ width: 18, height: 18, accentColor: 'var(--sf-accent)' }} />
+                <input type="checkbox" checked={animationsEnabled} onChange={(e) => setAnimationsEnabled(e.target.checked)} style={{ width: 18, height: 18, accentColor: 'var(--sf-accent)', cursor: 'pointer' }} />
               </div>
             </div>
           </div>

@@ -81,6 +81,26 @@ body {
   --sf-teal: #00f2fe;
   --sf-teal-soft: rgba(0, 242, 254, 0.12);
 
+  /* Section 6 Semantic Color Tokens */
+  --color-critical: #dc2626;
+  --color-critical-bg: rgba(220, 38, 38, 0.15);
+  --color-critical-border: #fca5a5;
+  --color-high: #ea580c;
+  --color-high-bg: rgba(234, 88, 12, 0.15);
+  --color-high-border: #fdba74;
+  --color-medium: #ca8a04;
+  --color-medium-bg: rgba(202, 138, 4, 0.15);
+  --color-medium-border: #fde047;
+  --color-low: #2563eb;
+  --color-low-bg: rgba(37, 99, 235, 0.15);
+  --color-low-border: #93c5fd;
+  --color-passed: #16a34a;
+  --color-passed-bg: rgba(22, 163, 74, 0.15);
+  --color-blocked: #dc2626;
+  --color-blocked-bg: rgba(220, 38, 38, 0.15);
+  --color-unknown: #854d0e;
+  --color-unknown-bg: rgba(133, 77, 14, 0.15);
+
   /* Shadows */
   --sf-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   --sf-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
