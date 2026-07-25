@@ -15,6 +15,12 @@ from datetime import datetime, timedelta
 from typing import Set, Optional
 
 from dotenv import load_dotenv
+
+# Load .env BEFORE any module imports that read environment variables.
+# celery_client evaluates REDIS_URL at module level — if load_dotenv()
+# runs after the import, the .env file values won't be available.
+load_dotenv()
+
 from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 try:
@@ -42,7 +48,6 @@ from celery_client import (
 # ---------------------------------------------------------------------------
 
 logger = logging.getLogger("secureflow.backend")
-load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/secureflow")
 STALE_RUN_TIMEOUT_MINUTES = int(os.getenv("STALE_RUN_TIMEOUT_MINUTES", "20"))
