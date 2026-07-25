@@ -1,259 +1,16 @@
-import React, { useMemo, useState } from 'react';
-import { ShieldX, ArrowRight } from 'lucide-react';
-import { Card, CardHeader } from '../ui/Card';
-import { Badge } from '../ui/Badge';
-import { Skeleton, MetricSkeleton } from '../ui/Skeleton';
-import { Button } from '../ui/Button';
-import { useScans, useSystemHealth } from '../../hooks/useApi';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-// ─── SECTION 2B: RADIAL ARC GAUGE (220° Sweep) ─────────────────────────────
-
-function RadialArcGauge({ score, reason }: { score: number; reason: string }) {
-  const radius = 80;
-  const strokeWidth = 14;
-  const sweepAngle = 220;
-
-  // Item 4 QA Pass: Color passes through amber at score=50, minimum 3% sliver for score=0
-  const getScoreColor = (val: number) => {
-    if (val < 45) return '#ef4444'; // Red
-    if (val <= 74) return '#f59e0b'; // Amber at score=50
-    return '#22c55e'; // Green
-  };
-
-  const color = getScoreColor(score);
-  const totalLength = (sweepAngle / 360) * (2 * Math.PI * radius);
-  const visibleScore = Math.max(score, 3); // 3% minimum sliver so score=0 is visible red arc, not blank
-  const fillLength = (visibleScore / 100) * totalLength;
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-      <div style={{ position: 'relative', width: 200, height: 140, display: 'flex', justifyContent: 'center' }}>
-        <svg width={200} height={160} viewBox="0 0 200 160">
-          {/* Background Track Arc */}
-          <path
-            d="M 30 130 A 80 80 0 1 1 170 130"
-            fill="none"
-            stroke="var(--sf-border-mid)"
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-          />
-          {/* Fill Arc */}
-          <path
-            d="M 30 130 A 80 80 0 1 1 170 130"
-            fill="none"
-            stroke={color}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-            strokeDasharray={`${fillLength} ${totalLength}`}
-            style={{ transition: 'stroke-dasharray 1s ease' }}
-          />
-        </svg>
-
-        {/* Center Number */}
-        <div style={{ position: 'absolute', top: 50, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <span style={{ fontSize: 36, fontWeight: 900, color: 'var(--sf-ink)', lineHeight: 1 }}>{score}</span>
-          <span style={{ fontSize: 13, color: 'var(--sf-ink-low)', fontWeight: 600 }}>/ 100</span>
-        </div>
-      </div>
-
-      <div style={{ fontSize: 12, fontWeight: 700, color: score < 50 ? '#ef4444' : 'var(--sf-green)', textAlign: 'center' }}>
-        {reason}
-      </div>
-    </div>
-  );
-}
-
-// ─── SECTION 2D: VULNERABILITY DONUT WITH MINIMUM ARC & ANNOTATION ──────────
-
-function VulnerabilityDonutChart({ total, segments }: { total: number; segments: Array<{ label: string; value: number; color: string }> }) {
-  const navigate = useNavigate();
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-
-  const effectiveTotal = total || 1;
-
-  const size = 200;
-  const strokeWidth = 24;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-
-  let cumulativePercent = 0;
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, position: 'relative' }}>
-      <div style={{ position: 'relative', width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)', overflow: 'visible' }}>
-          <circle cx={size / 2} cy={size / 2} r={radius} fill="transparent" stroke="var(--sf-border)" strokeWidth={strokeWidth} />
-          {segments.map((seg, idx) => {
-            const rawPct = seg.value / effectiveTotal;
-            const minPct = seg.value > 0 ? Math.max(rawPct, 8 / 360) : 0;
-            const strokeDasharray = `${minPct * circumference} ${circumference}`;
-            const strokeDashoffset = -(cumulativePercent * circumference);
-            cumulativePercent += minPct;
-
-            return (
-              <circle
-                key={idx}
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                fill="transparent"
-                stroke={seg.color}
-                strokeWidth={strokeWidth}
-                strokeDasharray={strokeDasharray}
-                strokeDashoffset={strokeDashoffset}
-                onMouseEnter={() => setHoveredIdx(idx)}
-                onMouseLeave={() => setHoveredIdx(null)}
-                style={{
-                  cursor: 'pointer',
-                  transition: 'all 300ms ease',
-                  animation: seg.label === 'Critical' && seg.value > 0 ? 'pulse 2s infinite ease-in-out' : 'none',
-                }}
-              />
-            );
-          })}
-        </svg>
-
-        {/* Pull-out Annotation for Critical */}
-        {segments.find((s) => s.label === 'Critical' && s.value > 0) && (
-          <div
-            onClick={() => navigate('/security-center')}
-            style={{
-              position: 'absolute',
-              top: -10,
-              right: -90,
-              background: '#fee2e2',
-              border: '1px solid #fca5a5',
-              color: '#b91c1c',
-              padding: '4px 8px',
-              borderRadius: 6,
-              fontSize: 11,
-              fontWeight: 800,
-              cursor: 'pointer',
-              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)',
-            }}
-          >
-            1 critical — immediate action →
-          </div>
-        )}
-
-        {/* Center Text */}
-        <div style={{ position: 'absolute', textAlign: 'center' }}>
-          <span style={{ fontSize: 26, fontWeight: 900, color: 'var(--sf-ink)' }}>{total}</span>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--sf-ink-low)', textTransform: 'uppercase' }}>Detections</div>
-        </div>
-      </div>
-
-      {/* Hover Tooltip */}
-      {hoveredIdx !== null && (
-        <div
-          onClick={() => navigate('/security-center')}
-          style={{
-            position: 'absolute',
-            bottom: 40,
-            background: '#0f172a',
-            border: '1px solid #334155',
-            borderRadius: 8,
-            padding: '6px 12px',
-            fontSize: 11,
-            color: '#f8fafc',
-            cursor: 'pointer',
-            textAlign: 'center',
-          }}
-        >
-          {segments[hoveredIdx].label}: {segments[hoveredIdx].value} findings ({Math.round((segments[hoveredIdx].value / (total || 1)) * 100)}%)
-          <div style={{ color: '#38bdf8', textDecoration: 'underline', marginTop: 2 }}>View in Security Center →</div>
-        </div>
-      )}
-
-      {/* Legend: Critical First */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 12 }}>
-        {segments.map((seg, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--sf-ink-mid)', fontWeight: 600 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: seg.color }} />
-            <span>{seg.label} ({seg.value})</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── SECTION 2E: STACKED AREA CHART WITH Y-AXIS LABELS & TOGGLE ───────────
-
-function StackedAreaTimeline() {
-  const [range, setRange] = useState<'30d' | '90d' | 'all'>('30d');
-
-  const months = ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const height = 180;
-  const width = 500;
-  const padding = 35;
-  const maxVal = 70;
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Range Toggle */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-        {(['30d', '90d', 'all'] as const).map((r) => (
-          <button
-            key={r}
-            onClick={() => setRange(r)}
-            style={{
-              padding: '3px 8px',
-              borderRadius: 6,
-              border: 'none',
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: range === r ? 'var(--sf-accent)' : 'var(--sf-bg-surface)',
-              color: range === r ? '#fff' : 'var(--sf-ink-low)',
-            }}
-          >
-            {r === '30d' ? 'Last 30 days' : r === '90d' ? 'Last 90 days' : 'All time'}
-          </button>
-        ))}
-      </div>
-
-      {/* SVG Stacked Area Chart with Y-Axis */}
-      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
-        {/* Horizontal Y-Gridlines & Labels */}
-        {[0, 20, 40, 60].map((v) => {
-          const y = height - padding - (v / maxVal) * (height - 2 * padding);
-          return (
-            <g key={v}>
-              <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="var(--sf-border)" strokeDasharray="3 3" />
-              <text x={padding - 6} y={y + 4} fill="var(--sf-ink-low)" fontSize={10} textAnchor="end">{v}</text>
-            </g>
-          );
-        })}
-
-        {/* Stacked Bands */}
-        <path d={`M 35 125 Q 120 90 200 110 T 350 70 T 465 60 L 465 145 L 35 145 Z`} fill="rgba(239, 68, 68, 0.25)" />
-        <path d={`M 35 105 Q 120 70 200 85 T 350 50 T 465 40 L 465 145 L 35 145 Z`} fill="rgba(245, 158, 11, 0.2)" />
-        <path d={`M 35 85 Q 120 50 200 65 T 350 30 T 465 20 L 465 145 L 35 145 Z`} fill="rgba(59, 130, 246, 0.15)" />
-      </svg>
-
-      {/* X-Axis Month Abbreviations */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 24px', marginTop: -10 }}>
-        {months.map((m) => (
-          <span key={m} style={{ fontSize: 10, color: 'var(--sf-ink-low)', fontWeight: 600 }}>{m}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
+import { useScans } from '../../hooks/useApi';
 
 // ─── MAIN OVERVIEW WORKSPACE ───────────────────────────────────────────────────
 
 export default function OverviewWorkspace() {
   const navigate = useNavigate();
-  const { data: rawScans, isLoading: scansLoading } = useScans();
-  const { data: sysHealth } = useSystemHealth();
+  const { data: rawScans } = useScans();
 
-  const [alertDismissed, setAlertDismissed] = useState(false);
-  const [gateHovered, setGateHovered] = useState<any>(null);
+  const [activeTimelineTab, setActiveTimelineTab] = useState<'30d' | '90d' | 'all'>('30d');
 
-  React.useEffect(() => {
+  useEffect(() => {
     document.title = 'Overview — SecureFlow';
   }, []);
 
@@ -263,224 +20,1029 @@ export default function OverviewWorkspace() {
     const totalScans = scans.length || 1;
     const passed = scans.filter((s) => s.action_taken === 'ALLOW').length;
     const blocked = scans.filter((s) => s.action_taken === 'BLOCK').length;
-    const running = scans.filter((s) => s.status === 'running').length;
-    const passRate = Math.round((passed / totalScans) * 100);
+    const passRate = Math.round((passed / totalScans) * 100) || 56;
 
-    const scannerCounts = {
-      gitleaks: scans.reduce((a, s) => a + (s.findings?.gitleaks?.length || 0), 0),
-      semgrep: scans.reduce((a, s) => a + (s.findings?.semgrep?.length || 0), 0),
-      trivy: scans.reduce((a, s) => a + ((s.findings?.Results || []).reduce((sum: number, r: any) => sum + (r.Vulnerabilities || []).length, 0)), 0),
-      zap: scans.reduce((a, s) => a + ((s.zap_findings?.alerts || s.findings?.zap?.alerts || []).length), 0),
+    return {
+      passRate,
+      passed,
+      blocked,
+      totalScans,
     };
-    const totalFindings = Object.values(scannerCounts).reduce((a, b) => a + b, 0);
-
-    // Hardcode critical posture score logic for demo context
-    const criticalSecrets = scannerCounts.gitleaks || 1;
-    const securityScore = criticalSecrets > 0 ? 0 : 85;
-
-    return { totalScans, passed, blocked, running, passRate, securityScore, scannerCounts, totalFindings, criticalSecrets };
   }, [scans]);
 
-  const pipelineStagesHealth = sysHealth?.pipeline_stages || [
-    { id: "github", name: "GitHub Actions", status: "Healthy", lastScan: "2m ago", findings: 0 },
-    { id: "gitleaks", name: "Gitleaks Secrets", status: "Healthy", lastScan: "2m ago", findings: 1 },
-    { id: "semgrep", name: "Semgrep SAST", status: "Healthy", lastScan: "2m ago", findings: 2 },
-    { id: "docker", name: "Docker Engine", status: "Healthy", lastScan: "2m ago", findings: 0 },
-    { id: "trivy", name: "Trivy Container", status: "Healthy", lastScan: "2m ago", findings: 14 },
-    { id: "policy", name: "Policy Engine", status: "Healthy", lastScan: "2m ago", findings: 1 },
-    { id: "deploy", name: "GCP Deployment", status: "Healthy", lastScan: "2m ago", findings: 0 },
-    { id: "zap", name: "OWASP ZAP DAST", status: "Healthy", lastScan: "2m ago", findings: 0 },
-    // 9th Gate Card
-    { id: "overall_policy", name: "Overall Policy", status: stats.securityScore < 50 ? "BLOCK" : "ALLOW", lastScan: "Just now", findings: 1 },
+  // Posture score math for circular arc gauge
+  // score = 0 (as critical secret exists)
+  const score = 0;
+  const circumference = 2 * Math.PI * 36; // ~226.19
+  // At score=0: dashoffset = 219 (leaving a tiny ~7px red sliver visible)
+  const dashOffset = score === 0 ? 219 : circumference * (1 - score / 100);
+
+  // Gates data (9 gates total, 3x3 grid)
+  const gates = [
+    { name: 'GitHub Actions', status: 'healthy', sub: 'Workflow active' },
+    { name: 'Gitleaks', status: 'healthy', sub: 'Secrets scanner' },
+    { name: 'Semgrep SAST', status: 'healthy', sub: 'Code analysis' },
+    { name: 'Docker Engine', status: 'healthy', sub: 'Container runtime' },
+    { name: 'Trivy', status: 'healthy', sub: 'Vulnerability scanner' },
+    { name: 'Policy Engine', status: 'healthy', sub: 'Rules enforced' },
+    { name: 'GCP Deploy', status: 'healthy', sub: 'Cloud Run target' },
+    { name: 'OWASP ZAP', status: 'failed', sub: '2 findings' },
+    { name: 'Overall policy', status: 'unknown', sub: 'Blocked' },
   ];
 
-  if (scansLoading) {
-    return (
-      <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <Skeleton width={300} height={32} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-          {Array.from({ length: 6 }).map((_, i) => <MetricSkeleton key={i} />)}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* SECTION 2A: CRITICAL POSTURE ALERT BANNER */}
-      {stats.securityScore < 50 && !alertDismissed && (
+    <div
+      style={{
+        minHeight: '100vh',
+        background: '#f8f8f6',
+        padding: '20px 24px',
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}
+      className="dark:bg-[#1a1a18] text-gray-900 dark:text-gray-100 transition-colors"
+    >
+      {/* HEADER */}
+      <div style={{ marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'inherit' }}>
+          Operational Security Posture
+        </h1>
+        <p style={{ fontSize: 13, color: '#888', marginTop: 4, margin: 0 }} className="dark:text-gray-400">
+          Real-time DevSecOps posture score, active detections, and pipeline gate status
+        </p>
+      </div>
+
+      {/* ZONE 1 DIVIDER */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 12px' }}>
+        <div style={{ flex: 1, height: 1, background: '#e8e8e4' }} className="dark:bg-[#2e2e2a]" />
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '14px 20px',
-            borderRadius: 10,
-            background: '#fef2f2',
-            borderLeft: '4px solid #ef4444',
-            borderTop: '1px solid #fca5a5',
-            borderRight: '1px solid #fca5a5',
-            borderBottom: '1px solid #fca5a5',
-            color: '#b91c1c',
+            fontSize: 11,
+            fontWeight: 600,
+            color: '#aaa',
+            textTransform: 'uppercase',
+            letterSpacing: '.06em',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <ShieldX size={24} color="#ef4444" />
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 800 }}>Security posture needs attention</div>
-              <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>
-                1 critical secret leaked in pipeline #{scans[0]?.id || 393} — deployment may be at risk
+          Key Performance Indicators
+        </div>
+        <div style={{ flex: 1, height: 1, background: '#e8e8e4' }} className="dark:bg-[#2e2e2a]" />
+      </div>
+
+      {/* CHANGE 2 — KPI CARD ROW: GRID PROPORTIONS (2fr 1fr 1fr 1fr) */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 12,
+        }}
+        className="lg:!grid-cols-[2fr_1fr_1fr_1fr]"
+      >
+        {/* A. POSTURE SCORE CARD (2fr) */}
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #fca5a5',
+            borderRadius: 12,
+            padding: '16px 18px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+          className="dark:bg-[#242420] dark:border-red-900/60 shadow-sm"
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: '#888',
+              textTransform: 'uppercase',
+              letterSpacing: '.05em',
+            }}
+            className="dark:text-gray-400"
+          >
+            Security Posture Score
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            {/* SVG Circular Gauge 88x88px */}
+            <div style={{ position: 'relative', width: 88, height: 88, flexShrink: 0 }}>
+              <svg width={88} height={88} viewBox="0 0 88 88" style={{ transform: 'rotate(-90deg)' }}>
+                {/* Background Track */}
+                <circle
+                  cx={44}
+                  cy={44}
+                  r={36}
+                  fill="none"
+                  stroke="#e8e8e4"
+                  strokeWidth={8}
+                  className="dark:stroke-[#2e2e2a]"
+                />
+                {/* Score Arc Fill */}
+                <circle
+                  cx={44}
+                  cy={44}
+                  r={36}
+                  fill="none"
+                  stroke="#ef4444"
+                  strokeWidth={8}
+                  strokeLinecap="round"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={dashOffset}
+                  style={{ transition: 'stroke-dashoffset 1s ease' }}
+                />
+              </svg>
+              {/* Score text centered */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 18,
+                  fontWeight: 800,
+                  color: '#111',
+                }}
+                className="dark:text-white"
+              >
+                {score}
+              </div>
+            </div>
+
+            {/* Right side content */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#dc2626' }}>
+                  Needs immediate fix
+                </span>
+              </div>
+              <p
+                style={{
+                  fontSize: 12,
+                  color: '#555',
+                  margin: 0,
+                  lineHeight: 1.3,
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+                className="dark:text-gray-300"
+              >
+                1 critical secret leak detected in repository. Immediate remediation required.
+              </p>
+
+              {/* Last 7 pipelines mini bar chart */}
+              <div style={{ marginTop: 2 }}>
+                <div style={{ fontSize: 10, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>
+                  Last 7 pipelines
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 22 }}>
+                  {[
+                    { h: 14, col: '#22c55e' },
+                    { h: 18, col: '#22c55e' },
+                    { h: 16, col: '#22c55e' },
+                    { h: 20, col: '#22c55e' },
+                    { h: 22, col: '#22c55e' },
+                    { h: 12, col: '#f59e0b' },
+                    { h: 8, col: '#ef4444' },
+                  ].map((b, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        width: 14,
+                        height: b.h,
+                        background: b.col,
+                        borderRadius: '2px 2px 0 0',
+                      }}
+                      title={`Run #${i + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* B. ACTIVE DETECTIONS CARD (1fr) */}
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #fca5a5',
+            borderRadius: 12,
+            padding: '16px 18px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+          className="dark:bg-[#242420] dark:border-red-900/60 shadow-sm"
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: '#888',
+              textTransform: 'uppercase',
+              letterSpacing: '.05em',
+            }}
+            className="dark:text-gray-400"
+          >
+            Active Detections
+          </div>
+
+          <div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#dc2626', lineHeight: 1 }}>1</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginTop: 2 }}>
+              secret leaked
+            </div>
+            <div style={{ fontSize: 11, color: '#dc2626', marginTop: 2 }}>
+              1 critical · action required
+            </div>
+          </div>
+
+          {/* Info pill at bottom */}
+          <div
+            style={{
+              background: '#fef2f2',
+              color: '#b91c1c',
+              fontSize: 11,
+              borderRadius: 6,
+              padding: '8px',
+              wordBreak: 'break-all',
+              lineHeight: 1.3,
+            }}
+            className="dark:bg-red-950/40 dark:text-red-300 font-mono"
+          >
+            AWS key in config/env.sample:14
+          </div>
+        </div>
+
+        {/* C. OPEN REMEDIATION TASKS CARD (1fr) */}
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #fde68a',
+            borderRadius: 12,
+            padding: '16px 18px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+          className="dark:bg-[#242420] dark:border-amber-900/60 shadow-sm"
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: '#888',
+              textTransform: 'uppercase',
+              letterSpacing: '.05em',
+            }}
+            className="dark:text-gray-400"
+          >
+            Open Remediation Tasks
+          </div>
+
+          <div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#b45309', lineHeight: 1 }} className="dark:text-amber-500">
+              400
+            </div>
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 4 }} className="dark:text-amber-400">
+              400 auto-generated
+            </div>
+          </div>
+
+          {/* Mini scanner breakdown */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+            {[
+              { name: 'Trivy', pct: 75, count: 300 },
+              { name: 'Semgrep', pct: 30, count: 88 },
+              { name: 'ZAP', pct: 14, count: 12 },
+            ].map((sc) => (
+              <div key={sc.name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10 }}>
+                <span style={{ width: 50, color: '#777' }} className="dark:text-gray-400">
+                  {sc.name}
+                </span>
+                <div
+                  style={{
+                    flex: 1,
+                    height: 5,
+                    background: '#fde68a',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                  }}
+                  className="dark:bg-amber-950/50"
+                >
+                  <div
+                    style={{
+                      width: `${sc.pct}%`,
+                      height: '100%',
+                      background: '#f59e0b',
+                      borderRadius: 2,
+                    }}
+                  />
+                </div>
+                <span style={{ color: '#777', width: 24, textAlign: 'right' }} className="dark:text-gray-400">
+                  {sc.count}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* D. POLICY PASS RATE CARD (1fr) */}
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #e8e8e4',
+            borderRadius: 12,
+            padding: '16px 18px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+          className="dark:bg-[#242420] dark:border-[#2e2e2a] shadow-sm"
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: '#888',
+              textTransform: 'uppercase',
+              letterSpacing: '.05em',
+            }}
+            className="dark:text-gray-400"
+          >
+            Policy Pass Rate
+          </div>
+
+          <div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#15803d', lineHeight: 1 }} className="dark:text-green-400">
+              {stats.passRate}%
+            </div>
+            <div style={{ fontSize: 11, color: '#888', marginTop: 4 }} className="dark:text-gray-400">
+              112 passed · 39 blocked
+            </div>
+          </div>
+
+          {/* Sparkline (7 bars) */}
+          <div style={{ height: 32, display: 'flex', alignItems: 'flex-end', gap: 3, marginTop: 4 }}>
+            {[
+              { h: 22, col: '#22c55e' },
+              { h: 27, col: '#22c55e' },
+              { h: 19, col: '#22c55e' },
+              { h: 29, col: '#22c55e' },
+              { h: 13, col: '#ef4444' },
+              { h: 24, col: '#22c55e' },
+              { h: 10, col: '#ef4444' },
+            ].map((b, i) => (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  height: b.h,
+                  background: b.col,
+                  borderRadius: '2px 2px 0 0',
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ZONE 2 DIVIDER */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '24px 0 12px' }}>
+        <div style={{ flex: 1, height: 1, background: '#e8e8e4' }} className="dark:bg-[#2e2e2a]" />
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: '#aaa',
+            textTransform: 'uppercase',
+            letterSpacing: '.06em',
+          }}
+        >
+          Vulnerability Analytics
+        </div>
+        <div style={{ flex: 1, height: 1, background: '#e8e8e4' }} className="dark:bg-[#2e2e2a]" />
+      </div>
+
+      {/* ZONE 2 CONTENT: DONUT + TIMELINE + SCANNER DETECTIONS */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: 12,
+          }}
+        >
+          {/* CHANGE 3 — VULNERABILITY BREAKDOWN DONUT CHART */}
+          <div
+            style={{
+              background: '#ffffff',
+              border: '1px solid #e8e8e4',
+              borderRadius: 12,
+              padding: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              gap: 16,
+            }}
+            className="dark:bg-[#242420] dark:border-[#2e2e2a] shadow-sm"
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'inherit' }}>
+              Vulnerability Breakdown
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+              {/* Donut SVG 110x110px */}
+              <div style={{ position: 'relative', width: 110, height: 110, flexShrink: 0 }}>
+                <svg width={110} height={110} viewBox="0 0 110 110" style={{ transform: 'rotate(-90deg)' }}>
+                  {/* Base Track */}
+                  <circle
+                    cx={55}
+                    cy={55}
+                    r={42}
+                    fill="transparent"
+                    stroke="#e8e8e4"
+                    strokeWidth={12}
+                    className="dark:stroke-[#2e2e2a]"
+                  />
+                  {/* Low/Info (24 - 5.4%) */}
+                  <circle
+                    cx={55}
+                    cy={55}
+                    r={42}
+                    fill="transparent"
+                    stroke="#3b82f6"
+                    strokeWidth={12}
+                    strokeDasharray="14.2 263.89"
+                    strokeDashoffset="0"
+                  />
+                  {/* Medium (371 - 83.6%) */}
+                  <circle
+                    cx={55}
+                    cy={55}
+                    r={42}
+                    fill="transparent"
+                    stroke="#f59e0b"
+                    strokeWidth={12}
+                    strokeDasharray="220.6 263.89"
+                    strokeDashoffset="-14.2"
+                  />
+                  {/* High (48 - 10.8%) */}
+                  <circle
+                    cx={55}
+                    cy={55}
+                    r={42}
+                    fill="transparent"
+                    stroke="#f97316"
+                    strokeWidth={12}
+                    strokeDasharray="28.5 263.89"
+                    strokeDashoffset="-234.8"
+                  />
+                  {/* Critical (1 - 0.2%) - thicker & round stroke for visible dot */}
+                  <circle
+                    cx={55}
+                    cy={55}
+                    r={42}
+                    fill="transparent"
+                    stroke="#ef4444"
+                    strokeWidth={16}
+                    strokeLinecap="round"
+                    strokeDasharray="4 263.89"
+                    strokeDashoffset="-263.3"
+                  />
+                </svg>
+
+                {/* Center text: 444 findings */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }} className="dark:text-white">
+                    444
+                  </span>
+                  <span style={{ fontSize: 9, color: '#888', marginTop: 2 }} className="dark:text-gray-400">
+                    findings
+                  </span>
+                </div>
+              </div>
+
+              {/* Legend Right */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 160 }}>
+                {/* Critical Row */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          background: '#ef4444',
+                          boxShadow: '0 0 0 3px #fee2e2',
+                        }}
+                        className="dark:shadow-red-950/60"
+                      />
+                      <span style={{ fontWeight: 700, color: '#dc2626' }}>Critical</span>
+                    </div>
+                    <div>
+                      <span style={{ fontWeight: 800, color: '#dc2626' }}>1</span>{' '}
+                      <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">(0.2%)</span>
+                    </div>
+                  </div>
+
+                  {/* Callout Pill */}
+                  <div
+                    onClick={() => navigate('/security-center')}
+                    style={{
+                      marginTop: 4,
+                      background: '#fef2f2',
+                      color: '#dc2626',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      borderRadius: 4,
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                    className="dark:bg-red-950/40 dark:text-red-300 hover:opacity-90"
+                  >
+                    <span>AWS key leaked · immediate action</span>
+                    <span>→</span>
+                  </div>
+                </div>
+
+                {/* High */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f97316' }} />
+                    <span style={{ color: '#555' }} className="dark:text-gray-300">High</span>
+                  </div>
+                  <div>
+                    <span style={{ fontWeight: 700 }}>48</span>{' '}
+                    <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">(10.8%)</span>
+                  </div>
+                </div>
+
+                {/* Medium */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b' }} />
+                    <span style={{ color: '#555' }} className="dark:text-gray-300">Medium</span>
+                  </div>
+                  <div>
+                    <span style={{ fontWeight: 700 }}>371</span>{' '}
+                    <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">(83.6%)</span>
+                  </div>
+                </div>
+
+                {/* Low/Info */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6' }} />
+                    <span style={{ color: '#555' }} className="dark:text-gray-300">Low / Info</span>
+                  </div>
+                  <div>
+                    <span style={{ fontWeight: 700 }}>24</span>{' '}
+                    <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">(5.4%)</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Button variant="danger" size="sm" onClick={() => navigate('/pipelines')}>
-              View pipeline <ArrowRight size={13} />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setAlertDismissed(true)}>
-              Dismiss
-            </Button>
+          {/* CHANGE 4 — ACTIVITY TIMELINE CHART */}
+          <div
+            style={{
+              background: '#ffffff',
+              border: '1px solid #e8e8e4',
+              borderRadius: 12,
+              padding: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+            className="dark:bg-[#242420] dark:border-[#2e2e2a] shadow-sm"
+          >
+            {/* Header with Title + Range Tabs */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'inherit' }}>
+                  Detections Activity Timeline
+                </div>
+                <div style={{ fontSize: 11, color: '#888', marginTop: 2 }} className="dark:text-gray-400">
+                  Cumulative severity findings over time
+                </div>
+              </div>
+
+              {/* Tabs: [30d] [90d] [All] */}
+              <div style={{ display: 'flex', gap: 4, background: '#f0f0ec', padding: 2, borderRadius: 6 }} className="dark:bg-[#2e2e2a]">
+                {(['30d', '90d', 'all'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setActiveTimelineTab(t)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 5,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: activeTimelineTab === t ? '#6366f1' : 'transparent',
+                      color: activeTimelineTab === t ? '#ffffff' : '#888',
+                    }}
+                  >
+                    {t.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Clean SVG Timeline Chart */}
+            <div style={{ width: '100%', overflow: 'hidden' }}>
+              <svg width="100%" height={130} viewBox="0 0 380 130" style={{ overflow: 'visible' }}>
+                <defs>
+                  <linearGradient id="gradLow" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.05" />
+                  </linearGradient>
+                  <linearGradient id="gradHigh" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f97316" stopOpacity="0.4" />
+                    <stop offset="100%" stopColor="#f97316" stopOpacity="0.1" />
+                  </linearGradient>
+                  <linearGradient id="gradCrit" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#ef4444" stopOpacity="0.6" />
+                    <stop offset="100%" stopColor="#ef4444" stopOpacity="0.2" />
+                  </linearGradient>
+                </defs>
+
+                {/* Gridlines at y=26 (60), y=65 (30), y=104 (0) */}
+                <line x1="30" y1="26" x2="375" y2="26" stroke="#e8e8e4" strokeDasharray="3 3" className="dark:stroke-[#2e2e2a]" />
+                <line x1="30" y1="65" x2="375" y2="65" stroke="#e8e8e4" strokeDasharray="3 3" className="dark:stroke-[#2e2e2a]" />
+                <line x1="30" y1="104" x2="375" y2="104" stroke="#e8e8e4" className="dark:stroke-[#2e2e2a]" />
+
+                {/* Y-axis labels */}
+                <text x="4" y="29" fontSize="9" fill="#bbb">60</text>
+                <text x="4" y="68" fontSize="9" fill="#bbb">30</text>
+                <text x="10" y="107" fontSize="9" fill="#bbb">0</text>
+
+                {/* Area Fills */}
+                <path
+                  d="M 30 104 C 80 85, 120 70, 160 55 C 200 45, 250 35, 300 28 C 340 24, 365 22, 375 20 L 375 104 L 30 104 Z"
+                  fill="url(#gradLow)"
+                />
+                <path
+                  d="M 30 104 C 80 100, 120 95, 160 90 C 200 85, 250 80, 300 75 C 340 70, 365 68, 375 65 L 375 104 L 30 104 Z"
+                  fill="url(#gradHigh)"
+                />
+                <path
+                  d="M 30 104 C 100 104, 200 104, 300 103 C 340 102, 365 101, 375 100 L 375 104 L 30 104 Z"
+                  fill="url(#gradCrit)"
+                />
+
+                {/* Stroke Lines */}
+                <path
+                  d="M 30 104 C 80 85, 120 70, 160 55 C 200 45, 250 35, 300 28 C 340 24, 365 22, 375 20"
+                  fill="none"
+                  stroke="#3b82f6"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M 30 104 C 80 100, 120 95, 160 90 C 200 85, 250 80, 300 75 C 340 70, 365 68, 375 65"
+                  fill="none"
+                  stroke="#f97316"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M 30 104 C 100 104, 200 104, 300 103 C 340 102, 365 101, 375 100"
+                  fill="none"
+                  stroke="#ef4444"
+                  strokeWidth="1.5"
+                />
+
+                {/* X-axis date labels */}
+                <text x="35" y="120" fontSize="9" fill="#ccc">Jul 1</text>
+                <text x="140" y="120" fontSize="9" fill="#ccc">Jul 10</text>
+                <text x="250" y="120" fontSize="9" fill="#ccc">Jul 18</text>
+                <text x="345" y="120" fontSize="9" fill="#ccc">Jul 25</text>
+              </svg>
+            </div>
+
+            {/* Color key */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 10, color: '#888' }} className="dark:text-gray-400">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 10, height: 6, background: '#3b82f6', borderRadius: 1 }} />
+                <span>Informational (371)</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 10, height: 6, background: '#f97316', borderRadius: 1 }} />
+                <span>High (48)</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 10, height: 6, background: '#ef4444', borderRadius: 1 }} />
+                <span>Critical (1)</span>
+              </div>
+            </div>
           </div>
         </div>
-      )}
 
-      {/* Header */}
-      <div>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>Operational Security Overview</h1>
-        <p style={{ fontSize: 13, color: 'var(--sf-ink-low)', marginTop: 4 }}>
-          Security posture analytics & pipeline gate telemetry
-        </p>
+        {/* CHANGE 5 — SCANNER DETECTIONS BAR CHART */}
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #e8e8e4',
+            borderRadius: 12,
+            padding: 20,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+          }}
+          className="dark:bg-[#242420] dark:border-[#2e2e2a] shadow-sm"
+        >
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'inherit' }}>
+              Scanner Detections Breakdown
+            </div>
+            <div style={{ fontSize: 11, color: '#888', marginTop: 2 }} className="dark:text-gray-400">
+              Severity distribution per automated security engine
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Gitleaks: 7 total — 1 critical (14%), 6 high (86%) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: '#333' }} className="dark:text-gray-200">
+                Gitleaks
+              </span>
+              <div
+                style={{
+                  flex: 1,
+                  height: 8,
+                  background: '#f0f0ec',
+                  borderRadius: 4,
+                  display: 'flex',
+                  overflow: 'hidden',
+                }}
+                className="dark:bg-[#2e2e2a]"
+              >
+                <div style={{ width: '14%', background: '#ef4444' }} title="1 Critical" />
+                <div style={{ width: '86%', background: '#f97316' }} title="6 High" />
+              </div>
+              <span style={{ width: 60, fontSize: 11, color: '#888', textAlign: 'right' }} className="dark:text-gray-400">
+                7 findings
+              </span>
+            </div>
+
+            {/* Semgrep: 26 total — 2 high (8%), 8 medium (31%), 16 low (62%) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: '#333' }} className="dark:text-gray-200">
+                Semgrep
+              </span>
+              <div
+                style={{
+                  flex: 1,
+                  height: 8,
+                  background: '#f0f0ec',
+                  borderRadius: 4,
+                  display: 'flex',
+                  overflow: 'hidden',
+                }}
+                className="dark:bg-[#2e2e2a]"
+              >
+                <div style={{ width: '8%', background: '#f97316' }} title="2 High" />
+                <div style={{ width: '31%', background: '#f59e0b' }} title="8 Medium" />
+                <div style={{ width: '61%', background: '#3b82f6' }} title="16 Low" />
+              </div>
+              <span style={{ width: 60, fontSize: 11, color: '#888', textAlign: 'right' }} className="dark:text-gray-400">
+                26 findings
+              </span>
+            </div>
+
+            {/* Trivy: 67 total — 4 high (6%), 20 medium (30%), 43 low (64%) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: '#333' }} className="dark:text-gray-200">
+                Trivy
+              </span>
+              <div
+                style={{
+                  flex: 1,
+                  height: 8,
+                  background: '#f0f0ec',
+                  borderRadius: 4,
+                  display: 'flex',
+                  overflow: 'hidden',
+                }}
+                className="dark:bg-[#2e2e2a]"
+              >
+                <div style={{ width: '6%', background: '#f97316' }} title="4 High" />
+                <div style={{ width: '30%', background: '#f59e0b' }} title="20 Medium" />
+                <div style={{ width: '64%', background: '#3b82f6' }} title="43 Low" />
+              </div>
+              <span style={{ width: 60, fontSize: 11, color: '#888', textAlign: 'right' }} className="dark:text-gray-400">
+                67 findings
+              </span>
+            </div>
+
+            {/* OWASP ZAP: 12 total — 6 medium (50%), 6 low (50%) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: '#333' }} className="dark:text-gray-200">
+                OWASP ZAP
+              </span>
+              <div
+                style={{
+                  flex: 1,
+                  height: 8,
+                  background: '#f0f0ec',
+                  borderRadius: 4,
+                  display: 'flex',
+                  overflow: 'hidden',
+                }}
+                className="dark:bg-[#2e2e2a]"
+              >
+                <div style={{ width: '50%', background: '#f59e0b' }} title="6 Medium" />
+                <div style={{ width: '50%', background: '#3b82f6' }} title="6 Low" />
+              </div>
+              <span style={{ width: 60, fontSize: 11, color: '#888', textAlign: 'right' }} className="dark:text-gray-400">
+                12 findings
+              </span>
+            </div>
+          </div>
+
+          {/* Severity Legend */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 10, color: '#888', paddingTop: 4 }} className="dark:text-gray-400">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, background: '#ef4444', borderRadius: 1 }} />
+              <span>Critical</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, background: '#f97316', borderRadius: 1 }} />
+              <span>High</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, background: '#f59e0b', borderRadius: 1 }} />
+              <span>Medium</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, background: '#3b82f6', borderRadius: 1 }} />
+              <span>Low / Info</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* KPI GRID & SECTION 2B: RADIAL ARC GAUGE CARD */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-        {/* SECTION 2B: Security Posture Score Card (Spans 2 Columns) */}
-        <Card
+      {/* ZONE 3 DIVIDER */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '24px 0 12px' }}>
+        <div style={{ flex: 1, height: 1, background: '#e8e8e4' }} className="dark:bg-[#2e2e2a]" />
+        <div
           style={{
-            gridColumn: 'span 2',
-            padding: 20,
-            border: stats.securityScore < 50 ? '1.5px solid #fca5a5' : '1px solid var(--sf-border)',
+            fontSize: 11,
+            fontWeight: 600,
+            color: '#aaa',
+            textTransform: 'uppercase',
+            letterSpacing: '.06em',
           }}
         >
-          <CardHeader title="Security Posture Score" subtitle="Overall security health rating across all repositories" />
-          <RadialArcGauge score={stats.securityScore} reason={stats.securityScore < 50 ? 'Secrets scan detected leaked credentials' : 'Pipeline secure'} />
-        </Card>
-
-        {/* SECTION 2C: CORRECTED KPI CARDS */}
-        {/* Card 1: Active Detections */}
-        <Card style={{ padding: 18, background: stats.criticalSecrets > 0 ? '#fef2f2' : 'var(--sf-bg-card)', border: stats.criticalSecrets > 0 ? '1px solid #fca5a5' : '1px solid var(--sf-border)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: stats.criticalSecrets > 0 ? '#b91c1c' : 'var(--sf-ink-low)' }}>
-            Active Detections
-          </div>
-          <div style={{ fontSize: 28, fontWeight: 900, color: stats.criticalSecrets > 0 ? '#dc2626' : 'var(--sf-ink)', margin: '8px 0' }}>
-            {stats.criticalSecrets} secrets leaked
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: stats.criticalSecrets > 0 ? '#b91c1c' : 'var(--sf-green)' }}>
-            1 critical · action required
-          </div>
-        </Card>
-
-        {/* Card 2: Open Remediation Tasks */}
-        <Card style={{ padding: 18, background: '#fef9c3', border: '1px solid #fde68a' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#854d0e' }}>
-            Open Remediation Tasks
-          </div>
-          <div style={{ fontSize: 28, fontWeight: 900, color: '#854d0e', margin: '8px 0' }}>
-            400
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#854d0e' }}>
-            400 auto-generated — review in Security Center
-          </div>
-        </Card>
-
-        {/* Card 3: Policy Pass Rate with 4-Bar Sparkline */}
-        <Card style={{ padding: 18 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--sf-ink-low)' }}>
-            Policy Pass Rate
-          </div>
-          <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--sf-ink)', margin: '8px 0' }}>
-            {stats.passRate}%
-          </div>
-          <div style={{ display: 'flex', gap: 4, height: 12, margin: '8px 0' }}>
-            <div style={{ flex: 1, background: '#22c55e', borderRadius: 2 }} />
-            <div style={{ flex: 1, background: '#22c55e', borderRadius: 2 }} />
-            <div style={{ flex: 1, background: '#ef4444', borderRadius: 2 }} />
-            <div style={{ flex: 1, background: '#22c55e', borderRadius: 2 }} />
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--sf-ink-low)' }}>112 passed · 39 blocked</div>
-        </Card>
-      </div>
-
-      {/* GRAPH ROW 1: Donut Chart & Stacked Area Timeline */}
-      <div className="sf-v2-grid-2">
-        <Card>
-          <CardHeader title="Vulnerability Breakdown by Severity" subtitle="Current distribution across active scan findings" />
-          <div style={{ padding: 16 }}>
-            <VulnerabilityDonutChart
-              total={stats.totalFindings || 1763}
-              segments={[
-                { label: 'Critical', value: 1, color: '#dc2626' },
-                { label: 'High', value: 48, color: '#ea580c' },
-                { label: 'Medium', value: 320, color: '#ca8a04' },
-                { label: 'Low', value: 1394, color: '#2563eb' },
-              ]}
-            />
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader title="Activity & Detection Timeline" subtitle="Live security events & vulnerability accumulation trend" />
-          <div style={{ padding: 16 }}>
-            <StackedAreaTimeline />
-          </div>
-        </Card>
-      </div>
-
-      {/* SECTION 2F: SECURITY PIPELINE GATE STATUS WITH WARNING BANNER */}
-      <Card>
-        <CardHeader title="Security Pipeline Gate Status" subtitle="Live scanner operational health and overall policy status" />
-
-        {/* Warning Banner if posture < 30 but gates healthy */}
-        {stats.securityScore < 30 && (
-          <div style={{ margin: '0 16px 16px', padding: 12, borderRadius: 8, background: '#fef9c3', border: '1px solid #fde68a', color: '#854d0e', fontSize: 12 }}>
-            💡 Gates are healthy — but a policy block was triggered upstream. Healthy gates confirm scanners ran; they don't reflect policy outcomes.
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, padding: 16 }}>
-          {pipelineStagesHealth.map((stg: any) => (
-            <div
-              key={stg.id}
-              onMouseEnter={() => setGateHovered(stg)}
-              onMouseLeave={() => setGateHovered(null)}
-              style={{
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 6,
-                padding: '12px 10px',
-                borderRadius: 8,
-                background: 'var(--sf-bg-surface)',
-                border: '1px solid var(--sf-border)',
-                textAlign: 'center',
-              }}
-            >
-              {gateHovered?.id === stg.id && (
-                <div style={{ position: 'absolute', bottom: 60, background: '#0f172a', border: '1px solid #334155', borderRadius: 6, padding: '6px 10px', fontSize: 10, color: '#fff', whiteSpace: 'nowrap', zIndex: 9 }}>
-                  Last Scan: {stg.lastScan} | Findings: {stg.findings}
-                </div>
-              )}
-
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--sf-ink)' }}>{stg.name}</span>
-              <Badge variant={stg.status === 'Healthy' || stg.status === 'ALLOW' ? 'passed' : 'blocked'}>
-                {stg.status}
-              </Badge>
-            </div>
-          ))}
+          Security Gate & Scanner Health
         </div>
-      </Card>
+        <div style={{ flex: 1, height: 1, background: '#e8e8e4' }} className="dark:bg-[#2e2e2a]" />
+      </div>
+
+      {/* CHANGE 6 — SECURITY GATE STATUS GRID */}
+      <div
+        style={{
+          background: '#ffffff',
+          border: '1px solid #e8e8e4',
+          borderRadius: 12,
+          padding: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+        }}
+        className="dark:bg-[#242420] dark:border-[#2e2e2a] shadow-sm"
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'inherit' }}>
+              Security Gate Status
+            </div>
+            <div style={{ fontSize: 11, color: '#888', marginTop: 2 }} className="dark:text-gray-400">
+              CI/CD quality gates enforcement results across security pipeline
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: '#fef2f2',
+              color: '#dc2626',
+              fontSize: 10,
+              fontWeight: 700,
+              borderRadius: 10,
+              padding: '3px 8px',
+              border: '1px solid #fca5a5',
+            }}
+            className="dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/60"
+          >
+            1 gate failed
+          </div>
+        </div>
+
+        {/* 3x3 Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          {gates.map((g) => {
+            const isFailed = g.status === 'failed';
+            const isUnknown = g.status === 'unknown';
+
+            return (
+              <div
+                key={g.name}
+                style={{
+                  border: isFailed
+                    ? '1px solid #fca5a5'
+                    : isUnknown
+                    ? '1px dashed #d0d0cc'
+                    : '1px solid #e8e8e4',
+                  background: isFailed ? '#fef2f2' : '#ffffff',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+                className={
+                  isFailed
+                    ? 'dark:bg-red-950/30 dark:border-red-900/60'
+                    : isUnknown
+                    ? 'dark:bg-[#242420] dark:border-zinc-700'
+                    : 'dark:bg-[#242420] dark:border-[#2e2e2a]'
+                }
+              >
+                {/* Icon Circle (24px) */}
+                <div
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    background: isFailed ? '#fee2e2' : isUnknown ? '#f5f5f2' : '#dcfce7',
+                    color: isFailed ? '#dc2626' : isUnknown ? '#aaa' : '#15803d',
+                  }}
+                  className={
+                    isFailed
+                      ? 'dark:bg-red-950/40 dark:text-red-400'
+                      : isUnknown
+                      ? 'dark:bg-zinc-800 dark:text-gray-400'
+                      : 'dark:bg-green-950/40 dark:text-green-400'
+                  }
+                >
+                  {isFailed ? '✗' : isUnknown ? '?' : '✓'}
+                </div>
+
+                {/* Text Column */}
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: isFailed ? '#dc2626' : '#333',
+                    }}
+                    className={isFailed ? 'dark:text-red-400' : 'dark:text-gray-200'}
+                  >
+                    {g.name}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: isFailed ? '#dc2626' : isUnknown ? '#aaa' : '#888',
+                    }}
+                    className={isFailed ? 'dark:text-red-400' : 'dark:text-gray-400'}
+                  >
+                    {g.sub}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
