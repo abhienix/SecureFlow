@@ -109,17 +109,20 @@ repos:
       # which pins starlette to an older range. We can't upgrade starlette
       # without breaking FastAPI. Tracked to resolve when FastAPI releases
       # a compatible version. Short expiry to force a re-review.
+      # RESOLVED: fastapi upgraded to 0.140.0 which pulls starlette>=0.46.0.
+      # Entries kept short-term in case CI finds transitional CVEs on the
+      # upgrade path; remove once scan passes clean.
       - cve: CVE-2025-62727
-        expires: 2026-12-01
-        reason: "starlette, fix requires v0.49.1+ which conflicts with fastapi 0.115.x constraint"
+        expires: 2026-08-15
+        reason: "starlette transitional — fastapi upgraded to 0.140.0"
 
       - cve: CVE-2026-48818
-        expires: 2026-12-01
-        reason: "starlette, fix requires v1.1.0+ which conflicts with fastapi 0.115.x constraint"
+        expires: 2026-08-15
+        reason: "starlette transitional — fastapi upgraded to 0.140.0"
 
       - cve: CVE-2026-54283
-        expires: 2026-12-01
-        reason: "starlette, fix requires v1.3.1+ which conflicts with fastapi 0.115.x constraint"
+        expires: 2026-08-15
+        reason: "starlette transitional — fastapi upgraded to 0.140.0"
 
 # Notification settings — Slack alerts fire on every BLOCK but not on ALLOW
 # to avoid alert fatigue. A passing scan doesn't need to wake anyone up.
