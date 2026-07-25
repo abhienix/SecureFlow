@@ -281,7 +281,7 @@ export default function PipelinesWorkspace() {
       },
       {
         id: 'policy',
-        name: 'Policy Engine',
+        name: 'Pre-Deploy Policy (policy.yaml)',
         category: 'policy',
         status: isBlocked ? 'blocked' : 'passed',
         duration: '0.4s',
@@ -352,6 +352,37 @@ export default function PipelinesWorkspace() {
         blockReason: zapAlerts.length > 0 ? 'OWASP ZAP DAST scanner detected 2 security header vulnerabilities in deployed web service.' : undefined,
         aiExplanation: zapAlerts.length > 0 ? 'Target service revision failed OWASP ZAP active probe. Missing security headers allow MIME sniffing and CSRF vector attacks.' : undefined,
         suggestedFix: zapAlerts.length > 0 ? 'Add X-Content-Type-Options: nosniff header and configure anti-CSRF token verification on POST endpoints.' : undefined,
+      },
+      {
+        id: 'dast_policy',
+        name: 'Post-Deploy DAST Policy (policy.yaml)',
+        category: 'policy',
+        status: zapAlerts.length > 0 ? 'blocked' : 'passed',
+        duration: '0.5s',
+        startTime: '10:15:01',
+        endTime: '10:15:02',
+        scannerName: 'Policy Engine',
+        scannerVersion: 'policy.yaml v2.4',
+        findingCount: zapAlerts.length > 0 ? 1 : 0,
+        icon: ShieldCheck,
+        details: {
+          policyVersion: '2.4',
+          actionTaken: zapAlerts.length > 0 ? 'BLOCK' : 'ALLOW',
+          reason: zapAlerts.length > 0 ? 'DAST OWASP ZAP alerts triggered policy.yaml block threshold.' : 'All DAST security gates passed.',
+          rulesEvaluated: ['block_dast_medium_risk', 'require_security_headers'],
+        },
+        logs: zapAlerts.length > 0
+          ? [
+              { timestamp: '10:15:01', type: 'start', message: '=== Stage 10: Post-Deploy DAST Policy Evaluation Started ===' },
+              { timestamp: '10:15:02', type: 'policy', message: '[Policy Engine] EVALUATION RESULT: BLOCK — DAST ZAP alerts triggered policy.yaml block threshold. Rolling back GCP revision.' },
+            ]
+          : [
+              { timestamp: '10:15:01', type: 'start', message: '=== Stage 10: Post-Deploy DAST Policy Evaluation Started ===' },
+              { timestamp: '10:15:02', type: 'success', message: '[Policy Engine] EVALUATION RESULT: ALLOW — All DAST security gates satisfied.' },
+            ],
+        blockReason: zapAlerts.length > 0 ? 'DAST OWASP ZAP findings triggered post-deploy policy.yaml block threshold.' : undefined,
+        aiExplanation: zapAlerts.length > 0 ? 'Policy engine evaluated live DAST findings and issued a BLOCK signal to trigger Cloud Run rollback.' : undefined,
+        suggestedFix: zapAlerts.length > 0 ? 'Fix DAST alerts in target application and redeploy.' : undefined,
       },
       {
         id: 'complete',
@@ -669,11 +700,12 @@ export default function PipelinesWorkspace() {
               stage.id === 'github_actions' ? 'CI Runner' :
               stage.id === 'gitleaks' ? 'Gitleaks' :
               stage.id === 'semgrep' ? 'Semgrep' :
-              stage.id === 'docker' ? 'Docker' :
+              stage.id === 'docker_build' || stage.id === 'docker' ? 'Docker' :
               stage.id === 'trivy' ? 'Trivy' :
-              stage.id === 'policy' ? 'Policy' :
+              stage.id === 'policy' ? 'Pre-Deploy Policy' :
               stage.id === 'deploy' ? 'GCP Deploy' :
               stage.id === 'dast' ? 'OWASP ZAP' :
+              stage.id === 'dast_policy' ? 'DAST Policy' :
               'Complete';
 
             return (
