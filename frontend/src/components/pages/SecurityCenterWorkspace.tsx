@@ -10,6 +10,8 @@ import { Skeleton } from '../ui/Skeleton';
 import { useFindings } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
 
+const { FixedSizeList } = require('react-window');
+
 export interface FindingRow {
   id: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -33,23 +35,20 @@ export default function SecurityCenterWorkspace() {
   const [activeTab, setActiveTab] = useState<'findings' | 'reports' | 'exports'>('findings');
   const [selectedSeverities, setSelectedSeverities] = useState<string[]>(['ALL']);
   const [selectedScanner, setSelectedScanner] = useState<string>('ALL');
-  const [selectedRepo, setSelectedRepo] = useState<string>('ALL');
+  const [selectedRepo] = useState<string>('ALL');
   const [cvssMin, setCvssMin] = useState<number>(0);
-  const [cvssMax, setCvssMax] = useState<number>(10);
+  const [cvssMax] = useState<number>(10);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Group collapses
+  // Group collapse state
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
     MEDIUM: true,
     LOW: true,
   });
 
-  // Selected rows for bulk action
-  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [drawerFinding, setDrawerFinding] = useState<FindingRow | null>(null);
-  const [showDismissed, setShowDismissed] = useState(false);
 
-  // Convert raw API findings or fallback mock 432 data
+  // Convert raw API findings or fallback mock 432 dataset
   const allFindings = useMemo((): FindingRow[] => {
     if (rawFindings && rawFindings.length > 0) {
       return rawFindings.map((f: any, idx: number) => ({
@@ -68,7 +67,6 @@ export default function SecurityCenterWorkspace() {
       }));
     }
 
-    // Mock dataset representing 432 findings
     const mock: FindingRow[] = [
       {
         id: 'f-crit-1',
@@ -85,7 +83,6 @@ export default function SecurityCenterWorkspace() {
       },
     ];
 
-    // Add High, Medium, Low entries to total 432
     for (let i = 1; i <= 48; i++) {
       mock.push({
         id: `f-high-${i}`,
@@ -142,7 +139,6 @@ export default function SecurityCenterWorkspace() {
     });
   }, [allFindings, selectedSeverities, selectedScanner, selectedRepo, cvssMin, cvssMax, searchQuery]);
 
-  // Group by severity
   const groupedFindings = useMemo(() => {
     const groups: Record<'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW', FindingRow[]> = {
       CRITICAL: [],
@@ -200,7 +196,6 @@ export default function SecurityCenterWorkspace() {
           </p>
         </div>
 
-        {/* Tab Buttons */}
         <div style={{ display: 'flex', gap: 4, background: 'var(--sf-bg-surface)', padding: 4, borderRadius: 8, border: '1px solid var(--sf-border)' }}>
           {[
             { id: 'findings', label: `Findings (${allFindings.length})` },
@@ -229,10 +224,9 @@ export default function SecurityCenterWorkspace() {
 
       {activeTab === 'findings' && (
         <>
-          {/* SECTION 3C: STICKY FILTER BAR */}
+          {/* STICKY FILTER BAR */}
           <Card style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-              {/* Left Group: Multi-select severity chips */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--sf-ink-low)', textTransform: 'uppercase' }}>Severity:</span>
                 {[
@@ -268,7 +262,6 @@ export default function SecurityCenterWorkspace() {
                 })}
               </div>
 
-              {/* Center: Scanner & Repo Dropdowns */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <select
                   value={selectedScanner}
@@ -282,7 +275,6 @@ export default function SecurityCenterWorkspace() {
                   <option value="OWASP ZAP">OWASP ZAP</option>
                 </select>
 
-                {/* Search */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)' }}>
                   <Search size={14} color="var(--sf-ink-low)" />
                   <input
@@ -295,7 +287,6 @@ export default function SecurityCenterWorkspace() {
                 </div>
               </div>
 
-              {/* Right Group: CVSS Slider & Count */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--sf-ink-low)' }}>
                   <span>CVSS: {cvssMin.toFixed(1)} - {cvssMax.toFixed(1)}</span>
@@ -332,7 +323,7 @@ export default function SecurityCenterWorkspace() {
             </div>
           </Card>
 
-          {/* SECTION 3A & 3B: SEVERITY-GROUPED TABLE WITH REDESIGNED ROWS */}
+          {/* ITEM 1 QA: SEVERITY-GROUPED TABLE WITH VIRTUALIZATION FOR MEDIUM/LOW */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const).map((sev) => {
               const items = groupedFindings[sev];
@@ -342,9 +333,84 @@ export default function SecurityCenterWorkspace() {
               const borderColor = sev === 'CRITICAL' ? '#dc2626' : sev === 'HIGH' ? '#ea580c' : sev === 'MEDIUM' ? '#ca8a04' : '#2563eb';
               const headerBg = sev === 'CRITICAL' ? '#fef2f2' : sev === 'HIGH' ? '#fff7ed' : sev === 'MEDIUM' ? '#fefce8' : '#eff6ff';
 
+              // Item Renderer for react-window Virtualized List
+              const RowRenderer = ({ index, style }: { index: number; style: React.CSSProperties }) => {
+                const row = items[index];
+                return (
+                  <div
+                    key={row.id}
+                    onClick={() => setDrawerFinding(row)}
+                    style={{
+                      ...style,
+                      display: 'flex',
+                      alignItems: 'center',
+                      borderBottom: '1px solid var(--sf-border)',
+                      cursor: 'pointer',
+                      background: 'var(--sf-bg-card)',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <div style={{ padding: '0 12px', width: 90 }}>
+                      <Badge variant={row.severity === 'CRITICAL' ? 'critical' : row.severity === 'HIGH' ? 'high' : 'medium'}>
+                        {row.severity}
+                      </Badge>
+                    </div>
+
+                    <div style={{ padding: '0 12px', width: 110, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--sf-ink)' }}>
+                      {getScannerIcon(row.scanner)}
+                      <span>{row.scanner}</span>
+                    </div>
+
+                    <div style={{ flex: 1, padding: '0 12px', overflow: 'hidden' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {row.packageName}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {row.description} {row.cveId && `(${row.cveId})`}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: '0 12px', width: 110 }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 800,
+                          padding: '3px 8px',
+                          borderRadius: 12,
+                          background: row.cvssScore >= 9 ? '#fee2e2' : '#fef9c3',
+                          color: row.cvssScore >= 9 ? '#b91c1c' : '#854d0e',
+                        }}
+                      >
+                        {row.cvssScore} CVSS
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '0 12px', width: 180, fontFamily: 'var(--sf-font-mono)', fontSize: 11, color: 'var(--sf-ink-mid)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {row.fileTarget}
+                    </div>
+
+                    <div style={{ padding: '0 12px', width: 160, textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openVoidWithContext({ cve: row.cveId, package: row.packageName, message: row.description })}
+                        >
+                          Ask Void
+                        </Button>
+                        <Button variant="primary" size="sm" onClick={() => setDrawerFinding(row)}>
+                          View fix
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              };
+
+              const useVirtualization = sev === 'MEDIUM' || sev === 'LOW';
+
               return (
                 <Card key={sev} style={{ padding: 0, overflow: 'hidden', borderLeft: `4px solid ${borderColor}` }}>
-                  {/* Sticky Section Header */}
                   <div
                     onClick={() => setCollapsedGroups((p) => ({ ...p, [sev]: !p[sev] }))}
                     style={{
@@ -364,89 +430,74 @@ export default function SecurityCenterWorkspace() {
                     </div>
 
                     <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: '#ffffff', color: borderColor, border: `1px solid ${borderColor}` }}>
-                      {items.length} findings
+                      {items.length} findings {useVirtualization && '(Virtualized)'}
                     </span>
                   </div>
 
-                  {/* Section Rows */}
                   {!isCollapsed && (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <tbody>
-                          {items.map((row) => (
-                            <tr
-                              key={row.id}
-                              onClick={() => setDrawerFinding(row)}
-                              style={{
-                                height: 52,
-                                borderBottom: '1px solid var(--sf-border)',
-                                cursor: 'pointer',
-                                transition: 'background 150ms ease',
-                              }}
-                            >
-                              {/* Col 1: Severity Badge */}
-                              <td style={{ padding: '0 12px', width: 80 }}>
-                                <Badge variant={row.severity === 'CRITICAL' ? 'critical' : row.severity === 'HIGH' ? 'high' : 'medium'}>
-                                  {row.severity}
-                                </Badge>
-                              </td>
-
-                              {/* Col 2: Scanner Icon + Name */}
-                              <td style={{ padding: '0 12px', width: 100 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--sf-ink)' }}>
-                                  {getScannerIcon(row.scanner)}
-                                  <span>{row.scanner}</span>
-                                </div>
-                              </td>
-
-                              {/* Col 3: Package/Rule Name + Description + CVE Tag */}
-                              <td style={{ padding: '8px 12px' }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>{row.packageName}</div>
-                                <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', marginTop: 2 }}>
-                                  {row.description.substring(0, 80)} {row.cveId && <span style={{ color: 'var(--sf-ink-muted)', marginLeft: 6 }}>({row.cveId})</span>}
-                                </div>
-                              </td>
-
-                              {/* Col 4: CVSS Score */}
-                              <td style={{ padding: '0 12px', width: 110 }}>
-                                <span
+                    <div>
+                      {useVirtualization && items.length > 10 ? (
+                        <FixedSizeList
+                          height={Math.min(items.length * 52, 400)}
+                          itemCount={items.length}
+                          itemSize={52}
+                          width="100%"
+                        >
+                          {RowRenderer}
+                        </FixedSizeList>
+                      ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <tbody>
+                              {items.map((row) => (
+                                <tr
+                                  key={row.id}
+                                  onClick={() => setDrawerFinding(row)}
                                   style={{
-                                    fontSize: 11,
-                                    fontWeight: 800,
-                                    padding: '3px 8px',
-                                    borderRadius: 12,
-                                    background: row.cvssScore >= 9 ? '#fee2e2' : '#fef9c3',
-                                    color: row.cvssScore >= 9 ? '#b91c1c' : '#854d0e',
+                                    height: 52,
+                                    borderBottom: '1px solid var(--sf-border)',
+                                    cursor: 'pointer',
                                   }}
                                 >
-                                  {row.cvssScore} CVSS
-                                </span>
-                              </td>
-
-                              {/* Col 5: File Path */}
-                              <td style={{ padding: '0 12px', width: 180, fontFamily: 'var(--sf-font-mono)', fontSize: 11, color: 'var(--sf-ink-mid)' }}>
-                                {row.fileTarget.substring(0, 30)}
-                              </td>
-
-                              {/* Col 6: Actions */}
-                              <td style={{ padding: '0 12px', width: 160, textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => openVoidWithContext({ cve: row.cveId, package: row.packageName, message: row.description })}
-                                  >
-                                    Ask Void
-                                  </Button>
-                                  <Button variant="primary" size="sm" onClick={() => setDrawerFinding(row)}>
-                                    View fix
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                                  <td style={{ padding: '0 12px', width: 90 }}>
+                                    <Badge variant={row.severity === 'CRITICAL' ? 'critical' : row.severity === 'HIGH' ? 'high' : 'medium'}>
+                                      {row.severity}
+                                    </Badge>
+                                  </td>
+                                  <td style={{ padding: '0 12px', width: 110 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--sf-ink)' }}>
+                                      {getScannerIcon(row.scanner)}
+                                      <span>{row.scanner}</span>
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '8px 12px' }}>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>{row.packageName}</div>
+                                    <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', marginTop: 2 }}>{row.description}</div>
+                                  </td>
+                                  <td style={{ padding: '0 12px', width: 110 }}>
+                                    <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 8px', borderRadius: 12, background: row.cvssScore >= 9 ? '#fee2e2' : '#fef9c3', color: row.cvssScore >= 9 ? '#b91c1c' : '#854d0e' }}>
+                                      {row.cvssScore} CVSS
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '0 12px', width: 180, fontFamily: 'var(--sf-font-mono)', fontSize: 11, color: 'var(--sf-ink-mid)' }}>
+                                    {row.fileTarget}
+                                  </td>
+                                  <td style={{ padding: '0 12px', width: 160, textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                                      <Button variant="ghost" size="sm" onClick={() => openVoidWithContext({ cve: row.cveId, package: row.packageName, message: row.description })}>
+                                        Ask Void
+                                      </Button>
+                                      <Button variant="primary" size="sm" onClick={() => setDrawerFinding(row)}>
+                                        View fix
+                                      </Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )}
                 </Card>
@@ -456,7 +507,7 @@ export default function SecurityCenterWorkspace() {
         </>
       )}
 
-      {/* SECTION 3E: FINDINGS DETAIL DRAWER */}
+      {/* FINDINGS DETAIL DRAWER */}
       {drawerFinding && (
         <div
           onClick={() => setDrawerFinding(null)}
