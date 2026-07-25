@@ -1,16 +1,39 @@
 import React, { useState, useMemo } from 'react';
-import { ShieldAlert, FileText, ChevronDown, ChevronUp, Lock } from 'lucide-react';
+import { ShieldAlert, Lock, Copy, Check } from 'lucide-react';
 import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { MetricCard } from '../ui/MetricCard';
 import { Skeleton } from '../ui/Skeleton';
+import { Button } from '../ui/Button';
 import { usePolicies, useScans } from '../../hooks/useApi';
+
+const DEFAULT_POLICY_YAML = `# SecureFlow Enterprise Policy Configuration (policy.yaml)
+# -------------------------------------------------------------
+default:
+  block_on: [CRITICAL, HIGH]
+  warn_on: [MEDIUM]
+  cvss_threshold: 7.0
+
+repos:
+  abhienix/SecureFlow:
+    block_on: [CRITICAL]
+    warn_on: [HIGH, MEDIUM]
+    cvss_threshold: 9.8
+    allowlist:
+      - cve: CVE-2024-1234
+        expires: 2026-09-01
+        reason: "OS-level package, no upstream patch available"
+
+notifications:
+  slack: true
+  on_block: true
+  on_allow: false`;
 
 export default function PolicyWorkspace() {
   const { data: policyData, isLoading } = usePolicies();
   const { data: rawScans } = useScans();
   const scans = useMemo(() => rawScans || [], [rawScans]);
-  const [showRawYaml, setShowRawYaml] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   if (isLoading) {
     return (
@@ -25,45 +48,76 @@ export default function PolicyWorkspace() {
   }
 
   const rules = policyData?.rules || [];
-  const rawPolicyYaml = policyData?.policy ? JSON.stringify(policyData.policy, null, 2) : '{\n  "default": {\n    "block_on": ["CRITICAL", "HIGH"],\n    "cvss_threshold": 7.0\n  }\n}';
+  const rawPolicyYaml = policyData?.policy ? JSON.stringify(policyData.policy, null, 2) : DEFAULT_POLICY_YAML;
   const blockedCount = scans.filter((s: any) => s.action_taken === 'BLOCK').length;
   const passedCount = scans.filter((s: any) => s.action_taken === 'ALLOW').length;
 
+  const handleCopy = () => {
+    navigator.clipboard.writeText(rawPolicyYaml);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--sf-ink)', margin: '0 0 4px 0' }}>Security Policy Management Center</h1>
-          <p style={{ fontSize: 13, color: 'var(--sf-ink-low)' }}>Define deployment blocking rules, CVSS score thresholds, allowed CVE exceptions, and DAST header gates</p>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--sf-ink)', margin: '0 0 4px 0' }}>
+            Security Policy Engine (`policy.yaml`)
+          </h1>
+          <p style={{ fontSize: 13, color: 'var(--sf-ink-low)' }}>
+            Declarative deployment blocking rules, CVSS score thresholds, CVE allowlists, and notification triggers
+          </p>
         </div>
-        <button onClick={() => setShowRawYaml((p) => !p)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--sf-border)', background: 'var(--sf-bg-surface)', color: 'var(--sf-ink-mid)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-          <FileText size={14} color="var(--sf-accent)" /> {showRawYaml ? 'Hide policy.yaml Source' : 'View policy.yaml Source'} {showRawYaml ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </button>
+        <Button variant="secondary" size="sm" onClick={handleCopy}>
+          {copied ? <Check size={14} color="var(--sf-green)" /> : <Copy size={14} />}
+          {copied ? 'Copied to Clipboard' : 'Copy policy.yaml'}
+        </Button>
       </div>
 
-      {showRawYaml && (
-        <Card style={{ padding: 16, border: '1px solid var(--sf-accent-border)' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-accent)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <FileText size={14} /> Raw Declarative Policy Source (`policy.yaml`)
-          </div>
-          <pre style={{ margin: 0, padding: 12, background: '#090d16', color: 'var(--sf-blue)', borderRadius: 8, fontSize: 12, overflowX: 'auto', fontFamily: 'var(--sf-font-mono)' }}>
-            <code>{rawPolicyYaml}</code>
-          </pre>
-        </Card>
-      )}
-
+      {/* 4 Policy KPI Cards */}
       <div className="sf-v2-grid-kpi" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <MetricCard title="Policy Mode" value="Strict" change="Enforcement Active" isPositive Icon={Lock} iconColor="var(--sf-green)" />
+        <MetricCard title="Policy Enforcement" value="Strict" change="policy.yaml active" isPositive Icon={Lock} iconColor="var(--sf-green)" />
         <MetricCard title="Max CVSS Limit" value="≥ 7.0" change="Block threshold" isPositive Icon={ShieldAlert} iconColor="var(--sf-amber)" />
         <MetricCard title="Blocked Builds" value={blockedCount} change="pipelines" isPositive={blockedCount === 0} Icon={ShieldAlert} iconColor="var(--sf-red)" />
         <MetricCard title="Passed Builds" value={passedCount} change="pipelines" isPositive Icon={ShieldAlert} iconColor="var(--sf-green)" />
       </div>
 
+      {/* Declarative policy.yaml Source Viewer (ALWAYS VISIBLE BY DEFAULT) */}
+      <Card>
+        <CardHeader
+          title="Declarative Policy Source Code (policy.yaml)"
+          subtitle="Version controlled rules configuration active across all CI/CD pipelines"
+          action={<Badge variant="passed">● Active Enforcement</Badge>}
+        />
+        <div style={{ padding: 16 }}>
+          <pre
+            style={{
+              margin: 0,
+              padding: 16,
+              background: '#080c14',
+              border: '1px solid #1e293b',
+              color: '#38bdf8',
+              borderRadius: 8,
+              fontSize: 12,
+              overflowX: 'auto',
+              fontFamily: 'var(--sf-font-mono)',
+              lineHeight: 1.6,
+            }}
+          >
+            <code>{rawPolicyYaml}</code>
+          </pre>
+        </div>
+      </Card>
+
       {/* Active Gate Rules Table */}
       <Card>
-        <CardHeader title="Active Security Gate Rules" subtitle="Declarative policy enforcement configuration" action={<ShieldAlert size={18} color="var(--sf-accent)" />} />
+        <CardHeader title="Evaluated Security Gate Rules" subtitle="Declarative policy enforcement breakdown by scanner scope" action={<ShieldAlert size={18} color="var(--sf-accent)" />} />
         {rules.length === 0 ? (
-          <div style={{ color: 'var(--sf-ink-mid)', fontSize: 13, padding: 20, textAlign: 'center', background: 'var(--sf-bg-surface)', borderRadius: 8 }}>No rules configured in current policy.</div>
+          <div style={{ color: 'var(--sf-ink-mid)', fontSize: 13, padding: 20, textAlign: 'center', background: 'var(--sf-bg-surface)', borderRadius: 8 }}>
+            No custom repo overrides configured. Default strict policy rules active.
+          </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>

@@ -284,36 +284,20 @@ export default function SettingsWorkspace() {
             </div>
           </Card>
 
-          <div className="sf-v2-grid-2">
-            <Card>
-              <CardHeader title="Current Technology Stack" subtitle="Production platform stack" />
-              <div style={{ padding: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {[
-                  'FastAPI', 'PostgreSQL', 'Redis', 'Celery', 'GitHub Actions',
-                  'Gitleaks', 'Semgrep', 'Docker', 'Trivy', 'Google Cloud',
-                  'OWASP ZAP', 'Slack', 'Grok AI'
-                ].map((tech) => (
-                  <span key={tech} style={{ padding: '6px 12px', borderRadius: 8, background: 'var(--sf-accent-soft)', color: 'var(--sf-accent)', fontSize: 12, fontWeight: 700 }}>
-                    {tech}
-                  </span>
-                ))}
-              </div>
-            </Card>
-
-            <Card>
-              <CardHeader title="Future Technology Roadmap" subtitle="Upcoming platform expansion" />
-              <div style={{ padding: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {[
-                  'Ollama Local Models', 'MCP Protocol Integration', 'Vector RAG Engine',
-                  'ChromaDB Vector Store', 'Air-gapped Local LLMs'
-                ].map((item) => (
-                  <span key={item} style={{ padding: '6px 12px', borderRadius: 8, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)', color: 'var(--sf-ink-mid)', fontSize: 12, fontWeight: 600 }}>
-                    🚀 {item}
-                  </span>
-                ))}
-              </div>
-            </Card>
-          </div>
+          <Card>
+            <CardHeader title="Current Technology Stack" subtitle="Production platform stack" />
+            <div style={{ padding: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {[
+                'FastAPI', 'PostgreSQL', 'Redis', 'Celery', 'GitHub Actions',
+                'Gitleaks', 'Semgrep', 'Docker', 'Trivy', 'Google Cloud',
+                'OWASP ZAP', 'Slack', 'Grok AI'
+              ].map((tech) => (
+                <span key={tech} style={{ padding: '6px 12px', borderRadius: 8, background: 'var(--sf-accent-soft)', color: 'var(--sf-accent)', fontSize: 12, fontWeight: 700 }}>
+                  {tech}
+                </span>
+              ))}
+            </div>
+          </Card>
         </div>
       )}
     </div>
