@@ -1,17 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
-  GitPullRequest, Play, CheckCircle2, AlertTriangle, ShieldCheck,
+  GitPullRequest, CheckCircle2, AlertTriangle, ShieldCheck, ShieldX,
   ChevronDown, ChevronRight, Zap, Terminal, X, Lock, RefreshCw,
-  Code2, Box, Globe, Rocket, ShieldAlert, Cpu, Slash
+  Code2, Box, Globe, Rocket, ShieldAlert, Cpu, Slash, Copy, Search, Clock
 } from 'lucide-react';
-import { Card, CardHeader } from '../ui/Card';
+import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Skeleton } from '../ui/Skeleton';
 import { useScans } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
-
-// ─── Pipeline Stage Types ───────────────────────────────────────────
 
 export interface PipelineStage {
   id: string;
@@ -22,9 +20,18 @@ export interface PipelineStage {
   startTime: string;
   endTime: string;
   icon: any;
-  score?: number;
+  scannerName?: string;
+  scannerVersion?: string;
+  findingCount?: number;
+  findingBadge?: string;
   details: Record<string, any>;
-  logs: string[];
+  logs: Array<{
+    timestamp: string;
+    type: 'success' | 'error' | 'policy' | 'info' | 'start';
+    message: string;
+    isCriticalCallout?: boolean;
+    calloutDetails?: string;
+  }>;
   blockReason?: string;
   aiExplanation?: string;
   suggestedFix?: string;
@@ -33,9 +40,18 @@ export interface PipelineStage {
 export default function PipelinesWorkspace() {
   const { data: rawScans, isLoading } = useScans();
   const { openVoidWithContext } = useUIStore();
+
   const [selectedScanId, setSelectedScanId] = useState<number | null>(null);
-  const [expandedStageId, setExpandedStageId] = useState<string | null>('policy');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedStageId, setExpandedStageId] = useState<string | null>('gitleaks');
   const [blockedPanelStage, setBlockedPanelStage] = useState<PipelineStage | null>(null);
+  const [consoleFilter, setConsoleFilter] = useState<'all' | 'errors' | 'policy' | 'scanners' | 'starts'>('all');
+
+  const [autoScroll, setAutoScroll] = useState(true);
+  const consoleRef = useRef<HTMLDivElement>(null);
+  const [hoveredStage, setHoveredStage] = useState<PipelineStage | null>(null);
+  const [copiedLogs, setCopiedLogs] = useState(false);
 
   const scans = useMemo(() => rawScans || [], [rawScans]);
   const activeScan = useMemo(() => {
@@ -43,7 +59,22 @@ export default function PipelinesWorkspace() {
     return scans[0] || {};
   }, [scans, selectedScanId]);
 
-  // Construct 10 Pipeline Stages with Cascading Skip Logic
+  // Handle console scroll up to pause auto scroll
+  const handleConsoleScroll = () => {
+    if (!consoleRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = consoleRef.current;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 40;
+    setAutoScroll(isAtBottom);
+  };
+
+  const scrollToBottom = () => {
+    if (consoleRef.current) {
+      consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+      setAutoScroll(true);
+    }
+  };
+
+  // Construct 10 Pipeline Stages with Section 1 logic
   const pipelineStages = useMemo((): PipelineStage[] => {
     if (!activeScan.id) return [];
 
@@ -66,6 +97,9 @@ export default function PipelinesWorkspace() {
         startTime: '10:14:02',
         endTime: '10:14:03',
         icon: GitPullRequest,
+        scannerName: 'Git Webhook',
+        scannerVersion: 'v2.4',
+        findingCount: 0,
         details: {
           repo: activeScan.repo_name || 'abhienix/SecureFlow',
           commit: (activeScan.commit_sha || '8f9b2a14').substring(0, 8),
@@ -73,7 +107,11 @@ export default function PipelinesWorkspace() {
           branch: 'main',
           message: activeScan.commit_message || 'feat: update security policy and container spec',
         },
-        logs: ['[Git] Commit 8f9b2a14 pushed to main', '[Webhook] Triggered SecureFlow Orchestrator'],
+        logs: [
+          { timestamp: '10:14:02', type: 'start', message: '=== Stage 1: Developer Push Started ===' },
+          { timestamp: '10:14:02', type: 'info', message: '[Git] Commit 8f9b2a14 pushed to main by devsecops' },
+          { timestamp: '10:14:03', type: 'success', message: '[Git Webhook] Triggered SecureFlow Orchestrator payload' },
+        ],
       },
       {
         id: 'github_actions',
@@ -84,18 +122,28 @@ export default function PipelinesWorkspace() {
         startTime: '10:14:03',
         endTime: '10:14:07',
         icon: Cpu,
+        scannerName: 'GitHub Runner',
+        scannerVersion: 'ubuntu-latest',
+        findingCount: 0,
         details: { workflow: 'security-pipeline.yml', runId: '9841203', runner: 'ubuntu-latest-4-core' },
-        logs: ['[CI] Worker acquired runner: ubuntu-latest', '[CI] Checked out repository HEAD'],
+        logs: [
+          { timestamp: '10:14:03', type: 'start', message: '=== Stage 2: GitHub Actions Runner Started ===' },
+          { timestamp: '10:14:04', type: 'info', message: '[CI] Worker acquired runner: ubuntu-latest (4 vCPU, 16GB RAM)' },
+          { timestamp: '10:14:07', type: 'success', message: '[CI] Checked out repository HEAD cleanly' },
+        ],
       },
       {
         id: 'gitleaks',
         name: 'Secrets Scan (Gitleaks)',
         category: 'secrets',
-        status: gitleaksFindings.length > 0 ? 'blocked' : 'passed',
+        status: gitleaksFindings.length > 0 ? 'failed' : 'passed',
         duration: '2.8s',
         startTime: '10:14:07',
         endTime: '10:14:10',
-        score: gitleaksFindings.length > 0 ? 30 : 100,
+        scannerName: 'Gitleaks',
+        scannerVersion: 'v8.18.2',
+        findingCount: gitleaksFindings.length,
+        findingBadge: gitleaksFindings.length > 0 ? '1 secret leaked' : undefined,
         icon: Lock,
         details: {
           scanner: 'Gitleaks v8.18.2',
@@ -103,21 +151,41 @@ export default function PipelinesWorkspace() {
           findings: gitleaksFindings,
         },
         logs: gitleaksFindings.length > 0
-          ? [`[Gitleaks] LEAK DETECTED: Secret found in ${gitleaksFindings[0]?.File || 'config.env'}`, '[Gitleaks] RuleID: aws-access-token']
-          : ['[Gitleaks] No hardcoded secrets or API tokens detected.'],
+          ? [
+              { timestamp: '10:14:07', type: 'start', message: '=== Stage 3: Gitleaks Secrets Scan Started ===' },
+              {
+                timestamp: '10:14:09',
+                type: 'error',
+                message: '[Gitleaks] CRITICAL SECRET LEAK DETECTED: AWS Secret Key string found in config/env.sample:14',
+                isCriticalCallout: true,
+                calloutDetails: 'AWS Secret Key pattern AKIAIOSFODNN7EXAMPLE found in config/env.sample:14. Subsequent stages skipped automatically.',
+              },
+              {
+                timestamp: '10:14:10',
+                type: 'policy',
+                message: '[Policy Engine] POLICY ENGINE: BLOCK SIGNAL EMITTED (gitleaks_secret_leak)',
+              },
+            ]
+          : [
+              { timestamp: '10:14:07', type: 'start', message: '=== Stage 3: Gitleaks Secrets Scan Started ===' },
+              { timestamp: '10:14:10', type: 'success', message: '[Gitleaks] No hardcoded secrets or API tokens detected.' },
+            ],
         blockReason: gitleaksFindings.length > 0 ? 'Hardcoded AWS API Secret Key detected in repository commit history.' : undefined,
-        aiExplanation: gitleaksFindings.length > 0 ? 'Gitleaks flagged an AWS secret key string matching pattern `AKIAIOSFODNN7EXAMPLE`. Committing secrets creates credential risk.' : undefined,
-        suggestedFix: gitleaksFindings.length > 0 ? 'Remove secret from source code, revoke key in AWS IAM, and use GitHub Secrets.' : undefined,
+        aiExplanation: gitleaksFindings.length > 0 ? 'Gitleaks flagged an AWS secret key string matching pattern `AKIAIOSFODNN7EXAMPLE`. Committing secrets creates severe credential exposure risk.' : undefined,
+        suggestedFix: gitleaksFindings.length > 0 ? 'Remove secret from source code, revoke key in AWS IAM, and use GitHub Secrets or Cloud KMS.' : undefined,
       },
       {
         id: 'semgrep',
         name: 'SAST (Semgrep)',
         category: 'sast',
-        status: semgrepFindings.length > 0 ? 'blocked' : 'passed',
+        status: semgrepFindings.length > 0 ? 'failed' : 'passed',
         duration: '6.1s',
         startTime: '10:14:10',
         endTime: '10:14:16',
-        score: semgrepFindings.length > 0 ? 65 : 100,
+        scannerName: 'Semgrep Core',
+        scannerVersion: 'v1.62.0',
+        findingCount: semgrepFindings.length,
+        findingBadge: semgrepFindings.length > 0 ? '2 findings' : undefined,
         icon: Code2,
         details: {
           scanner: 'Semgrep Core 1.62.0',
@@ -125,11 +193,15 @@ export default function PipelinesWorkspace() {
           findings: semgrepFindings,
         },
         logs: semgrepFindings.length > 0
-          ? [`[Semgrep] Finding: SQL Injection risk in app/db.py:42`, '[Semgrep] Rule: python.sqlalchemy.security.sql-injection']
-          : ['[Semgrep] 142 security rules evaluated. 0 vulnerabilities found.'],
-        blockReason: semgrepFindings.length > 0 ? 'SQL Injection vulnerability pattern found in python backend code.' : undefined,
-        aiExplanation: semgrepFindings.length > 0 ? 'Semgrep identified unsanitized string formatting in raw SQL query string.' : undefined,
-        suggestedFix: semgrepFindings.length > 0 ? 'Use SQLAlchemy parameterized queries instead of raw string formatting.' : undefined,
+          ? [
+              { timestamp: '10:14:10', type: 'start', message: '=== Stage 4: Semgrep SAST Started ===' },
+              { timestamp: '10:14:14', type: 'error', message: '[Semgrep] Finding: SQL Injection vulnerability pattern in app/db.py:42' },
+              { timestamp: '10:14:16', type: 'info', message: '[Semgrep] Rule: python.sqlalchemy.security.sql-injection' },
+            ]
+          : [
+              { timestamp: '10:14:10', type: 'start', message: '=== Stage 4: Semgrep SAST Started ===' },
+              { timestamp: '10:14:16', type: 'success', message: '[Semgrep] 142 security rules evaluated. 0 vulnerabilities found.' },
+            ],
       },
       {
         id: 'docker_build',
@@ -139,25 +211,39 @@ export default function PipelinesWorkspace() {
         duration: '12.4s',
         startTime: '10:14:16',
         endTime: '10:14:28',
+        scannerName: 'Docker Engine',
+        scannerVersion: 'v25.0',
+        findingCount: 0,
         icon: Box,
         details: { image: `${activeScan.repo_name || 'secureflow'}:latest`, baseImage: 'node:18-alpine', size: '142 MB' },
-        logs: ['[Docker] Building image tag: secureflow:latest', '[Docker] Exporting layers... Done.'],
+        logs: [
+          { timestamp: '10:14:16', type: 'start', message: '=== Stage 5: Docker Build Started ===' },
+          { timestamp: '10:14:28', type: 'success', message: '[Docker] Container image built successfully (142 MB)' },
+        ],
       },
       {
         id: 'trivy',
         name: 'Container Scan (Trivy)',
         category: 'container',
-        status: trivyVulns.length > 0 ? 'blocked' : 'passed',
+        status: trivyVulns.length > 0 ? 'failed' : 'passed',
         duration: '8.3s',
         startTime: '10:14:28',
         endTime: '10:14:36',
-        score: trivyVulns.length > 0 ? 70 : 100,
+        scannerName: 'Trivy Container',
+        scannerVersion: 'v0.49.1',
+        findingCount: trivyVulns.length,
+        findingBadge: trivyVulns.length > 0 ? `${trivyVulns.length} CVEs` : undefined,
         icon: ShieldAlert,
         details: { scanner: 'Trivy v0.49.1', cveCount: trivyVulns.length, vulnerabilities: trivyVulns },
         logs: trivyVulns.length > 0
-          ? [`[Trivy] Vulnerability found: ${trivyVulns[0]?.VulnerabilityID || 'CVE-2024-2189'} in ${trivyVulns[0]?.PkgName || 'openssl'}`]
-          : ['[Trivy] Container image scanned. 0 Critical vulnerabilities.'],
-        blockReason: trivyVulns.length > 0 ? 'Container OS layer contains Critical CVE vulnerability.' : undefined,
+          ? [
+              { timestamp: '10:14:28', type: 'start', message: '=== Stage 6: Trivy Container CVE Scan Started ===' },
+              { timestamp: '10:14:34', type: 'error', message: `[Trivy] Vulnerability found: ${trivyVulns[0]?.VulnerabilityID || 'CVE-2024-2189'} in ${trivyVulns[0]?.PkgName || 'openssl'}` },
+            ]
+          : [
+              { timestamp: '10:14:28', type: 'start', message: '=== Stage 6: Trivy Container CVE Scan Started ===' },
+              { timestamp: '10:14:36', type: 'success', message: '[Trivy] Container image scanned. 0 Critical CVEs found.' },
+            ],
       },
       {
         id: 'policy',
@@ -167,7 +253,9 @@ export default function PipelinesWorkspace() {
         duration: '0.4s',
         startTime: '10:14:36',
         endTime: '10:14:37',
-        score: isBlocked ? 0 : 100,
+        scannerName: 'Policy Engine',
+        scannerVersion: 'policy.yaml v2.4',
+        findingCount: isBlocked ? 1 : 0,
         icon: ShieldCheck,
         details: {
           policyVersion: '2.4',
@@ -176,11 +264,14 @@ export default function PipelinesWorkspace() {
           rulesEvaluated: ['block_gitleaks_secrets', 'block_critical_cve', 'minimum_security_score_75'],
         },
         logs: isBlocked
-          ? [`[Policy Engine] EVALUATION: BLOCK`, `[Policy Engine] Reason: ${activeScan.ai_explanation || 'Blocked by security policy'}`]
-          : ['[Policy Engine] EVALUATION: ALLOW — All security gates satisfied.'],
-        blockReason: isBlocked ? (activeScan.ai_explanation || 'Pipeline blocked by policy engine rule.') : undefined,
-        aiExplanation: isBlocked ? 'The policy engine evaluated policy.yaml and issued an immediate BLOCK signal.' : undefined,
-        suggestedFix: isBlocked ? 'Resolve flagged scanner issues to pass policy gate.' : undefined,
+          ? [
+              { timestamp: '10:14:36', type: 'start', message: '=== Stage 7: Policy Engine Evaluation Started ===' },
+              { timestamp: '10:14:37', type: 'policy', message: `[Policy Engine] EVALUATION RESULT: BLOCK — ${activeScan.ai_explanation || 'Blocked by security policy'}` },
+            ]
+          : [
+              { timestamp: '10:14:36', type: 'start', message: '=== Stage 7: Policy Engine Evaluation Started ===' },
+              { timestamp: '10:14:37', type: 'success', message: '[Policy Engine] EVALUATION RESULT: ALLOW — All security gates satisfied.' },
+            ],
       },
       {
         id: 'deploy',
@@ -190,9 +281,15 @@ export default function PipelinesWorkspace() {
         duration: '15.2s',
         startTime: '10:14:37',
         endTime: '10:14:52',
+        scannerName: 'GCP Cloud Run',
+        scannerVersion: 'v1.4',
+        findingCount: 0,
         icon: Rocket,
         details: { platform: 'Google Cloud Run', region: 'us-central1', url: 'https://secureflow-frontend-1083585992526.us-central1.run.app' },
-        logs: ['[GCP Deploy] Deploying to Cloud Run service...', '[GCP Deploy] Traffic allocated 100% to revision v2.'],
+        logs: [
+          { timestamp: '10:14:37', type: 'start', message: '=== Stage 8: GCP Cloud Run Deployment Started ===' },
+          { timestamp: '10:14:52', type: 'success', message: '[GCP Deploy] Deployed to Cloud Run service revision v2' },
+        ],
       },
       {
         id: 'dast',
@@ -202,12 +299,21 @@ export default function PipelinesWorkspace() {
         duration: '9.1s',
         startTime: '10:14:52',
         endTime: '10:15:01',
-        score: zapAlerts.length > 0 ? 80 : 100,
+        scannerName: 'OWASP ZAP',
+        scannerVersion: 'v2.14.0',
+        findingCount: zapAlerts.length,
+        findingBadge: zapAlerts.length > 0 ? `${zapAlerts.length} alerts` : undefined,
         icon: Globe,
         details: { scanner: 'OWASP ZAP 2.14.0', alertsCount: zapAlerts.length, alerts: zapAlerts },
         logs: zapAlerts.length > 0
-          ? [`[OWASP ZAP] Alert: ${zapAlerts[0]?.alert || 'Missing Anti-clickjacking Header'}`]
-          : ['[OWASP ZAP] Active probe complete. Target endpoint healthy.'],
+          ? [
+              { timestamp: '10:14:52', type: 'start', message: '=== Stage 9: OWASP ZAP DAST Scan Started ===' },
+              { timestamp: '10:15:01', type: 'error', message: `[OWASP ZAP] Alert: ${zapAlerts[0]?.alert || 'Missing Anti-clickjacking Header'}` },
+            ]
+          : [
+              { timestamp: '10:14:52', type: 'start', message: '=== Stage 9: OWASP ZAP DAST Scan Started ===' },
+              { timestamp: '10:15:01', type: 'success', message: '[OWASP ZAP] Active probe complete. Target endpoint healthy.' },
+            ],
       },
       {
         id: 'complete',
@@ -217,14 +323,19 @@ export default function PipelinesWorkspace() {
         duration: '42.8s',
         startTime: '10:14:02',
         endTime: '10:15:01',
+        scannerName: 'Orchestration Engine',
+        scannerVersion: 'v2.0',
+        findingCount: 0,
         icon: CheckCircle2,
         details: { finalDecision: activeScan.action_taken || 'ALLOW' },
-        logs: [`[Pipeline] Workflow completed with status: ${activeScan.action_taken || 'ALLOW'}`],
+        logs: [
+          { timestamp: '10:15:01', type: 'start', message: '=== Stage 10: Workflow Complete ===' },
+          { timestamp: '10:15:01', type: 'info', message: `[Pipeline] Workflow finished with decision: ${activeScan.action_taken || 'ALLOW'}` },
+        ],
       },
     ];
 
-    // CASCADING STAGE SKIP EVALUATOR:
-    // If a stage blocks or fails, ALL SUBSEQUENT STAGES ARE SKIPPED!
+    // Cascading failure & skip logic:
     let hasFailed = false;
     let failedStageName = '';
 
@@ -234,7 +345,15 @@ export default function PipelinesWorkspace() {
           ...stage,
           status: 'skipped' as const,
           duration: '0.0s',
-          logs: [`[Pipeline] Stage SKIPPED because previous stage '${failedStageName}' emitted BLOCK/FAILURE signal.`],
+          findingCount: 0,
+          findingBadge: undefined,
+          logs: [
+            {
+              timestamp: stage.startTime,
+              type: 'info',
+              message: `[Pipeline] Stage SKIPPED because previous stage '${failedStageName}' failed or emitted BLOCK signal.`,
+            },
+          ],
           blockReason: undefined,
           aiExplanation: undefined,
           suggestedFix: undefined,
@@ -250,16 +369,61 @@ export default function PipelinesWorkspace() {
     });
   }, [activeScan]);
 
-  const getStageStatusBadge = (status: PipelineStage['status']) => {
-    switch (status) {
-      case 'passed': return <Badge variant="passed">PASSED</Badge>;
-      case 'blocked': return <Badge variant="blocked">BLOCKED</Badge>;
-      case 'failed': return <Badge variant="failed">FAILED</Badge>;
-      case 'running': return <Badge variant="running">RUNNING</Badge>;
-      case 'skipped': return <Badge variant="neutral">SKIPPED</Badge>;
-      default: return <Badge variant="info">QUEUED</Badge>;
+  // Aggregate all console log lines across stages
+  const allConsoleLogs = useMemo(() => {
+    const logs: Array<{
+      stageName: string;
+      timestamp: string;
+      type: 'success' | 'error' | 'policy' | 'info' | 'start';
+      message: string;
+      isCriticalCallout?: boolean;
+      calloutDetails?: string;
+    }> = [];
+
+    pipelineStages.forEach((stg) => {
+      stg.logs.forEach((l) => {
+        logs.push({
+          stageName: stg.name.split(' ')[0],
+          timestamp: l.timestamp,
+          type: l.type,
+          message: l.message,
+          isCriticalCallout: l.isCriticalCallout,
+          calloutDetails: l.calloutDetails,
+        });
+      });
+    });
+
+    return logs;
+  }, [pipelineStages]);
+
+  const filteredConsoleLogs = useMemo(() => {
+    switch (consoleFilter) {
+      case 'errors': return allConsoleLogs.filter((l) => l.type === 'error' || l.type === 'policy');
+      case 'policy': return allConsoleLogs.filter((l) => l.type === 'policy');
+      case 'scanners': return allConsoleLogs.filter((l) => l.message.includes('[Gitleaks]') || l.message.includes('[Semgrep]') || l.message.includes('[Trivy]') || l.message.includes('[ZAP]'));
+      case 'starts': return allConsoleLogs.filter((l) => l.type === 'start');
+      default: return allConsoleLogs;
     }
+  }, [allConsoleLogs, consoleFilter]);
+
+  const handleCopyAllLogs = () => {
+    const logText = allConsoleLogs.map((l) => `[${l.timestamp}] [${l.stageName}] ${l.message}`).join('\n');
+    navigator.clipboard.writeText(logText);
+    setCopiedLogs(true);
+    setTimeout(() => setCopiedLogs(false), 2000);
   };
+
+  // Filter dropdown items
+  const filteredDropdownScans = useMemo(() => {
+    if (!searchQuery) return scans;
+    const q = searchQuery.toLowerCase();
+    return scans.filter(
+      (s) =>
+        String(s.id).includes(q) ||
+        (s.repo_name || '').toLowerCase().includes(q) ||
+        (s.action_taken || '').toLowerCase().includes(q)
+    );
+  }, [scans, searchQuery]);
 
   if (isLoading) {
     return (
@@ -271,151 +435,303 @@ export default function PipelinesWorkspace() {
     );
   }
 
+  const decision = activeScan.action_taken || 'ALLOW';
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>
-            DevSecOps Pipeline Orchestration
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--sf-ink-low)', marginTop: 4 }}>
-            End-to-end security gating with cascading stage skip & targeted block diagnostics
-          </p>
+      {/* SECTION 1B: PROMINENT TOP POLICY BANNER */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 20px',
+          borderRadius: 12,
+          height: 52,
+          background: decision === 'ALLOW' ? '#dcfce7' : decision === 'BLOCK' ? '#fee2e2' : '#fef9c3',
+          border: `1px solid ${decision === 'ALLOW' ? '#86efac' : decision === 'BLOCK' ? '#fca5a5' : '#fde68a'}`,
+          color: decision === 'ALLOW' ? '#15803d' : decision === 'BLOCK' ? '#b91c1c' : '#854d0e',
+          animation: decision === 'BLOCK' ? 'pulse 1.5s infinite ease-in-out' : 'none',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {decision === 'ALLOW' && <ShieldCheck size={22} color="#15803d" />}
+          {decision === 'BLOCK' && <ShieldX size={22} color="#b91c1c" />}
+          {decision !== 'ALLOW' && decision !== 'BLOCK' && <AlertTriangle size={22} color="#854d0e" />}
+
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '0.3px' }}>
+              SECURITY POLICY DECISION: {decision}
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.85 }}>
+              {decision === 'ALLOW'
+                ? 'All scanner gates passed policy checks cleanly. Deployment approved.'
+                : 'Pipeline execution halted by policy enforcement gate. Action required.'}
+            </div>
+          </div>
         </div>
 
-        {/* Scan Selector */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <select
-            value={activeScan.id || ''}
-            onChange={(e) => setSelectedScanId(Number(e.target.value))}
+        {/* SECTION 1C: REDESIGNED PIPELINE SELECTOR DROPDOWN */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setDropdownOpen((p) => !p)}
             style={{
-              padding: '8px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 14px',
               borderRadius: 8,
               background: 'var(--sf-bg-card)',
               border: '1px solid var(--sf-border)',
               color: 'var(--sf-ink)',
               fontSize: 13,
-              fontWeight: 600,
-              outline: 'none',
+              fontWeight: 700,
               cursor: 'pointer',
             }}
           >
-            {scans.map((s) => (
-              <option key={s.id} value={s.id}>
-                Pipeline #{s.id} — {s.repo_name || 'repo'} ({s.action_taken || 'ALLOW'})
-              </option>
-            ))}
-          </select>
+            <span>Pipeline #{activeScan.id || 1}</span>
+            <ChevronDown size={16} />
+          </button>
 
-          <Button variant="primary" size="sm">
-            <Play size={14} /> Run Pipeline
-          </Button>
+          {dropdownOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 44,
+                width: 340,
+                maxHeight: 400,
+                background: 'var(--sf-bg-card)',
+                border: '1px solid var(--sf-border)',
+                borderRadius: 12,
+                boxShadow: '0 12px 36px rgba(0,0,0,0.4)',
+                zIndex: 9999,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Search Bar inside Dropdown */}
+              <div style={{ padding: 10, borderBottom: '1px solid var(--sf-border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 6, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)' }}>
+                  <Search size={14} color="var(--sf-ink-low)" />
+                  <input
+                    type="text"
+                    placeholder="Search pipeline # or repo..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ background: 'none', border: 'none', color: 'var(--sf-ink)', fontSize: 12, outline: 'none', width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              {/* Items List */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {filteredDropdownScans.map((s) => {
+                  const isBlk = s.action_taken === 'BLOCK';
+                  const isSelected = s.id === activeScan.id;
+
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => {
+                        setSelectedScanId(s.id);
+                        setDropdownOpen(false);
+                      }}
+                      style={{
+                        padding: 10,
+                        borderRadius: 8,
+                        background: isSelected ? 'var(--sf-accent-soft)' : 'var(--sf-bg-surface)',
+                        borderLeft: isBlk ? '3px solid #ef4444' : '3px solid transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>#{s.id}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: isBlk ? '#ef4444' : '#10b981' }}>{s.action_taken || 'ALLOW'}</span>
+                      </div>
+
+                      <div style={{ fontSize: 11, color: 'var(--sf-ink-low)' }}>
+                        {s.repo_name || 'abhienix/SecureFlow'} · main
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--sf-ink-muted)' }}>
+                        <Clock size={10} /> ⬆ push · 2 min ago
+                      </div>
+
+                      {/* Dot preview of stages */}
+                      <div style={{ display: 'flex', gap: 3, marginTop: 2 }}>
+                        {Array.from({ length: 8 }).map((_, di) => (
+                          <span
+                            key={di}
+                            style={{
+                              width: 6,
+                              height: 6,
+                              borderRadius: '50%',
+                              background: isBlk && di === 2 ? '#ef4444' : di > 2 && isBlk ? '#64748b' : '#10b981',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* CIRCULAR ANIMATED PIPELINE STEPPER (Hero Visual Component) */}
+      {/* SECTION 1A: REDESIGNED PIPELINE STAGE BAR */}
       <Card style={{ padding: 24 }}>
-        <CardHeader
-          title={`Pipeline #${activeScan.id || 1} — ${activeScan.repo_name || 'abhienix/SecureFlow'}`}
-          subtitle={`Commit SHA: ${(activeScan.commit_sha || '8f9b2a14').substring(0, 8)} | Triggered via GitHub Push`}
-          action={<Badge variant={activeScan.action_taken === 'BLOCK' ? 'blocked' : 'passed'}>{activeScan.action_taken || 'ALLOW'}</Badge>}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>
+              Pipeline #{activeScan.id || 1} — Stage Execution View
+            </h2>
+            <span style={{ fontSize: 12, color: 'var(--sf-ink-low)' }}>
+              Commit SHA: {(activeScan.commit_sha || '8f9b2a14').substring(0, 8)} | 10 DevSecOps Security Stages
+            </span>
+          </div>
+        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, overflowX: 'auto', padding: '24px 0 12px' }}>
+        {/* Stages Track */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', padding: '30px 10px 10px' }}>
           {pipelineStages.map((stage, idx) => {
             const Icon = stage.icon;
-            const isSelected = expandedStageId === stage.id;
             const isPassed = stage.status === 'passed';
-            const isBlocked = stage.status === 'blocked' || stage.status === 'failed';
-            const isRunning = stage.status === 'running';
+            const isFailed = stage.status === 'failed' || stage.status === 'blocked';
             const isSkipped = stage.status === 'skipped';
+            const isRunning = stage.status === 'running';
+
+            const nextStage = pipelineStages[idx + 1];
+            const nextStatus = nextStage?.status;
 
             return (
               <React.Fragment key={stage.id}>
-                {/* Circular Stepper Node */}
+                {/* Stage Node */}
                 <div
-                  onClick={() => setExpandedStageId(isSelected ? null : stage.id)}
+                  onMouseEnter={() => setHoveredStage(stage)}
+                  onMouseLeave={() => setHoveredStage(null)}
+                  onClick={() => setExpandedStageId(stage.id)}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: 8,
+                    gap: 6,
+                    position: 'relative',
                     cursor: 'pointer',
-                    minWidth: 90,
-                    transition: 'all 200ms ease',
+                    zIndex: 2,
                   }}
                 >
-                  {/* Outer Circle Ring */}
+                  {/* Tooltip */}
+                  {hoveredStage?.id === stage.id && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: 56,
+                        background: '#0f172a',
+                        border: '1px solid #334155',
+                        borderRadius: 8,
+                        padding: '8px 12px',
+                        color: '#f8fafc',
+                        fontSize: 11,
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                        zIndex: 99,
+                      }}
+                    >
+                      <div style={{ fontWeight: 800 }}>{stage.name}</div>
+                      <div>Scanner: {stage.scannerName || stage.name}</div>
+                      <div>Version: {stage.scannerVersion || 'v1.0'}</div>
+                      <div>Duration: {stage.duration}</div>
+                      <div>Findings: {stage.findingCount || 0}</div>
+                    </div>
+                  )}
+
+                  {/* Stage Circle Node */}
                   <div
                     style={{
-                      width: 52,
-                      height: 52,
+                      width: isFailed ? 40 : 36,
+                      height: isFailed ? 40 : 36,
                       borderRadius: '50%',
                       background: isPassed
-                        ? 'var(--sf-green-soft)'
-                        : isBlocked
-                        ? 'var(--sf-red-soft)'
-                        : isRunning
-                        ? 'var(--sf-accent-soft)'
-                        : 'var(--sf-bg-surface)',
-                      border: `2px ${isSkipped ? 'dashed' : 'solid'} ${
-                        isPassed
-                          ? 'var(--sf-green)'
-                          : isBlocked
-                          ? 'var(--sf-red)'
-                          : isRunning
-                          ? 'var(--sf-accent)'
-                          : 'var(--sf-border)'
-                      }`,
+                        ? '#ffffff'
+                        : isFailed
+                        ? '#fef2f2'
+                        : isSkipped
+                        ? 'var(--sf-bg-surface)'
+                        : 'var(--sf-bg-card)',
+                      border: isPassed
+                        ? '2px solid #22c55e'
+                        : isFailed
+                        ? '2px solid #ef4444'
+                        : isSkipped
+                        ? '1.5px dashed #9ca3af'
+                        : '2px solid #3b82f6',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      boxShadow: isPassed
-                        ? '0 0 12px rgba(16, 185, 129, 0.25)'
-                        : isBlocked
-                        ? '0 0 16px rgba(239, 68, 68, 0.35)'
-                        : isRunning
-                        ? '0 0 16px rgba(99, 102, 241, 0.4)'
-                        : 'none',
-                      position: 'relative',
-                      transform: isSelected ? 'scale(1.1)' : 'scale(1)',
-                      transition: 'transform 200ms ease',
+                      animation: isFailed ? 'pulse 1.5s infinite ease-in-out' : isRunning ? 'spin 1.5s linear infinite' : 'none',
+                      transition: 'all 200ms ease',
                     }}
                   >
-                    {isPassed && <CheckCircle2 size={24} color="var(--sf-green)" />}
-                    {isBlocked && <AlertTriangle size={24} color="var(--sf-red)" />}
-                    {isRunning && <RefreshCw size={22} color="var(--sf-accent)" style={{ animation: 'spin 1.5s linear infinite' }} />}
-                    {isSkipped && <Slash size={20} color="var(--sf-ink-low)" />}
-                    {!isPassed && !isBlocked && !isRunning && !isSkipped && <Icon size={22} color="var(--sf-ink-mid)" />}
+                    {isPassed && <CheckCircle2 size={20} color="#22c55e" />}
+                    {isFailed && <AlertTriangle size={22} color="#ef4444" />}
+                    {isSkipped && <Slash size={18} color="#9ca3af" />}
+                    {isRunning && <RefreshCw size={18} color="#3b82f6" />}
                   </div>
 
-                  {/* Stage Title */}
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: isSelected ? 800 : 600,
-                      color: isBlocked ? 'var(--sf-red)' : isSkipped ? 'var(--sf-ink-low)' : 'var(--sf-ink)',
-                      textAlign: 'center',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {stage.name.split(' ')[0]}
-                  </span>
+                  {/* Label Below Node */}
+                  <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        color: isPassed ? '#16a34a' : isFailed ? '#dc2626' : '#9ca3af',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {isPassed ? 'PASSED' : isFailed ? 'FAILED' : isSkipped ? 'SKIPPED' : 'RUNNING'}
+                    </span>
 
-                  {getStageStatusBadge(stage.status)}
+                    {/* Finding Count Badges */}
+                    {stage.findingBadge && (
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          padding: '2px 6px',
+                          borderRadius: 8,
+                          background: isFailed ? '#fee2e2' : '#fef9c3',
+                          color: isFailed ? '#b91c1c' : '#854d0e',
+                        }}
+                      >
+                        {stage.findingBadge}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                {/* Connector Line */}
+                {/* Connector Line to Next Stage */}
                 {idx < pipelineStages.length - 1 && (
                   <div
                     style={{
                       flex: 1,
                       height: 2,
-                      background: isPassed ? 'var(--sf-green)' : 'var(--sf-border)',
-                      opacity: isSkipped ? 0.3 : 1,
-                      minWidth: 16,
-                      marginTop: -24,
+                      borderTop: nextStatus === 'skipped' ? '2px dashed #9ca3af' : 'none',
+                      background:
+                        nextStatus === 'passed'
+                          ? '#22c55e'
+                          : nextStatus === 'failed' || nextStatus === 'blocked'
+                          ? '#ef4444'
+                          : nextStatus === 'skipped'
+                          ? 'transparent'
+                          : '#3b82f6',
+                      marginTop: -20,
                     }}
                   />
                 )}
@@ -425,64 +741,33 @@ export default function PipelinesWorkspace() {
         </div>
       </Card>
 
-      {/* Main Content Layout: Stage Details & Logs */}
+      {/* Main Content Layout: Stage Output & Console */}
       <div className="sf-v2-grid-2">
-        {/* Stage Execution List */}
+        {/* Stage List Details */}
         <Card>
-          <CardHeader title="Pipeline Stages & Scanner Output" subtitle="Click any stage to expand detailed scanner telemetry" />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ padding: 16, borderBottom: '1px solid var(--sf-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--sf-ink)', margin: 0 }}>Stage Details</h3>
+            <span style={{ fontSize: 11, color: 'var(--sf-ink-low)' }}>Click to view logs</span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12 }}>
             {pipelineStages.map((stage) => {
-              const Icon = stage.icon;
               const isExpanded = expandedStageId === stage.id;
-              const isBlockedStage = stage.status === 'blocked' || stage.status === 'failed';
+              const isFailed = stage.status === 'failed' || stage.status === 'blocked';
 
               return (
-                <div
-                  key={stage.id}
-                  style={{
-                    borderRadius: 10,
-                    border: `1px solid ${isBlockedStage ? 'var(--sf-red-border)' : stage.status === 'skipped' ? 'var(--sf-border)' : 'var(--sf-border)'}`,
-                    background: 'var(--sf-bg-surface)',
-                    opacity: stage.status === 'skipped' ? 0.7 : 1,
-                    overflow: 'hidden',
-                  }}
-                >
-                  {/* Stage Row Header */}
+                <div key={stage.id} style={{ borderRadius: 8, border: '1px solid var(--sf-border)', background: 'var(--sf-bg-surface)', overflow: 'hidden' }}>
                   <div
                     onClick={() => setExpandedStageId(isExpanded ? null : stage.id)}
-                    style={{
-                      padding: '12px 16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: 'pointer',
-                      background: isExpanded ? 'var(--sf-bg-card)' : 'transparent',
-                    }}
+                    style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      {isExpanded ? <ChevronDown size={16} color="var(--sf-ink-mid)" /> : <ChevronRight size={16} color="var(--sf-ink-mid)" />}
-                      <div
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 6,
-                          background: 'var(--sf-bg-elevated)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Icon size={14} color="var(--sf-ink)" />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>{stage.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--sf-ink-low)' }}>Duration: {stage.duration}</div>
-                      </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>{stage.name}</span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {/* WHY BLOCKED button shown ONLY on the actual blocked/failed stage */}
-                      {isBlockedStage && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {isFailed && (
                         <Button
                           variant="danger"
                           size="sm"
@@ -491,61 +776,22 @@ export default function PipelinesWorkspace() {
                             setBlockedPanelStage(stage);
                           }}
                         >
-                          <AlertTriangle size={13} /> WHY BLOCKED
+                          WHY BLOCKED
                         </Button>
                       )}
-                      {getStageStatusBadge(stage.status)}
+                      <Badge variant={stage.status === 'passed' ? 'passed' : stage.status === 'skipped' ? 'neutral' : 'blocked'}>
+                        {stage.status}
+                      </Badge>
                     </div>
                   </div>
 
-                  {/* Stage Expansion Body */}
                   {isExpanded && (
-                    <div style={{ padding: 16, borderTop: '1px solid var(--sf-border)', background: 'var(--sf-bg-card)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {/* Key Details Grid */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-                        {Object.entries(stage.details).map(([k, v]) => {
-                          if (typeof v === 'object') return null;
-                          return (
-                            <div key={k} style={{ padding: 8, borderRadius: 6, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)' }}>
-                              <div style={{ fontSize: 10, color: 'var(--sf-ink-low)', textTransform: 'uppercase', fontWeight: 700 }}>{k}</div>
-                              <div style={{ fontSize: 12, color: 'var(--sf-ink)', fontWeight: 600, marginTop: 2, wordBreak: 'break-all' }}>{String(v)}</div>
-                            </div>
-                          );
-                        })}
+                    <div style={{ padding: 12, borderTop: '1px solid var(--sf-border)', background: 'var(--sf-bg-card)' }}>
+                      <div style={{ fontSize: 11, color: 'var(--sf-ink-mid)', marginBottom: 8 }}>
+                        Scanner: {stage.scannerName} ({stage.scannerVersion}) | Duration: {stage.duration}
                       </div>
-
-                      {/* Live Logs */}
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sf-ink-mid)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Terminal size={12} /> Scanner Logs & Console Output
-                        </div>
-                        <div
-                          style={{
-                            padding: 12,
-                            borderRadius: 8,
-                            background: '#080c14',
-                            border: '1px solid #1e293b',
-                            fontFamily: 'var(--sf-font-mono)',
-                            fontSize: 11,
-                            color: stage.status === 'skipped' ? '#64748b' : '#38bdf8',
-                            lineHeight: 1.6,
-                            maxHeight: 140,
-                            overflowY: 'auto',
-                          }}
-                        >
-                          {stage.logs.map((l, i) => <div key={i}>{l}</div>)}
-                        </div>
-                      </div>
-
-                      {/* Action trigger */}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => openVoidWithContext({ stage: stage.name, details: stage.details, logs: stage.logs })}
-                        >
-                          <Zap size={13} color="var(--sf-accent)" /> Ask Void About {stage.name}
-                        </Button>
+                      <div style={{ padding: 10, borderRadius: 6, background: '#080c14', fontFamily: 'var(--sf-font-mono)', fontSize: 11, color: '#38bdf8' }}>
+                        {stage.logs.map((l, i) => <div key={i}>[{l.timestamp}] {l.message}</div>)}
                       </div>
                     </div>
                   )}
@@ -555,142 +801,227 @@ export default function PipelinesWorkspace() {
           </div>
         </Card>
 
-        {/* Active Scan Console Stream */}
+        {/* SECTION 4: CONSOLE EXECUTION STREAM & LOG FILTER BAR */}
         <Card>
-          <CardHeader title="Pipeline Execution Console Stream" subtitle="Real-time console stream & policy decision telemetry" />
-          <div
-            style={{
-              padding: 16,
-              borderRadius: 8,
-              background: '#080c14',
-              border: '1px solid #1e293b',
-              fontFamily: 'var(--sf-font-mono)',
-              fontSize: 12,
-              color: '#f8fafc',
-              lineHeight: 1.7,
-              height: 480,
-              overflowY: 'auto',
-            }}
-          >
-            <div style={{ color: '#64748b' }}>[10:14:02] Initializing SecureFlow Enterprise Orchestration Worker...</div>
-            <div style={{ color: '#10b981' }}>[10:14:03] ✔ Developer Push: Commit 8f9b2a14 verified</div>
-            <div style={{ color: '#10b981' }}>[10:14:07] ✔ GitHub Actions Workflow #9841203 running on runner ubuntu-latest</div>
-            <div style={{ color: '#ef4444', fontWeight: 700 }}>[10:14:10] ❌ Gitleaks Scanner: AWS Secret Key string leaked in config/env.sample:14</div>
-            <div style={{ color: '#ef4444', fontWeight: 800 }}>[10:14:10] ⛔ POLICY ENGINE: BLOCK SIGNAL EMITTED (gitleaks_secret_leak)</div>
-            <div style={{ color: '#64748b' }}>[10:14:10] ⏭️ Skipping subsequent stages: Docker Build, Trivy Container, GCP Deploy, OWASP ZAP</div>
-            <div style={{ color: '#f59e0b' }}>[10:14:10] Slack Notification sent to #devsecops-alerts</div>
+          {/* Header */}
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--sf-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Terminal size={16} color="var(--sf-accent)" />
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sf-ink)' }}>Console Execution Stream</span>
+            </div>
+
+            <Button variant="ghost" size="sm" onClick={handleCopyAllLogs}>
+              <Copy size={12} /> {copiedLogs ? 'Copied' : 'Copy All Logs'}
+            </Button>
+          </div>
+
+          {/* SECTION 4E: FILTER BAR ABOVE CONSOLE */}
+          <div style={{ padding: '8px 12px', background: 'var(--sf-bg-surface)', borderBottom: '1px solid var(--sf-border)', display: 'flex', gap: 6 }}>
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'errors', label: 'Errors only' },
+              { id: 'policy', label: 'Policy events' },
+              { id: 'scanners', label: 'Scanner output' },
+              { id: 'starts', label: 'Stage starts' },
+            ].map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setConsoleFilter(f.id as any)}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 12,
+                  border: 'none',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: consoleFilter === f.id ? 'var(--sf-accent)' : 'transparent',
+                  color: consoleFilter === f.id ? '#ffffff' : 'var(--sf-ink-low)',
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* SECTION 4A-D: STRUCTURED CONSOLE CONTAINER */}
+          <div style={{ position: 'relative' }}>
+            <div
+              ref={consoleRef}
+              onScroll={handleConsoleScroll}
+              style={{
+                padding: 14,
+                background: '#080c14',
+                fontFamily: 'var(--sf-font-mono)',
+                fontSize: 12,
+                lineHeight: 1.6,
+                maxHeight: 480,
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              {filteredConsoleLogs.map((log, idx) => {
+                const isError = log.type === 'error';
+                const isPolicy = log.type === 'policy';
+                const isSuccess = log.type === 'success';
+
+                return (
+                  <React.Fragment key={idx}>
+                    {/* SECTION 4D: DISTINCT POLICY DECISION BOX */}
+                    {isPolicy && (
+                      <div
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: 8,
+                          background: '#fee2e2',
+                          border: '1px solid #fca5a5',
+                          color: '#b91c1c',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          margin: '6px 0',
+                        }}
+                      >
+                        <ShieldX size={20} color="#b91c1c" />
+                        <div>
+                          <div>{log.message}</div>
+                          <div style={{ fontSize: 11, fontWeight: 500, opacity: 0.85 }}>
+                            Subsequent stages skipped automatically by orchestrator
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SECTION 4A & 4C: STRUCTURED LOG LINE ANATOMY */}
+                    {!isPolicy && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 8,
+                          padding: '4px 8px',
+                          borderRadius: 4,
+                          background: log.isCriticalCallout ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+                          borderLeft: log.isCriticalCallout ? '3px solid #ef4444' : 'none',
+                        }}
+                      >
+                        {/* Timestamp */}
+                        <span style={{ color: '#64748b', fontSize: 11, width: 60, flexShrink: 0 }}>{log.timestamp}</span>
+
+                        {/* Icon Gutter */}
+                        <span style={{ width: 20, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+                          {isSuccess && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e' }} />}
+                          {isError && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />}
+                          {!isSuccess && !isError && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#64748b' }} />}
+                        </span>
+
+                        {/* Stage Chip */}
+                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#1e293b', color: '#94a3b8', flexShrink: 0 }}>
+                          {log.stageName}
+                        </span>
+
+                        {/* Log Message */}
+                        <span style={{ color: log.isCriticalCallout ? '#ef4444' : '#f8fafc', flex: 1, wordBreak: 'break-all' }}>
+                          {log.message}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* SECTION 4C: INLINE CALLOUT CARD FOR CRITICAL ERRORS */}
+                    {log.isCriticalCallout && (
+                      <div
+                        style={{
+                          marginLeft: 88,
+                          padding: 10,
+                          borderRadius: 6,
+                          background: '#1e1b2e',
+                          border: '1px solid #ef4444',
+                          color: '#f8fafc',
+                          fontSize: 11,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ color: '#ef4444', fontWeight: 700 }}>⚠️ Critical Leak Detected</div>
+                        <div>{log.calloutDetails}</div>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <button
+                            onClick={() => openVoidWithContext({ message: log.message })}
+                            style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}
+                          >
+                            View file →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            {/* SECTION 4F: JUMP TO LATEST FLOATING BUTTON */}
+            {!autoScroll && (
+              <button
+                onClick={scrollToBottom}
+                style={{
+                  position: 'absolute',
+                  bottom: 16,
+                  right: 16,
+                  padding: '6px 12px',
+                  borderRadius: 16,
+                  background: 'var(--sf-accent)',
+                  color: '#ffffff',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  border: 'none',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                ↓ Jump to latest
+              </button>
+            )}
           </div>
         </Card>
       </div>
 
-      {/* "WHY BLOCKED" Side Investigation Drawer (Gated to actual failing stage) */}
+      {/* WHY BLOCKED Side Drawer */}
       {blockedPanelStage && (
         <div
           onClick={() => setBlockedPanelStage(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(4px)',
-            zIndex: 9990,
-            display: 'flex',
-            justifyContent: 'flex-end',
-          }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 9990, display: 'flex', justifyContent: 'flex-end' }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="fade-in"
-            style={{
-              width: 520,
-              maxWidth: '92vw',
-              height: '100vh',
-              background: 'var(--sf-bg-card)',
-              borderLeft: '1px solid var(--sf-border)',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-              display: 'flex',
-              flexDirection: 'column',
-              padding: 24,
-              gap: 16,
-              overflowY: 'auto',
-            }}
+            style={{ width: 500, maxWidth: '90vw', height: '100vh', background: 'var(--sf-bg-card)', padding: 24, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}
           >
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--sf-border)', paddingBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--sf-red-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <AlertTriangle size={20} color="var(--sf-red)" />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>
-                    Why Blocked: {blockedPanelStage.name}
-                  </h2>
-                  <span style={{ fontSize: 11, color: 'var(--sf-red)', fontWeight: 700 }}>
-                    Security Gate Block Trigger
-                  </span>
-                </div>
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--sf-border)', paddingBottom: 12 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>Why Blocked: {blockedPanelStage.name}</h2>
               <button onClick={() => setBlockedPanelStage(null)} style={{ background: 'none', border: 'none', color: 'var(--sf-ink-low)', cursor: 'pointer' }}>
                 <X size={20} />
               </button>
             </div>
 
-            {/* Block Reason */}
-            <div style={{ padding: 14, borderRadius: 10, background: 'var(--sf-red-soft)', border: '1px solid var(--sf-red-border)' }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--sf-red)', textTransform: 'uppercase', marginBottom: 4 }}>
-                Primary Block Reason
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--sf-ink)', fontWeight: 600 }}>
-                {blockedPanelStage.blockReason || 'Blocked by policy engine evaluation.'}
-              </div>
+            <div style={{ padding: 12, borderRadius: 8, background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: 13, fontWeight: 700 }}>
+              {blockedPanelStage.blockReason || 'Blocked by security policy rules.'}
             </div>
 
-            {/* AI Explanation */}
             <div>
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Zap size={14} color="var(--sf-accent)" /> Void AI Diagnosis
-              </h3>
-              <p style={{ fontSize: 13, color: 'var(--sf-ink-mid)', lineHeight: 1.5, background: 'var(--sf-bg-surface)', padding: 12, borderRadius: 8, border: '1px solid var(--sf-border)' }}>
-                {blockedPanelStage.aiExplanation || 'Void AI analyzed the scanner output and confirmed a critical security rule breach.'}
+              <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)', marginBottom: 4 }}>Void AI Remediation</h4>
+              <p style={{ fontSize: 12, color: 'var(--sf-ink-mid)', lineHeight: 1.5, background: 'var(--sf-bg-surface)', padding: 12, borderRadius: 8 }}>
+                {blockedPanelStage.aiExplanation || 'Remove exposed API secrets and update security policy before pushing.'}
               </p>
             </div>
 
-            {/* Suggested Fix */}
-            <div>
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-green)', marginBottom: 6 }}>
-                🛠️ Suggested Remediation Fix
-              </h3>
-              <div style={{ fontSize: 12, color: 'var(--sf-ink-mid)', lineHeight: 1.5, background: 'var(--sf-bg-surface)', padding: 12, borderRadius: 8, border: '1px solid var(--sf-border)' }}>
-                {blockedPanelStage.suggestedFix || 'Remove sensitive credentials and push a clean updated commit.'}
-              </div>
-            </div>
-
-            {/* Scanner Logs */}
-            <div>
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink-mid)', marginBottom: 6 }}>
-                Scanner Output & Logs
-              </h3>
-              <div style={{ padding: 12, borderRadius: 8, background: '#080c14', border: '1px solid #1e293b', fontFamily: 'var(--sf-font-mono)', fontSize: 11, color: '#ef4444', lineHeight: 1.6 }}>
-                {blockedPanelStage.logs.map((l, i) => <div key={i}>{l}</div>)}
-              </div>
-            </div>
-
-            {/* Bottom Actions */}
-            <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--sf-border)', display: 'flex', gap: 10 }}>
-              <Button
-                variant="primary"
-                style={{ flex: 1 }}
-                onClick={() => {
-                  setBlockedPanelStage(null);
-                  openVoidWithContext({
-                    stage: blockedPanelStage.name,
-                    blockReason: blockedPanelStage.blockReason,
-                    logs: blockedPanelStage.logs,
-                  });
-                }}
-              >
-                <Zap size={14} /> Open in Void Assistant
-              </Button>
-            </div>
+            <Button variant="primary" onClick={() => openVoidWithContext({ stage: blockedPanelStage.name })}>
+              <Zap size={14} /> Discuss in Void AI
+            </Button>
           </div>
         </div>
       )}
