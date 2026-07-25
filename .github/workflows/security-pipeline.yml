@@ -688,8 +688,7 @@ jobs:
           gcloud run deploy secureflow-backend-staging \
             --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
             --region us-central1 \
-            --allow-unauthenticated \
-            --no-traffic
+            --allow-unauthenticated
 
       - name: Get Staging URL
         id: staging_url
