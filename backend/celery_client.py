@@ -34,6 +34,11 @@ CELERY_TASK_NAME = os.getenv("CELERY_TASK_NAME", "tasks.run_zap_scan")
 # ---------------------------------------------------------------------------
 # Celery Producer Initialization
 # ---------------------------------------------------------------------------
+# Log the Redis host (masked) so we can verify producer and worker point to
+# the same broker WITHOUT leaking credentials in plaintext logs.
+_redis_host = REDIS_URL.split("@")[-1].split("/")[0] if "@" in REDIS_URL else REDIS_URL.split("://")[1].split("/")[0] if "://" in REDIS_URL else REDIS_URL
+logger.info(f"[celery_client] Initializing Celery producer — broker host={_redis_host}, queue={WORKER_QUEUE}, task={CELERY_TASK_NAME}")
+
 celery_app = Celery(
     "secureflow_producer",
     broker=REDIS_URL
@@ -129,10 +134,17 @@ def publish_dast_task(
     # -----------------------------------------------------------------------
     # When Redis server isn't running on localhost in Cloud Run / CI,
     # generate a valid DAST task execution result instead of failing the pipeline.
+    # IMPORTANT: In simulated mode the worker NEVER receives the task — the
+    # pipeline uses fake ZAP findings. To run real DAST scans, set the
+    # UPSTASH_REDIS_URL or REDIS_URL env var to the same Redis instance the
+    # Worker VM consumes from.
     simulated_task_id = f"zap-auto-{uuid.uuid4().hex[:8]}"
-    logger.info(
-        f"[celery_client] Redis broker unavailable. Initiating resilient DAST fallback runner: "
-        f"task_id={simulated_task_id} for target={target_url}"
+    logger.warning(
+        f"[celery_client] SIMULATED DAST FALLBACK — Redis broker unreachable at "
+        f"'{_redis_host}' after {attempt} attempt(s). "
+        f"scan will use simulated findings. "
+        f"To dispatch to real Worker, set UPSTASH_REDIS_URL or REDIS_URL "
+        f"to a Redis instance the Worker can reach."
     )
 
     return {
