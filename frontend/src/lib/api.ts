@@ -4,7 +4,6 @@
  */
 
 const BACKEND_URL =
-  (import.meta as any)?.env?.VITE_API_URL ||
   process.env.REACT_APP_API_URL ||
   'https://secureflow-backend-1083585992526.us-central1.run.app';
 
