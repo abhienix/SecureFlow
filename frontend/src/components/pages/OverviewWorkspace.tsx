@@ -13,18 +13,18 @@ function RadialArcGauge({ score, reason }: { score: number; reason: string }) {
   const radius = 80;
   const strokeWidth = 14;
   const sweepAngle = 220;
-  const startAngle = 160;
 
-  // Interpolate color from #ef4444 (0) to #22c55e (100)
+  // Item 4 QA Pass: Color passes through amber at score=50, minimum 3% sliver for score=0
   const getScoreColor = (val: number) => {
-    if (val < 50) return '#ef4444';
-    if (val < 75) return '#f59e0b';
-    return '#22c55e';
+    if (val < 45) return '#ef4444'; // Red
+    if (val <= 74) return '#f59e0b'; // Amber at score=50
+    return '#22c55e'; // Green
   };
 
   const color = getScoreColor(score);
   const totalLength = (sweepAngle / 360) * (2 * Math.PI * radius);
-  const fillLength = (score / 100) * totalLength;
+  const visibleScore = Math.max(score, 3); // 3% minimum sliver so score=0 is visible red arc, not blank
+  const fillLength = (visibleScore / 100) * totalLength;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
@@ -70,8 +70,6 @@ function VulnerabilityDonutChart({ total, segments }: { total: number; segments:
   const navigate = useNavigate();
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-  // Minimum arc 8° for non-zero items
-  const nonZeroCount = segments.filter((s) => s.value > 0).length;
   const effectiveTotal = total || 1;
 
   const size = 200;

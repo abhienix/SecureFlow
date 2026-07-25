@@ -396,11 +396,27 @@ export default function PipelinesWorkspace() {
     return logs;
   }, [pipelineStages]);
 
+  // Safe relative timestamp helper (Item 2 QA Pass)
+  const formatRelativeTime = (dateStr?: string) => {
+    if (!dateStr) return null;
+    const dateMs = new Date(dateStr).getTime();
+    if (isNaN(dateMs)) return null;
+    const diffMin = Math.floor((Date.now() - dateMs) / 60000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin} min ago`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH}h ago`;
+    return `${Math.floor(diffH / 24)}d ago`;
+  };
+
   const filteredConsoleLogs = useMemo(() => {
     switch (consoleFilter) {
       case 'errors': return allConsoleLogs.filter((l) => l.type === 'error' || l.type === 'policy');
       case 'policy': return allConsoleLogs.filter((l) => l.type === 'policy');
-      case 'scanners': return allConsoleLogs.filter((l) => l.message.includes('[Gitleaks]') || l.message.includes('[Semgrep]') || l.message.includes('[Trivy]') || l.message.includes('[ZAP]'));
+      // Item 5 QA Pass: Full scanner regex matching all real engine names
+      case 'scanners': return allConsoleLogs.filter((l) =>
+        /gitleaks|semgrep|trivy|owasp zap|zap|policy engine|github actions|gcp deploy|developer push|docker build/i.test(l.message)
+      );
       case 'starts': return allConsoleLogs.filter((l) => l.type === 'start');
       default: return allConsoleLogs;
     }
@@ -559,7 +575,7 @@ export default function PipelinesWorkspace() {
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--sf-ink-muted)' }}>
-                        <Clock size={10} /> ⬆ push · 2 min ago
+                        <Clock size={10} /> ⬆ push · {formatRelativeTime(s.created_at || s.timestamp) || `#${s.id}`}
                       </div>
 
                       {/* Dot preview of stages */}
@@ -601,7 +617,6 @@ export default function PipelinesWorkspace() {
         {/* Stages Track */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', padding: '30px 10px 10px' }}>
           {pipelineStages.map((stage, idx) => {
-            const Icon = stage.icon;
             const isPassed = stage.status === 'passed';
             const isFailed = stage.status === 'failed' || stage.status === 'blocked';
             const isSkipped = stage.status === 'skipped';
