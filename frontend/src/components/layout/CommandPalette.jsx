@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   Search, ShieldCheck, FolderGit2, GitPullRequest, Rocket, ShieldAlert,
-  FileText, Activity, Download, Sparkles, Settings
+  FileText, Activity, Download, Sparkles, Settings, Radar
 } from "lucide-react";
 
 const COMMANDS = [
-  { id: "dashboard", label: "Dashboard", path: "/dashboard", Icon: ShieldCheck, section: "Navigation" },
+  { id: "mission-control", label: "Mission Control", path: "/mission-control", Icon: Radar, section: "Navigation" },
+  { id: "dashboard", label: "Dashboard (Legacy)", path: "/dashboard", Icon: ShieldCheck, section: "Navigation" },
   { id: "repositories", label: "Repositories", path: "/repositories", Icon: FolderGit2, section: "Navigation" },
   { id: "pipelines", label: "Pipelines", path: "/pipelines", Icon: GitPullRequest, section: "Navigation" },
   { id: "deployments", label: "Deployments", path: "/deployments", Icon: Rocket, section: "Navigation" },

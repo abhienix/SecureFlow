@@ -1,11 +1,13 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useApp } from "../../contexts/AppContext";
+import { useQueryClient } from "@tanstack/react-query";
+import { useUIStore } from "../../stores/uiStore";
 import {
   Search, Bell, RefreshCw, Sparkles, Wifi, WifiOff, ChevronRight
 } from "lucide-react";
 
 const ROUTE_LABELS = {
+  "/mission-control": "Mission Control",
   "/dashboard": "Dashboard",
   "/repositories": "Repositories",
   "/repositories/workspace": "Repository Workspace",
@@ -19,11 +21,12 @@ const ROUTE_LABELS = {
   "/settings": "Settings",
 };
 
-export default function TopBar({ C, wsConnected, onOpenCommandPalette, onRescan, onToggleCopilot }) {
+export default function TopBar({ C }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { notifications } = useApp();
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const qc = useQueryClient();
+  const { notifications, wsConnected, toggleCmdPalette, toggleCopilot } = useUIStore();
+  const unreadCount = notifications.length;
 
   const currentLabel = ROUTE_LABELS[location.pathname] || "SecureFlow";
   const parentPath = location.pathname.split("/").slice(0, -1).join("/");
@@ -38,7 +41,7 @@ export default function TopBar({ C, wsConnected, onOpenCommandPalette, onRescan,
     }}>
       {/* Left: Breadcrumbs */}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <button onClick={() => navigate("/dashboard")} style={{
+        <button onClick={() => navigate("/mission-control")} style={{
           background: "none", border: "none", color: C.inkLow, fontSize: 13,
           fontWeight: 500, cursor: "pointer", padding: 0,
         }}>SecureFlow</button>
@@ -60,7 +63,7 @@ export default function TopBar({ C, wsConnected, onOpenCommandPalette, onRescan,
       {/* Right: Actions */}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {/* Command Palette Trigger */}
-        <button onClick={onOpenCommandPalette} style={{
+        <button onClick={toggleCmdPalette} style={{
           display: "flex", alignItems: "center", gap: 8, padding: "6px 12px",
           borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg,
           color: C.inkLow, fontSize: 12, cursor: "pointer", transition: "all 150ms",
@@ -75,7 +78,7 @@ export default function TopBar({ C, wsConnected, onOpenCommandPalette, onRescan,
         </button>
 
         {/* Refresh */}
-        <button onClick={onRescan} style={{
+        <button onClick={() => qc.invalidateQueries()} style={{
           width: 34, height: 34, borderRadius: 8, border: `1px solid ${C.border}`,
           background: "transparent", color: C.inkLow, cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -101,7 +104,7 @@ export default function TopBar({ C, wsConnected, onOpenCommandPalette, onRescan,
         </button>
 
         {/* Void AI Drawer Trigger */}
-        <button onClick={onToggleCopilot} style={{
+        <button onClick={toggleCopilot} style={{
           display: "flex", alignItems: "center", gap: 6, padding: "6px 12px",
           borderRadius: 8, border: `1px solid ${C.accentBorder}`,
           background: C.accentSoft, color: C.accent, fontSize: 12,
