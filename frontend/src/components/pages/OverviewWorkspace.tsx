@@ -253,6 +253,10 @@ export default function OverviewWorkspace() {
   const [alertDismissed, setAlertDismissed] = useState(false);
   const [gateHovered, setGateHovered] = useState<any>(null);
 
+  React.useEffect(() => {
+    document.title = 'Overview — SecureFlow';
+  }, []);
+
   const scans = useMemo(() => rawScans || [], [rawScans]);
 
   const stats = useMemo(() => {

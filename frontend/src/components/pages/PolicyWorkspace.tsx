@@ -10,6 +10,10 @@ export default function PolicyWorkspace() {
   const { isLoading } = usePolicies();
   const { data: rawFindings } = useFindings();
 
+  React.useEffect(() => {
+    document.title = 'Policy Engine — SecureFlow';
+  }, []);
+
   // Form State
   const [blockSeverities, setBlockSeverities] = useState<string[]>(['CRITICAL', 'HIGH']);
   const [warnSeverities, setWarnSeverities] = useState<string[]>(['MEDIUM']);
@@ -156,8 +160,8 @@ notifications:
         <Badge variant="passed">● Active Enforcement</Badge>
       </div>
 
-      {/* SECTION 5A: SPLIT PANEL LAYOUT (42% Form / 58% Live Preview) */}
-      <div style={{ display: 'grid', gridTemplateColumns: '42% 58%', gap: 16 }}>
+      {/* SECTION 5A: SPLIT PANEL LAYOUT (42% Form / 58% Live Preview, stacks vertically below 1024px) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[42%_58%]" style={{ gap: 16 }}>
         {/* LEFT PANEL: FORM EDITOR */}
         <Card style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>Policy Form Editor</h3>
