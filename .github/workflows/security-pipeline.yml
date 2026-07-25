@@ -780,10 +780,9 @@ jobs:
           DAST_TARGET: ${{ steps.dast_target.outputs.dast_target }}
         run: |
           echo "=== OWASP ZAP DAST Scan Against Staging ==="
-          echo "Scanning staging endpoint: $DAST_TARGET"
-          echo "[OWASP ZAP] Alert: X-Content-Type-Options Header Missing (Risk: Medium)"
-          echo "[OWASP ZAP] Alert: Absence of Anti-CSRF Tokens (Risk: Medium)"
-          echo "::warning title=OWASP ZAP Findings::2 DAST security alerts detected on staging endpoint."
+          echo "Staging endpoint: $DAST_TARGET"
+          echo "DAST running asynchronously on Worker VM via Celery/Redis."
+          echo "Results will be polled in the ZAP Policy Gate step."
 
       # ── Step 16b: Trigger Distributed DAST Pipeline ─────────────────────────
       - name: Trigger Automated Distributed DAST Pipeline
@@ -829,31 +828,66 @@ jobs:
 
           echo "Backend DAST Trigger Response: $RESPONSE"
 
-      # ── Step 17: ZAP Policy Gate ──────────────────────────────────────────
-      - name: ZAP Policy Gate — Block if DAST Failed
+      # ── Step 17: ZAP Policy Gate — Block if DAST Failed ──────────────────
+      - name: ZAP Policy Gate — Poll DAST Results & Gate
         id: zap_gate
         if: steps.deploy_staging.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
         run: |
-          # For now, simulate ZAP pass (in production, check actual ZAP results)
-          ZAP_PASSED=true
+          POLL_INTERVAL=15
+          MAX_RETRIES=40  # 10 minutes total timeout
+          retry=0
 
-          if [ "$ZAP_PASSED" = "true" ]; then
-            echo "ZAP DAST passed against staging — proceeding to production deploy."
-            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
-              -H "Content-Type: application/json" \
-              -d '{ "pipeline_steps": { "zap": { "result": "PASS", "detail": "OWASP ZAP DAST passed against staging — no critical findings" } } }' || true
-            echo "zap_passed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ZAP DAST FAILED against staging — blocking production deploy."
-            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
-              -H "Content-Type: application/json" \
-              -d '{ "status": "complete", "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "ZAP DAST detected critical findings on staging — production deploy blocked" } } }' || true
-            echo "zap_passed=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
+          echo "Polling backend for DAST completion on run $RUN_ID..."
+
+          while [ $retry -lt $MAX_RETRIES ]; do
+            RESPONSE=$(curl -sS -f "$BACKEND_URL/api/scan-results/$RUN_ID" \
+              -H "Content-Type: application/json" || echo '{"dast_status":"error"}')
+
+            DAST_STATUS=$(echo "$RESPONSE" | jq -r '.dast_status // "unknown"')
+            ZAP_RESULT=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap.result // "PENDING"')
+
+            echo "Poll $((retry + 1))/$MAX_RETRIES — dast_status=$DAST_STATUS  zap.result=$ZAP_RESULT"
+
+            if [ "$DAST_STATUS" = "completed" ]; then
+              echo "DAST completed."
+              if [ "$ZAP_RESULT" = "PASS" ]; then
+                echo "ZAP DAST passed — proceeding to production deploy."
+                echo "zap_passed=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              else
+                echo "ZAP DAST FAILED (result=$ZAP_RESULT) — blocking production deploy."
+                curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+                  -H "Content-Type: application/json" \
+                  -d '{ "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "ZAP DAST failed on staging — production deploy blocked" } } }' || true
+                echo "zap_passed=false" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+            fi
+
+            if [ "$DAST_STATUS" = "failed" ] || [ "$DAST_STATUS" = "queue_failed" ]; then
+              echo "DAST failed (status=$DAST_STATUS) — blocking production deploy."
+              curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+                -H "Content-Type: application/json" \
+                -d '{ "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "DAST scan failed on staging — production deploy blocked" } } }' || true
+              echo "zap_passed=false" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+
+            echo "DAST still running ($DAST_STATUS) — waiting ${POLL_INTERVAL}s..."
+            sleep $POLL_INTERVAL
+            retry=$((retry + 1))
+          done
+
+          # Timeout reached
+          echo "Timeout waiting for DAST to complete after $((MAX_RETRIES * POLL_INTERVAL))s."
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d '{ "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "DAST timed out — production deploy blocked" } } }' || true
+          echo "zap_passed=false" >> "$GITHUB_OUTPUT"
+          exit 1
 
       # ── Step 18: Deploy to PRODUCTION ──────────────────────────────────────
       - name: Notify Production Deploy
@@ -917,7 +951,7 @@ jobs:
             echo "Fix: push with [deploy] in the commit message, or Actions → Run workflow → enable deploy_backend + deploy_frontend."
           fi
 
-      # ── Step 16 (NEW): Job-level failsafe — catch anything still unreported ──
+      # ── Failsafe: catch anything still unreported ──
       # *** FIX C ***
       # THE BUG: every notify-failure step in this workflow is conditioned on
       # a SPECIFIC prior step's outcome (gitleaks, semgrep, docker_build,
