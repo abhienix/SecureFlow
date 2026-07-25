@@ -1,16 +1,16 @@
 import React, { useState } from "react";
-import { ShieldCheck, ArrowRight, CheckCircle2 } from "lucide-react";
+import { ShieldCheck, ArrowRight } from "lucide-react";
 
 export function LoginGate({ onAuthenticate, C }) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("secureflow");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = (e) => {
     e?.preventDefault();
     if (username.trim() !== "admin" || password !== "secureflow") {
-      setError("Invalid identity credentials. Try admin / secureflow");
+      setError("Invalid username or password.");
       return;
     }
 
@@ -76,7 +76,9 @@ export function LoginGate({ onAuthenticate, C }) {
               type="text"
               value={username}
               onChange={e => setUsername(e.target.value)}
-              placeholder="admin"
+              placeholder="Enter your username"
+              autoComplete="username"
+              required
               style={{
                 width: "100%", padding: "10px 14px", borderRadius: 8,
                 background: "#1e293b", border: "1px solid #334155",
@@ -94,7 +96,9 @@ export function LoginGate({ onAuthenticate, C }) {
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder="secureflow"
+              placeholder="Enter your password"
+              autoComplete="current-password"
+              required
               style={{
                 width: "100%", padding: "10px 14px", borderRadius: 8,
                 background: "#1e293b", border: "1px solid #334155",
@@ -136,17 +140,6 @@ export function LoginGate({ onAuthenticate, C }) {
           </button>
         </form>
 
-        {/* Demo Fast-Track Info */}
-        <div style={{
-          marginTop: 20, paddingTop: 16, borderTop: "1px solid #1e293b",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          fontSize: 11, color: "#64748b"
-        }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <CheckCircle2 size={13} color="#10b981" /> Pre-filled credentials
-          </span>
-          <span style={{ fontFamily: "'JetBrains Mono', monospace", color: "#6366F1" }}>admin / secureflow</span>
-        </div>
       </div>
     </div>
   );

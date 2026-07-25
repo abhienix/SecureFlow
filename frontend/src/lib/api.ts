@@ -18,18 +18,26 @@ class ApiError extends Error {
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers || {}),
-    },
-  });
-
-  if (!res.ok) {
-    throw new ApiError(res.status, `API ${res.status}: ${res.statusText}`);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.headers || {}),
+      },
+    });
+  } catch {
+    throw new ApiError(0, 'Unable to reach the SecureFlow backend. Check your network connection and try again.');
   }
 
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = typeof body?.detail === 'string' ? body.detail : res.statusText;
+    throw new ApiError(res.status, `API ${res.status}: ${detail}`);
+  }
+
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 

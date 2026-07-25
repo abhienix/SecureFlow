@@ -251,6 +251,14 @@ button:focus-visible {
   animation: slideIn 200ms ease-out forwards;
 }
 
+.sf-route-loading {
+  display: grid;
+  min-height: 12rem;
+  place-items: center;
+  color: var(--sf-ink-low);
+  font-size: 0.875rem;
+}
+
 .pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
 }
@@ -339,8 +347,21 @@ button:focus-visible {
 }
 
 @media (max-width: 768px) {
+  main {
+    padding: 16px !important;
+  }
+
   .sf-grid-4 {
     grid-template-columns: 1fr !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

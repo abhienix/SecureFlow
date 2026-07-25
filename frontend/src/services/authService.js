@@ -16,7 +16,7 @@ export const LoginService = {
       sessionStorage.setItem("sf_user", JSON.stringify(session.user));
       return { success: true, session };
     }
-    return { success: false, error: "Invalid credentials. Use admin / secureflow" };
+    return { success: false, error: "Invalid username or password." };
   },
 
   async logout() {

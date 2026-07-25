@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { X, Send, Bot, User, Terminal, RefreshCw } from "lucide-react";
-import { useApp } from "../contexts/AppContext";
+import { useFindings, useScans } from "../hooks/useApi";
+import { api } from "../lib/api";
 import { useUIStore } from "../stores/uiStore";
 import FormattedCopilotMessage from "./shared/FormattedCopilotMessage";
 import VoidCoreIcon from "./shared/VoidCoreIcon";
 
 export default function GlobalAICopilot({ C, isOpen, onClose }) {
   const location = useLocation();
-  const { scans, findings, BACKEND } = useApp();
+  const { data: scans = [] } = useScans();
+  const { data: findings = [] } = useFindings();
   const { activeVoidContext, setVoidContext } = useUIStore();
   const [messages, setMessages] = useState([
     {
@@ -59,18 +61,8 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
         ...(activeVoidContext || {}),
       };
 
-      const response = await fetch(`${BACKEND}/api/copilot/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: queryText,
-          scan_id: activeScan.id || 1,
-          context: payloadContext,
-        }),
-      });
-
-      const data = await response.json();
-      const aiReply = data.answer || data.response || "SecureFlow Copilot analyzed the request and confirmed policy compliance across active repositories.";
+      const data = await api.getCopilotAnswer(queryText, activeScan.id, payloadContext);
+      const aiReply = data.answer;
 
       setMessages(prev => [
         ...prev,

@@ -1,9 +1,9 @@
-import React, { useEffect } from "react";
+import React, { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
-import { AppProvider, useApp } from "./contexts/AppContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useScanWebSocket } from "./hooks/useScanWebSocket";
+import { useScans } from "./hooks/useApi";
 import { useUIStore } from "./stores/uiStore";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ToastContainer from "./components/ToastContainer";
@@ -16,11 +16,11 @@ import NotificationDrawer from "./components/layout/NotificationDrawer";
 import GlobalAICopilot from "./components/GlobalAICopilot";
 
 // Primary Enterprise Workspaces (5 Workspaces)
-import OverviewWorkspace from "./components/pages/OverviewWorkspace";
-import PipelinesWorkspace from "./components/pages/PipelinesWorkspace";
-import SecurityCenterWorkspace from "./components/pages/SecurityCenterWorkspace";
-import PolicyWorkspace from "./components/pages/PolicyWorkspace";
-import SettingsWorkspace from "./components/pages/SettingsWorkspace";
+const OverviewWorkspace = lazy(() => import("./components/pages/OverviewWorkspace"));
+const PipelinesWorkspace = lazy(() => import("./components/pages/PipelinesWorkspace"));
+const SecurityCenterWorkspace = lazy(() => import("./components/pages/SecurityCenterWorkspace"));
+const PolicyWorkspace = lazy(() => import("./components/pages/PolicyWorkspace"));
+const SettingsWorkspace = lazy(() => import("./components/pages/SettingsWorkspace"));
 
 function PageError({ C }) {
   return (
@@ -47,10 +47,14 @@ function PageError({ C }) {
   );
 }
 
+function RouteFallback() {
+  return <div className="sf-route-loading" aria-live="polite">Loading workspace…</div>;
+}
+
 function AppShell() {
   const { C } = useTheme();
-  const { error, fetchAllData } = useApp();
   const navigate = useNavigate();
+  const { error, refetch } = useScans();
   const { isCmdPaletteOpen, setCmdPaletteOpen, isCopilotOpen, setCopilotOpen, toggleCmdPalette } = useUIStore();
 
   // New TanStack Query-powered WebSocket (exponential backoff + cache invalidation)
@@ -84,7 +88,7 @@ function AppShell() {
             color: C.red, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
           }}>
             <span>⚠️</span> {error}
-            <button onClick={fetchAllData} style={{
+            <button onClick={() => refetch()} style={{
               marginLeft: "auto", padding: "4px 12px", borderRadius: 6, border: `1px solid ${C.redBorder}`,
               background: "transparent", color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer",
             }}>Retry</button>
@@ -92,6 +96,7 @@ function AppShell() {
         )}
 
         <main style={{ flex: 1, padding: 24, overflowY: "auto", background: C.bg }}>
+          <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<Navigate to="/overview" replace />} />
               <Route path="/overview" element={<ErrorBoundary><OverviewWorkspace /></ErrorBoundary>} />
@@ -111,6 +116,7 @@ function AppShell() {
               <Route path="/copilot" element={<Navigate to="/overview" replace />} />
               <Route path="*" element={<PageError C={C} />} />
             </Routes>
+          </Suspense>
         </main>
       </div>
 
@@ -142,11 +148,7 @@ function AuthenticatedApp() {
     return <LoginGate onAuthenticate={(usr, pwd) => login(usr, pwd)} C={C} />;
   }
 
-  return (
-    <AppProvider>
-      <AppShell />
-    </AppProvider>
-  );
+  return <AppShell />;
 }
 
 export default function App() {
