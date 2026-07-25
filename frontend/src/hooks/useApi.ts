@@ -14,6 +14,7 @@ export function useScans(limit = 200) {
     queryKey: queryKeys.scans,
     queryFn: () => api.getScans(limit),
     select: (data) => data.scans,
+    refetchInterval: 5000,
   });
 }
 
