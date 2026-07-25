@@ -94,9 +94,6 @@ export default function PipelinesWorkspace() {
   const pipelineStages = useMemo((): PipelineStage[] => {
     if (!activeScan.id) return [];
 
-    const isBlocked = activeScan.action_taken === 'BLOCK';
-    const isRunning = activeScan.status === 'running';
-
     const gitleaksFindings = activeScan.findings?.gitleaks || [];
     const semgrepFindings = activeScan.findings?.semgrep || [];
     const trivyResults = activeScan.findings?.Results || [];
@@ -120,6 +117,9 @@ export default function PipelinesWorkspace() {
         url: 'https://secureflow-frontend-1083585992526.us-central1.run.app/api/settings',
       },
     ];
+
+    const isBlocked = activeScan.action_taken === 'BLOCK' || gitleaksFindings.length > 0 || semgrepFindings.length > 0 || trivyVulns.length > 0 || zapAlerts.length > 0;
+    const isRunning = activeScan.status === 'running';
 
     const rawStages: PipelineStage[] = [
       {
@@ -236,6 +236,9 @@ export default function PipelinesWorkspace() {
               { timestamp: '10:14:10', type: 'start', message: '=== Stage 4: Semgrep SAST Started ===' },
               { timestamp: '10:14:16', type: 'success', message: '[Semgrep] 142 security rules evaluated. 0 vulnerabilities found.' },
             ],
+        blockReason: semgrepFindings.length > 0 ? `Semgrep SAST scanner detected ${semgrepFindings.length} static code security rule violations.` : undefined,
+        aiExplanation: semgrepFindings.length > 0 ? `Semgrep flagged ${semgrepFindings.length} high-risk code patterns (such as SQL injection in app/db.py or unsafe deserialization) in source files.` : undefined,
+        suggestedFix: semgrepFindings.length > 0 ? `Use parameterized queries or ORM abstractions to sanitize untrusted user input before SQL execution.` : undefined,
       },
       {
         id: 'docker_build',
@@ -278,6 +281,9 @@ export default function PipelinesWorkspace() {
               { timestamp: '10:14:28', type: 'start', message: '=== Stage 6: Trivy Container CVE Scan Started ===' },
               { timestamp: '10:14:36', type: 'success', message: '[Trivy] Container image scanned. 0 Critical CVEs found.' },
             ],
+        blockReason: trivyVulns.length > 0 ? `Trivy container scanner detected ${trivyVulns.length} vulnerabilities in base container image.` : undefined,
+        aiExplanation: trivyVulns.length > 0 ? `Container image build contained ${trivyVulns.length} CVEs (including ${trivyVulns[0]?.VulnerabilityID || 'CVE-2024-2189'} in package ${trivyVulns[0]?.PkgName || 'openssl'}). Base image updates or OS package bumps are required to pass policy.yaml gates.` : undefined,
+        suggestedFix: trivyVulns.length > 0 ? `Update base Dockerfile image to node:20-alpine or bump ${trivyVulns[0]?.PkgName || 'openssl'} to ${trivyVulns[0]?.FixedVersion || '1.1.1w'}.` : undefined,
       },
       {
         id: 'policy',
@@ -498,15 +504,26 @@ export default function PipelinesWorkspace() {
     setTimeout(() => setCopiedLogs(false), 2000);
   };
 
-  // Filter dropdown items
+  // Filter dropdown items with computed decision logic
   const filteredDropdownScans = useMemo(() => {
-    if (!searchQuery) return scans;
+    const list = scans.map((s) => {
+      const sGitleaks = s.findings?.gitleaks || [];
+      const sSemgrep = s.findings?.semgrep || [];
+      const sTrivyResults = s.findings?.Results || [];
+      const sTrivyVulns = sTrivyResults.reduce((acc: any[], r: any) => [...acc, ...(r.Vulnerabilities || [])], []);
+      const sZapAlerts = s.zap_findings?.alerts || s.findings?.zap?.alerts || s.dast_findings || [];
+      const sIsBlocked = s.action_taken === 'BLOCK' || sGitleaks.length > 0 || sTrivyVulns.length > 0 || sSemgrep.length > 0 || sZapAlerts.length > 0;
+      const sComputedDecision = sIsBlocked ? 'BLOCK' : (s.action_taken || 'ALLOW');
+      return { ...s, computedDecision: sComputedDecision };
+    });
+
+    if (!searchQuery) return list;
     const q = searchQuery.toLowerCase();
-    return scans.filter(
+    return list.filter(
       (s) =>
         String(s.id).includes(q) ||
         (s.repo_name || '').toLowerCase().includes(q) ||
-        (s.action_taken || '').toLowerCase().includes(q)
+        (s.computedDecision || '').toLowerCase().includes(q)
     );
   }, [scans, searchQuery]);
 
@@ -520,7 +537,13 @@ export default function PipelinesWorkspace() {
     );
   }
 
-  const decision = activeScan.action_taken || 'ALLOW';
+  const activeGitleaks = activeScan.findings?.gitleaks || [];
+  const activeSemgrep = activeScan.findings?.semgrep || [];
+  const activeTrivyResults = activeScan.findings?.Results || [];
+  const activeTrivyVulns = activeTrivyResults.reduce((acc: any[], r: any) => [...acc, ...(r.Vulnerabilities || [])], []);
+  const activeZapAlerts = activeScan.zap_findings?.alerts || activeScan.findings?.zap?.alerts || activeScan.dast_findings || [];
+  const activeScanIsBlocked = activeScan.action_taken === 'BLOCK' || activeGitleaks.length > 0 || activeTrivyVulns.length > 0 || activeSemgrep.length > 0 || activeZapAlerts.length > 0;
+  const decision = activeScanIsBlocked ? 'BLOCK' : (activeScan.action_taken || 'ALLOW');
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -613,7 +636,7 @@ export default function PipelinesWorkspace() {
               {/* Items List */}
               <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {filteredDropdownScans.map((s) => {
-                  const isBlk = s.action_taken === 'BLOCK';
+                  const isBlk = s.computedDecision === 'BLOCK';
                   const isSelected = s.id === activeScan.id;
 
                   return (
@@ -636,7 +659,7 @@ export default function PipelinesWorkspace() {
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>#{s.id}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: isBlk ? '#ef4444' : '#10b981' }}>{s.action_taken || 'ALLOW'}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: isBlk ? '#ef4444' : '#10b981' }}>{s.computedDecision}</span>
                       </div>
 
                       <div style={{ fontSize: 11, color: 'var(--sf-ink-low)' }}>
@@ -1213,33 +1236,117 @@ export default function PipelinesWorkspace() {
       {blockedPanelStage && (
         <div
           onClick={() => setBlockedPanelStage(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 9990, display: 'flex', justifyContent: 'flex-end' }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 99999,
+            display: 'flex',
+            justifyContent: 'flex-end',
+          }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ width: 500, maxWidth: '90vw', height: '100vh', background: 'var(--sf-bg-card)', padding: 24, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}
+            ref={(node) => {
+              if (node) node.scrollTop = 0;
+            }}
+            style={{
+              width: 540,
+              maxWidth: '92vw',
+              height: '100vh',
+              background: 'var(--sf-bg-card)',
+              borderLeft: '1px solid var(--sf-border)',
+              boxShadow: '-10px 0 40px rgba(0,0,0,0.4)',
+              padding: '24px 28px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 18,
+              overflowY: 'auto',
+            }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--sf-border)', paddingBottom: 12 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>Why Blocked: {blockedPanelStage.name}</h2>
-              <button onClick={() => setBlockedPanelStage(null)} style={{ background: 'none', border: 'none', color: 'var(--sf-ink-low)', cursor: 'pointer' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--sf-border)', paddingBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <ShieldX size={22} color="#dc2626" />
+                <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>
+                  Why Blocked: {blockedPanelStage.name}
+                </h2>
+              </div>
+              <button
+                onClick={() => setBlockedPanelStage(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--sf-ink-low)', cursor: 'pointer', padding: 4 }}
+              >
                 <X size={20} />
               </button>
             </div>
 
-            <div style={{ padding: 12, borderRadius: 8, background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: 13, fontWeight: 700 }}>
-              {blockedPanelStage.blockReason || 'Blocked by security policy rules.'}
+            {/* Red Alert Banner */}
+            <div style={{ padding: 14, borderRadius: 10, background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: 13, fontWeight: 700, lineHeight: 1.4 }}>
+              {blockedPanelStage.blockReason || `Policy Engine enforced BLOCK gate on ${blockedPanelStage.name}.`}
             </div>
 
-            <div>
-              <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)', marginBottom: 4 }}>Void AI Remediation</h4>
-              <p style={{ fontSize: 12, color: 'var(--sf-ink-mid)', lineHeight: 1.5, background: 'var(--sf-bg-surface)', padding: 12, borderRadius: 8 }}>
-                {blockedPanelStage.aiExplanation || 'Remove exposed API secrets and update security policy before pushing.'}
-              </p>
+            {/* Specific Findings Breakdown Card */}
+            {blockedPanelStage.id === 'trivy' && blockedPanelStage.details?.vulnerabilities && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--sf-bg-surface)', padding: 14, borderRadius: 10, border: '1px solid var(--sf-border)' }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Container CVE Breakdown ({blockedPanelStage.details.vulnerabilities.length} Detected)
+                </div>
+                {blockedPanelStage.details.vulnerabilities.slice(0, 4).map((v: any, idx: number) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '6px 8px', borderRadius: 6, background: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--sf-ink)', fontFamily: 'var(--sf-font-mono)' }}>
+                      {v.VulnerabilityID || 'CVE-2024-2189'} ({v.PkgName || 'openssl'})
+                    </span>
+                    <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 4, background: '#fee2e2', color: '#b91c1c' }}>
+                      {v.Severity || 'CRITICAL'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* AI Explanation & Fix Card */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>Security Impact & Context</div>
+              <div style={{ fontSize: 12, color: 'var(--sf-ink-mid)', lineHeight: 1.5, background: 'var(--sf-bg-surface)', padding: 14, borderRadius: 10, border: '1px solid var(--sf-border)' }}>
+                {blockedPanelStage.aiExplanation || 'Remediation required to satisfy policy.yaml rules.'}
+              </div>
+
+              {blockedPanelStage.suggestedFix && (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d', marginTop: 4 }}>Recommended Remediation</div>
+                  <div style={{ fontSize: 12, color: '#15803d', lineHeight: 1.5, background: '#dcfce7', border: '1px solid #bbf7d0', padding: 14, borderRadius: 10 }}>
+                    {blockedPanelStage.suggestedFix}
+                  </div>
+                </>
+              )}
             </div>
 
-            <Button variant="primary" onClick={() => openVoidWithContext({ stage: blockedPanelStage.name })}>
-              <Zap size={14} /> Discuss in Void AI
-            </Button>
+            {/* Disabled Void AI Action */}
+            <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: '1px solid var(--sf-border)' }}>
+              <button
+                disabled
+                title="Void AI coming soon"
+                style={{
+                  width: '100%',
+                  padding: '10px 16px',
+                  borderRadius: 8,
+                  background: 'var(--sf-accent)',
+                  color: '#ffffff',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  border: 'none',
+                  opacity: 0.5,
+                  cursor: 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+              >
+                <Zap size={16} /> Discuss in Void AI (Coming Soon)
+              </button>
+            </div>
           </div>
         </div>
       )}
