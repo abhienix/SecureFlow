@@ -55,6 +55,29 @@ export function usePolicies() {
   });
 }
 
+export function useSystemHealth() {
+  return useQuery({
+    queryKey: ['system', 'health'],
+    queryFn: () => api.getSystemHealth(),
+    refetchInterval: 15000,
+  });
+}
+
+export function useSystemInfo() {
+  return useQuery({
+    queryKey: ['system', 'info'],
+    queryFn: () => api.getSystemInfo(),
+  });
+}
+
+export function useGlobalSearch(query: string) {
+  return useQuery({
+    queryKey: ['search', query],
+    queryFn: () => api.searchGlobal(query),
+    enabled: query.length >= 2,
+  });
+}
+
 export function useRegisterRepository() {
   const qc = useQueryClient();
   return useMutation({

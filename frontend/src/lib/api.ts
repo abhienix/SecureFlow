@@ -81,6 +81,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ report_type: reportType, format }),
     }),
+
+  getSystemHealth: () =>
+    apiFetch<any>(`/api/health/system`),
+
+  getSystemInfo: () =>
+    apiFetch<any>(`/api/system/info`),
+
+  searchGlobal: (query: string) =>
+    apiFetch<{ query: string; results: any[] }>(`/api/search?q=${encodeURIComponent(query)}`),
 };
 
 export { ApiError };
