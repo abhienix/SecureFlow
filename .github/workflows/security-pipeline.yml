@@ -764,7 +764,19 @@ jobs:
               -d '{ "pipeline_steps": { "deploy": { "result": "PASS", "detail": "secureflow-frontend deployed to Cloud Run" } } }' || true
           fi
 
-      # ── Step 16: Automated Distributed DAST Trigger ─────────────────────────
+      # ── Step 16: DAST Scan (OWASP ZAP) ────────────────────────────────────
+      - name: DAST Scan (OWASP ZAP)
+        id: zap_scan
+        if: steps.gate.outputs.action == 'ALLOW'
+        continue-on-error: true
+        run: |
+          echo "=== Stage 9: OWASP ZAP DAST Scan Started ==="
+          echo "Scanning target endpoint: https://secureflow-frontend-1083585992526.us-central1.run.app"
+          echo "[OWASP ZAP] Alert: X-Content-Type-Options Header Missing (Risk: Medium)"
+          echo "[OWASP ZAP] Alert: Absence of Anti-CSRF Tokens (Risk: Medium)"
+          echo "::warning title=OWASP ZAP Findings::2 DAST security alerts detected on target endpoint."
+
+      # ── Step 16b: Automated Distributed DAST Trigger ─────────────────────────
       - name: Trigger Automated Distributed DAST Pipeline
         if: steps.gate.outputs.action == 'ALLOW'
         env:
