@@ -12,8 +12,7 @@ const NAV_SECTIONS = [
   {
     section: "OVERVIEW",
     items: [
-      { path: "/mission-control", label: "Mission Control", Icon: Radar, badge: "New" },
-      { path: "/dashboard", label: "Dashboard", Icon: ShieldCheck, badge: "Legacy" },
+      { path: "/mission-control", label: "Mission Control", Icon: Radar },
       { path: "/repositories", label: "Repositories", Icon: FolderGit2 },
     ],
   },
@@ -31,7 +30,7 @@ const NAV_SECTIONS = [
     items: [
       { path: "/observability", label: "Observability", Icon: Activity },
       { path: "/reports", label: "Reports", Icon: Download },
-      { path: "/copilot", label: "Void AI", Icon: Sparkles, badge: "AI" },
+      { path: "/copilot", label: "Void AI", Icon: Sparkles },
     ],
   },
   {

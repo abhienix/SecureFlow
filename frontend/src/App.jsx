@@ -25,8 +25,7 @@ import ObservabilityWorkspace from "./components/pages/ObservabilityWorkspace";
 import ReportsWorkspace from "./components/pages/ReportsWorkspace";
 import AIWorkspace from "./components/pages/AIWorkspace";
 import SettingsWorkspace from "./components/pages/SettingsWorkspace";
-// Legacy pages (kept for backward compat)
-import DashboardPage from "./components/pages/DashboardPage";
+// Legacy detail pages
 import RepositoryWorkspacePage from "./components/pages/RepositoryWorkspacePage";
 
 function PageError({ C }) {
@@ -44,19 +43,19 @@ function PageError({ C }) {
       <h2 style={{ fontSize: 18, fontWeight: 700, color: C?.ink || "#f8fafc" }}>Page Not Found or Error</h2>
       <p style={{ fontSize: 14, maxWidth: 400 }}>The requested route could not be found or encountered an error.</p>
       <button
-        onClick={() => window.location.href = "/dashboard"}
+        onClick={() => window.location.href = "/mission-control"}
         style={{
           padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
           background: C?.accent || "#6366F1", color: "#fff", fontWeight: 600, fontSize: 13,
         }}
-      >Back to Dashboard</button>
+      >Back to Mission Control</button>
     </div>
   );
 }
 
 function AppShell() {
   const { C } = useTheme();
-  const { scans, repositories, metrics, error, fetchAllData } = useApp();
+  const { scans, error, fetchAllData } = useApp();
   const navigate = useNavigate();
   const { isCmdPaletteOpen, setCmdPaletteOpen, isCopilotOpen, setCopilotOpen, toggleCmdPalette } = useUIStore();
   const [selectedRepo] = React.useState(null);
@@ -113,7 +112,7 @@ function AppShell() {
               <Route path="/reports" element={<ErrorBoundary><ReportsWorkspace /></ErrorBoundary>} />
               <Route path="/copilot" element={<ErrorBoundary><AIWorkspace /></ErrorBoundary>} />
               <Route path="/settings" element={<ErrorBoundary><SettingsWorkspace /></ErrorBoundary>} />
-              <Route path="/dashboard" element={<ErrorBoundary><DashboardPage scans={scans} repositories={repositories} metrics={metrics} C={C} /></ErrorBoundary>} />
+              <Route path="/dashboard" element={<Navigate to="/mission-control" replace />} />
               <Route path="*" element={<PageError C={C} />} />
             </Routes>
         </main>
