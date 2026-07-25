@@ -315,6 +315,12 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
     req_deploy_url = data.get("deployment_url")
     resolved_target = resolve_target_url(req_target_url, req_deploy_url)
 
+    logger.info(
+        f"[start_scan_run] ENTER — repo={repo_name}, branch={branch}, "
+        f"run_id={run_id}, target_url={req_target_url}, "
+        f"deploy_url={req_deploy_url}, resolved_target={resolved_target}"
+    )
+
     if not resolved_target:
         raise HTTPException(
             status_code=400,
@@ -327,15 +333,22 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
             run_id_int = int(run_id)
             res = await db.execute(select(ScanResult).filter(ScanResult.id == run_id_int))
             scan = res.scalars().first()
+            logger.info(f"[start_scan_run] run_id={run_id} -> existing scan id={scan.id if scan else 'NOT FOUND'}")
         except (ValueError, TypeError):
             scan = None
+            logger.warning(f"[start_scan_run] run_id={run_id} is not a valid int")
 
     if scan:
-        # Update existing pipeline run
+        logger.info(
+            f"[start_scan_run] Updating existing scan id={scan.id} — "
+            f"current dast_status='{scan.dast_status}', "
+            f"current zap.result='{(scan.pipeline_steps or {}).get(\"zap\", {}).get(\"result\", \"?\")}'"
+        )
         scan.target_url = resolved_target
         if req_deploy_url:
             scan.deployment_url = req_deploy_url
     else:
+        logger.info(f"[start_scan_run] Creating NEW scan (run_id={run_id}, repo={repo_name})")
         # Supersede older active runs on the same branch (concurrency control)
         result = await db.execute(
             select(ScanResult)
@@ -381,16 +394,21 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
     # -----------------------------------------------------------------------
     # Idempotent DAST Enqueueing via Celery Producer
     # -----------------------------------------------------------------------
+    logger.info(
+        f"[start_scan_run] DAST STATUS CHECK — scan_id={scan.id}, "
+        f"dast_status='{scan.dast_status}', "
+        f"skip_condition_met={scan.dast_status in ('queued', 'running', 'completed')}"
+    )
     if scan.dast_status in ("queued", "running", "completed"):
-        logger.info(f"[start_scan_run] Scan {scan.id} DAST already in status '{scan.dast_status}'. Skipping queueing.")
+        logger.info(f"[start_scan_run] SKIPPING dispatch — dast_status='{scan.dast_status}' already in progress/completed")
     else:
         logger.info(
-            f"[start_scan_run] Dispatching DAST — scan_id={scan.id}, "
-            f"target={resolved_target}, current_dast_status={scan.dast_status}"
+            f"[start_scan_run] EXECUTING dispatch — scan_id={scan.id}, "
+            f"target={resolved_target}, current_dast_status='{scan.dast_status}'"
         )
         pub_res = await asyncio.to_thread(publish_dast_task, scan.id, resolved_target, req_deploy_url)
         logger.info(
-            f"[start_scan_run] DAST dispatch result — scan_id={scan.id}, "
+            f"[start_scan_run] DISPATCH RESULT — scan_id={scan.id}, "
             f"success={pub_res.get('success')}, simulated={pub_res.get('simulated')}, "
             f"task_id={pub_res.get('task_id')}, error={pub_res.get('error')}"
         )
@@ -436,7 +454,16 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         scan.pipeline_steps = steps
         await db.commit()
         await db.refresh(scan)
+        logger.info(
+            f"[start_scan_run] POST-DISPATCH STATE — scan_id={scan.id}, "
+            f"dast_status='{scan.dast_status}', "
+            f"zap.result='{(scan.pipeline_steps or {}).get('zap', {}).get('result', '?')}'"
+        )
 
+    logger.info(
+        f"[start_scan_run] RETURN — scan_id={scan.id}, dast_status='{scan.dast_status}', "
+        f"zap.result='{(scan.pipeline_steps or {}).get('zap', {}).get('result', '?')}'"
+    )
     await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_started"))
 
     return {
