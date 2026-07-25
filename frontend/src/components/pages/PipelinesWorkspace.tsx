@@ -939,62 +939,86 @@ export default function PipelinesWorkspace() {
                             <span>DAST Security Findings ({stage.details.alerts.length} Alerts)</span>
                           </div>
 
-                          {stage.details.alerts.map((a: any, idx: number) => (
-                            <div
-                              key={idx}
-                              style={{
-                                padding: 12,
-                                borderRadius: 8,
-                                background: 'var(--sf-bg-surface)',
-                                border: '1px solid var(--sf-border)',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 6,
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>
-                                  {a.alert}
-                                </span>
-                                <span
-                                  style={{
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    padding: '2px 8px',
-                                    borderRadius: 10,
-                                    background: '#fee2e2',
-                                    color: '#b91c1c',
-                                    border: '1px solid #fca5a5',
-                                  }}
-                                >
-                                  {a.risk || 'Medium'} Risk
-                                </span>
-                              </div>
+                          {stage.details.alerts.map((a: any, idx: number) => {
+                            const alertTitle = String(a.alert || a.name || 'DAST Security Alert');
+                            const alertTitleLower = alertTitle.toLowerCase();
+                            const riskRaw = String(a.risk || a.riskdesc || 'Medium').toLowerCase();
+                            const isHigh = riskRaw.includes('high') || riskRaw.includes('critical');
+                            const isMedium = riskRaw.includes('medium');
+                            const isLow = riskRaw.includes('low');
 
-                              <div style={{ fontSize: 11, color: 'var(--sf-ink-mid)' }}>
-                                <strong>Target Endpoint:</strong>{' '}
-                                <span style={{ fontFamily: 'var(--sf-font-mono)', color: '#0284c7' }}>
-                                  {a.url || 'https://secureflow-frontend-1083585992526.us-central1.run.app/'}
-                                </span>
-                              </div>
+                            const badgeBg = isHigh ? '#fee2e2' : isMedium ? '#fef3c7' : isLow ? '#e0f2fe' : '#f3f4f6';
+                            const badgeBorder = isHigh ? '#fca5a5' : isMedium ? '#fcd34d' : isLow ? '#7dd3fc' : '#e5e7eb';
+                            const badgeColor = isHigh ? '#b91c1c' : isMedium ? '#92400e' : isLow ? '#0369a1' : '#4b5563';
+                            const riskLabel = isHigh ? 'High Risk' : isMedium ? 'Medium Risk' : isLow ? 'Low Risk' : 'Info Risk';
 
-                              {a.solution && (
+                            const solutionText =
+                              a.solution ||
+                              (alertTitleLower.includes('x-content-type-options')
+                                ? 'Ensure X-Content-Type-Options: nosniff header is present on all HTTP responses to prevent MIME-sniffing attacks.'
+                                : alertTitleLower.includes('hsts') || alertTitleLower.includes('strict-transport-security')
+                                ? 'Configure Strict-Transport-Security: max-age=31536000; includeSubDomains header to enforce HTTPS connections.'
+                                : alertTitleLower.includes('anti-csrf') || alertTitleLower.includes('csrf')
+                                ? 'Implement Anti-CSRF token validation on all state-changing POST and PUT API operations.'
+                                : alertTitleLower.includes('clickjacking') || alertTitleLower.includes('frame')
+                                ? 'Set X-Frame-Options: DENY or SAMEORIGIN header to prevent clickjacking attacks.'
+                                : 'Configure missing HTTP security headers and review target endpoint security policy.');
+
+                            return (
+                              <div
+                                key={idx}
+                                style={{
+                                  padding: 12,
+                                  borderRadius: 8,
+                                  background: 'var(--sf-bg-surface)',
+                                  border: '1px solid var(--sf-border)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 6,
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>
+                                    {alertTitle}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      fontWeight: 800,
+                                      padding: '2px 8px',
+                                      borderRadius: 10,
+                                      background: badgeBg,
+                                      color: badgeColor,
+                                      border: `1px solid ${badgeBorder}`,
+                                    }}
+                                  >
+                                    {riskLabel}
+                                  </span>
+                                </div>
+
+                                <div style={{ fontSize: 11, color: 'var(--sf-ink-mid)' }}>
+                                  <strong>Target Endpoint:</strong>{' '}
+                                  <span style={{ fontFamily: 'var(--sf-font-mono)', color: '#0284c7' }}>
+                                    {a.url || 'https://secureflow-backend-1083585992526.us-central1.run.app'}
+                                  </span>
+                                </div>
+
                                 <div
                                   style={{
                                     fontSize: 11,
                                     color: '#15803d',
                                     background: '#dcfce7',
                                     border: '1px solid #bbf7d0',
-                                    padding: '6px 10px',
+                                    padding: '8px 12px',
                                     borderRadius: 6,
                                     marginTop: 2,
                                   }}
                                 >
-                                  <strong>Remediation:</strong> {a.solution}
+                                  <strong>Remediation:</strong> {solutionText}
                                 </div>
-                              )}
-                            </div>
-                          ))}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
 
