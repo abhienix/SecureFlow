@@ -3,38 +3,22 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useScans, useFindings } from "../../hooks/useApi";
 import {
-  ShieldCheck, FolderGit2, GitPullRequest, Rocket, ShieldAlert, FileText,
-  Activity, Download, Sparkles, Settings, Sun, Moon, Monitor,
-  PanelLeftClose, PanelLeft, Radar
+  ShieldCheck, GitPullRequest, ShieldAlert, FileText,
+  Settings, Sun, Moon, Monitor, PanelLeftClose, PanelLeft, Radar
 } from "lucide-react";
 
 const NAV_SECTIONS = [
   {
-    section: "OVERVIEW",
+    section: "MAIN",
     items: [
-      { path: "/mission-control", label: "Mission Control", Icon: Radar },
-      { path: "/repositories", label: "Repositories", Icon: FolderGit2 },
-    ],
-  },
-  {
-    section: "SECURITY",
-    items: [
+      { path: "/overview", label: "Overview", Icon: Radar },
       { path: "/pipelines", label: "Pipelines", Icon: GitPullRequest, countKey: "scansCount" },
-      { path: "/deployments", label: "Deployments", Icon: Rocket },
-      { path: "/findings", label: "Findings", Icon: ShieldAlert, countKey: "openFindingsCount", color: "#ef4444" },
+      { path: "/security-center", label: "Security Center", Icon: ShieldAlert, countKey: "openFindingsCount", color: "#ef4444" },
       { path: "/policies", label: "Policies", Icon: FileText },
     ],
   },
   {
-    section: "OPERATIONS",
-    items: [
-      { path: "/observability", label: "Observability", Icon: Activity },
-      { path: "/reports", label: "Reports", Icon: Download },
-      { path: "/copilot", label: "Void AI", Icon: Sparkles },
-    ],
-  },
-  {
-    section: "ADMIN",
+    section: "SYSTEM",
     items: [
       { path: "/settings", label: "Settings", Icon: Settings },
     ],

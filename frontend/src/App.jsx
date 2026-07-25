@@ -12,21 +12,15 @@ import LoginGate from "./components/LoginGate";
 import Sidebar from "./components/layout/Sidebar";
 import TopBar from "./components/layout/TopBar";
 import CommandPalette from "./components/layout/CommandPalette";
+import NotificationDrawer from "./components/layout/NotificationDrawer";
 import GlobalAICopilot from "./components/GlobalAICopilot";
 
-// New v2 TypeScript pages (self-contained, use TanStack Query + Zustand)
-import MissionControlPage from "./components/pages/MissionControlPage";
-import FindingsWorkspace from "./components/pages/FindingsWorkspace";
-import PipelineWorkspace from "./components/pages/PipelineWorkspace";
-import DeploymentWorkspace from "./components/pages/DeploymentWorkspace";
-import RepositoriesWorkspace from "./components/pages/RepositoriesWorkspace";
+// Primary Enterprise Workspaces (5 Workspaces)
+import OverviewWorkspace from "./components/pages/OverviewWorkspace";
+import PipelinesWorkspace from "./components/pages/PipelinesWorkspace";
+import SecurityCenterWorkspace from "./components/pages/SecurityCenterWorkspace";
 import PolicyWorkspace from "./components/pages/PolicyWorkspace";
-import ObservabilityWorkspace from "./components/pages/ObservabilityWorkspace";
-import ReportsWorkspace from "./components/pages/ReportsWorkspace";
-import AIWorkspace from "./components/pages/AIWorkspace";
 import SettingsWorkspace from "./components/pages/SettingsWorkspace";
-// Legacy detail pages
-import RepositoryWorkspacePage from "./components/pages/RepositoryWorkspacePage";
 
 function PageError({ C }) {
   return (
@@ -43,22 +37,21 @@ function PageError({ C }) {
       <h2 style={{ fontSize: 18, fontWeight: 700, color: C?.ink || "#f8fafc" }}>Page Not Found or Error</h2>
       <p style={{ fontSize: 14, maxWidth: 400 }}>The requested route could not be found or encountered an error.</p>
       <button
-        onClick={() => window.location.href = "/mission-control"}
+        onClick={() => window.location.href = "/overview"}
         style={{
           padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
           background: C?.accent || "#6366F1", color: "#fff", fontWeight: 600, fontSize: 13,
         }}
-      >Back to Mission Control</button>
+      >Back to Overview</button>
     </div>
   );
 }
 
 function AppShell() {
   const { C } = useTheme();
-  const { scans, error, fetchAllData } = useApp();
+  const { error, fetchAllData } = useApp();
   const navigate = useNavigate();
   const { isCmdPaletteOpen, setCmdPaletteOpen, isCopilotOpen, setCopilotOpen, toggleCmdPalette } = useUIStore();
-  const [selectedRepo] = React.useState(null);
 
   // New TanStack Query-powered WebSocket (exponential backoff + cache invalidation)
   useScanWebSocket();
@@ -100,19 +93,22 @@ function AppShell() {
 
         <main style={{ flex: 1, padding: 24, overflowY: "auto", background: C.bg }}>
             <Routes>
-              <Route path="/" element={<Navigate to="/mission-control" replace />} />
-              <Route path="/mission-control" element={<ErrorBoundary><MissionControlPage /></ErrorBoundary>} />
-              <Route path="/findings" element={<ErrorBoundary><FindingsWorkspace /></ErrorBoundary>} />
-              <Route path="/pipelines" element={<ErrorBoundary><PipelineWorkspace /></ErrorBoundary>} />
-              <Route path="/deployments" element={<ErrorBoundary><DeploymentWorkspace /></ErrorBoundary>} />
-              <Route path="/repositories" element={<ErrorBoundary><RepositoriesWorkspace /></ErrorBoundary>} />
-              <Route path="/repositories/workspace" element={<ErrorBoundary><RepositoryWorkspacePage repo={selectedRepo} scans={scans} onBack={() => navigate("/repositories")} C={C} /></ErrorBoundary>} />
+              <Route path="/" element={<Navigate to="/overview" replace />} />
+              <Route path="/overview" element={<ErrorBoundary><OverviewWorkspace /></ErrorBoundary>} />
+              <Route path="/pipelines" element={<ErrorBoundary><PipelinesWorkspace /></ErrorBoundary>} />
+              <Route path="/security-center" element={<ErrorBoundary><SecurityCenterWorkspace /></ErrorBoundary>} />
               <Route path="/policies" element={<ErrorBoundary><PolicyWorkspace /></ErrorBoundary>} />
-              <Route path="/observability" element={<ErrorBoundary><ObservabilityWorkspace /></ErrorBoundary>} />
-              <Route path="/reports" element={<ErrorBoundary><ReportsWorkspace /></ErrorBoundary>} />
-              <Route path="/copilot" element={<ErrorBoundary><AIWorkspace /></ErrorBoundary>} />
               <Route path="/settings" element={<ErrorBoundary><SettingsWorkspace /></ErrorBoundary>} />
-              <Route path="/dashboard" element={<Navigate to="/mission-control" replace />} />
+
+              {/* Legacy Route Redirects */}
+              <Route path="/mission-control" element={<Navigate to="/overview" replace />} />
+              <Route path="/dashboard" element={<Navigate to="/overview" replace />} />
+              <Route path="/findings" element={<Navigate to="/security-center" replace />} />
+              <Route path="/reports" element={<Navigate to="/security-center" replace />} />
+              <Route path="/deployments" element={<Navigate to="/pipelines" replace />} />
+              <Route path="/repositories" element={<Navigate to="/overview" replace />} />
+              <Route path="/observability" element={<Navigate to="/overview" replace />} />
+              <Route path="/copilot" element={<Navigate to="/overview" replace />} />
               <Route path="*" element={<PageError C={C} />} />
             </Routes>
         </main>
@@ -124,6 +120,8 @@ function AppShell() {
         onNavigate={(path) => { navigate(path); setCmdPaletteOpen(false); }}
         C={C}
       />
+
+      <NotificationDrawer />
 
       <GlobalAICopilot
         isOpen={isCopilotOpen}

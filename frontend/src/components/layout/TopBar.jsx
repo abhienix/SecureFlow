@@ -7,26 +7,20 @@ import {
 } from "lucide-react";
 
 const ROUTE_LABELS = {
-  "/mission-control": "Mission Control",
-  "/dashboard": "Dashboard",
-  "/repositories": "Repositories",
-  "/repositories/workspace": "Repository Workspace",
-  "/pipelines": "Pipelines",
-  "/deployments": "Deployments",
-  "/findings": "Unified Findings",
-  "/policies": "Policies",
-  "/observability": "Observability",
-  "/reports": "Reports",
-  "/copilot": "AI Copilot Workspace",
-  "/settings": "Settings",
+  "/": "Overview",
+  "/overview": "Overview",
+  "/pipelines": "DevSecOps Pipelines",
+  "/security-center": "Security Center",
+  "/policies": "Policy Engine",
+  "/settings": "Settings & Platform",
 };
 
 export default function TopBar({ C }) {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { notifications, wsConnected, toggleCmdPalette, toggleCopilot } = useUIStore();
-  const unreadCount = notifications.length;
+  const { notifications, wsConnected, toggleCmdPalette, toggleCopilot, toggleNotification } = useUIStore();
+  const unreadCount = notifications.filter(n => !n.read).length || notifications.length;
 
   const currentLabel = ROUTE_LABELS[location.pathname] || "SecureFlow";
   const parentPath = location.pathname.split("/").slice(0, -1).join("/");
@@ -41,7 +35,7 @@ export default function TopBar({ C }) {
     }}>
       {/* Left: Breadcrumbs */}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <button onClick={() => navigate("/mission-control")} style={{
+        <button onClick={() => navigate("/overview")} style={{
           background: "none", border: "none", color: C.inkLow, fontSize: 13,
           fontWeight: 500, cursor: "pointer", padding: 0,
         }}>SecureFlow</button>
@@ -87,19 +81,21 @@ export default function TopBar({ C }) {
           <RefreshCw size={14} />
         </button>
 
-        {/* Notifications */}
-        <button style={{
+        {/* Notifications Bell */}
+        <button onClick={toggleNotification} style={{
           width: 34, height: 34, borderRadius: 8, border: `1px solid ${C.border}`,
           background: "transparent", color: C.inkLow, cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center",
           position: "relative", transition: "all 150ms",
-        }} title="Notifications">
+        }} title="Notification Center">
           <Bell size={14} />
           {unreadCount > 0 && (
             <span style={{
-              position: "absolute", top: 4, right: 4, width: 8, height: 8,
-              borderRadius: "50%", background: C.red, border: `2px solid ${C.bgSurface}`,
-            }} />
+              position: "absolute", top: 2, right: 2, minWidth: 14, height: 14,
+              borderRadius: 7, background: C.red, color: "#fff", fontSize: 9,
+              fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center",
+              padding: "0 2px",
+            }}>{unreadCount}</span>
           )}
         </button>
 

@@ -59,7 +59,7 @@ export default function PolicyWorkspace() {
         <MetricCard title="Passed Builds" value={passedCount} change="pipelines" isPositive Icon={ShieldAlert} iconColor="var(--sf-green)" />
       </div>
 
-      {/* Active Gate Rules */}
+      {/* Active Gate Rules Table */}
       <Card>
         <CardHeader title="Active Security Gate Rules" subtitle="Declarative policy enforcement configuration" action={<ShieldAlert size={18} color="var(--sf-accent)" />} />
         {rules.length === 0 ? (
@@ -87,6 +87,29 @@ export default function PolicyWorkspace() {
             </table>
           </div>
         )}
+      </Card>
+
+      {/* Policy Enforcement Toggles */}
+      <Card>
+        <CardHeader title="Enterprise Policy Enforcement Toggles" subtitle="Toggle pipeline blocking criteria and automated security gates" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          {[
+            { title: 'Block Critical Vulnerabilities', desc: 'Immediately emit BLOCK signal on CRITICAL findings', defaultOn: true },
+            { title: 'Block Hardcoded Secrets', desc: 'Enforce zero-tolerance rule on Gitleaks secret leaks', defaultOn: true },
+            { title: 'Require Successful DAST Pass', desc: 'Validate live endpoint health before finalizing pipeline', defaultOn: true },
+            { title: 'Require Container Trivy Scan', desc: 'Scan Docker container layers for OS vulnerability CVEs', defaultOn: true },
+            { title: 'Slack Notification Alerts', desc: 'Send webhook alert to Slack channel on pipeline BLOCK', defaultOn: true },
+            { title: 'Auto-Close Remediated Findings', desc: 'Automatically resolve findings once code fix is verified', defaultOn: false },
+          ].map((toggle, i) => (
+            <div key={i} style={{ padding: 14, borderRadius: 10, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)' }}>{toggle.title}</div>
+                <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', marginTop: 2 }}>{toggle.desc}</div>
+              </div>
+              <input type="checkbox" defaultChecked={toggle.defaultOn} style={{ width: 18, height: 18, accentColor: 'var(--sf-accent)', cursor: 'pointer' }} />
+            </div>
+          ))}
+        </div>
       </Card>
     </div>
   );
