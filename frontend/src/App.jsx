@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { AppProvider, useApp } from "./contexts/AppContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { useScanWebSocket } from "./hooks/useScanWebSocket";
+import { useUIStore } from "./stores/uiStore";
+import ErrorBoundary from "./components/ErrorBoundary";
+import ToastContainer from "./components/ToastContainer";
 
 import LoginGate from "./components/LoginGate";
 import Sidebar from "./components/layout/Sidebar";
@@ -10,31 +14,20 @@ import TopBar from "./components/layout/TopBar";
 import CommandPalette from "./components/layout/CommandPalette";
 import GlobalAICopilot from "./components/GlobalAICopilot";
 
-// Static imports for instant 0ms tab switching
+// New v2 TypeScript pages (self-contained, use TanStack Query + Zustand)
+import MissionControlPage from "./components/pages/MissionControlPage";
+import FindingsWorkspace from "./components/pages/FindingsWorkspace";
+import PipelineWorkspace from "./components/pages/PipelineWorkspace";
+import DeploymentWorkspace from "./components/pages/DeploymentWorkspace";
+import RepositoriesWorkspace from "./components/pages/RepositoriesWorkspace";
+import PolicyWorkspace from "./components/pages/PolicyWorkspace";
+import ObservabilityWorkspace from "./components/pages/ObservabilityWorkspace";
+import ReportsWorkspace from "./components/pages/ReportsWorkspace";
+import AIWorkspace from "./components/pages/AIWorkspace";
+import SettingsWorkspace from "./components/pages/SettingsWorkspace";
+// Legacy pages (kept for backward compat)
 import DashboardPage from "./components/pages/DashboardPage";
-import RepositoriesPage from "./components/pages/RepositoriesPage";
 import RepositoryWorkspacePage from "./components/pages/RepositoryWorkspacePage";
-import PipelinesPage from "./components/pages/PipelinesPage";
-import DeploymentsPage from "./components/pages/DeploymentsPage";
-import FindingsPage from "./components/pages/FindingsPage";
-import PoliciesPage from "./components/pages/PoliciesPage";
-import ObservabilityPage from "./components/pages/ObservabilityPage";
-import ReportsPage from "./components/pages/ReportsPage";
-import AICopilotWorkspacePage from "./components/pages/AICopilotWorkspacePage";
-import SettingsPage from "./components/pages/SettingsPage";
-
-function PageLoader({ C }) {
-  return (
-    <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
-      {[1, 2, 3].map(i => (
-        <div key={i} className="skeleton" style={{
-          height: i === 1 ? 32 : 120, borderRadius: 12,
-          background: C?.skeleton || "rgba(255,255,255,0.04)",
-        }} />
-      ))}
-    </div>
-  );
-}
 
 function PageError({ C }) {
   return (
@@ -63,22 +56,24 @@ function PageError({ C }) {
 
 function AppShell() {
   const { C } = useTheme();
-  const { scans, repositories, deployments, findings, metrics, wsConnected, loading, error, fetchAllData } = useApp();
+  const { scans, repositories, metrics, error, fetchAllData } = useApp();
   const navigate = useNavigate();
-  const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false);
-  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
-  const [selectedRepo, setSelectedRepo] = useState(null);
+  const { isCmdPaletteOpen, setCmdPaletteOpen, isCopilotOpen, setCopilotOpen, toggleCmdPalette } = useUIStore();
+  const [selectedRepo] = React.useState(null);
+
+  // New TanStack Query-powered WebSocket (exponential backoff + cache invalidation)
+  useScanWebSocket();
 
   useEffect(() => {
     const handler = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setIsCmdPaletteOpen(prev => !prev);
+        toggleCmdPalette();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [toggleCmdPalette]);
 
   return (
     <div style={{
@@ -86,17 +81,10 @@ function AppShell() {
       background: C.bg, color: C.ink,
       fontFamily: C.sans,
     }}>
-      <Sidebar C={C} scansCount={scans.length} openFindingsCount={findings.length} />
+      <Sidebar C={C} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh", overflow: "hidden" }}>
-        <TopBar
-          C={C}
-          repositories={repositories}
-          wsConnected={wsConnected}
-          onOpenCommandPalette={() => setIsCmdPaletteOpen(true)}
-          onRescan={fetchAllData}
-          onToggleCopilot={() => setIsCopilotOpen(prev => !prev)}
-        />
+        <TopBar C={C} />
 
         {error && (
           <div style={{
@@ -112,49 +100,39 @@ function AppShell() {
         )}
 
         <main style={{ flex: 1, padding: 24, overflowY: "auto", background: C.bg }}>
-          {loading ? (
-            <PageLoader C={C} />
-          ) : (
             <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={
-                <DashboardPage scans={scans} repositories={repositories} metrics={metrics} C={C} />
-              } />
-              <Route path="/repositories" element={
-                <RepositoriesPage
-                  repositories={repositories} C={C}
-                  onSelectRepo={(repo) => { setSelectedRepo(repo); navigate("/repositories/workspace"); }}
-                />
-              } />
-              <Route path="/repositories/workspace" element={
-                <RepositoryWorkspacePage repo={selectedRepo} scans={scans} onBack={() => navigate("/repositories")} C={C} />
-              } />
-              <Route path="/pipelines" element={<PipelinesPage scans={scans} C={C} />} />
-              <Route path="/deployments" element={<DeploymentsPage deployments={deployments} C={C} />} />
-              <Route path="/findings" element={<FindingsPage findings={findings} C={C} />} />
-              <Route path="/policies" element={<PoliciesPage C={C} />} />
-              <Route path="/observability" element={<ObservabilityPage metrics={metrics} C={C} />} />
-              <Route path="/reports" element={<ReportsPage C={C} />} />
-              <Route path="/copilot" element={<AICopilotWorkspacePage scans={scans} C={C} />} />
-              <Route path="/settings" element={<SettingsPage C={C} />} />
+              <Route path="/" element={<Navigate to="/mission-control" replace />} />
+              <Route path="/mission-control" element={<ErrorBoundary><MissionControlPage /></ErrorBoundary>} />
+              <Route path="/findings" element={<ErrorBoundary><FindingsWorkspace /></ErrorBoundary>} />
+              <Route path="/pipelines" element={<ErrorBoundary><PipelineWorkspace /></ErrorBoundary>} />
+              <Route path="/deployments" element={<ErrorBoundary><DeploymentWorkspace /></ErrorBoundary>} />
+              <Route path="/repositories" element={<ErrorBoundary><RepositoriesWorkspace /></ErrorBoundary>} />
+              <Route path="/repositories/workspace" element={<ErrorBoundary><RepositoryWorkspacePage repo={selectedRepo} scans={scans} onBack={() => navigate("/repositories")} C={C} /></ErrorBoundary>} />
+              <Route path="/policies" element={<ErrorBoundary><PolicyWorkspace /></ErrorBoundary>} />
+              <Route path="/observability" element={<ErrorBoundary><ObservabilityWorkspace /></ErrorBoundary>} />
+              <Route path="/reports" element={<ErrorBoundary><ReportsWorkspace /></ErrorBoundary>} />
+              <Route path="/copilot" element={<ErrorBoundary><AIWorkspace /></ErrorBoundary>} />
+              <Route path="/settings" element={<ErrorBoundary><SettingsWorkspace /></ErrorBoundary>} />
+              <Route path="/dashboard" element={<ErrorBoundary><DashboardPage scans={scans} repositories={repositories} metrics={metrics} C={C} /></ErrorBoundary>} />
               <Route path="*" element={<PageError C={C} />} />
             </Routes>
-          )}
         </main>
       </div>
 
       <CommandPalette
         isOpen={isCmdPaletteOpen}
-        onClose={() => setIsCmdPaletteOpen(false)}
-        onNavigate={(path) => { navigate(path); setIsCmdPaletteOpen(false); }}
+        onClose={() => setCmdPaletteOpen(false)}
+        onNavigate={(path) => { navigate(path); setCmdPaletteOpen(false); }}
         C={C}
       />
 
       <GlobalAICopilot
         isOpen={isCopilotOpen}
-        onClose={() => setIsCopilotOpen(false)}
+        onClose={() => setCopilotOpen(false)}
         C={C}
       />
+
+      <ToastContainer />
     </div>
   );
 }

@@ -1,17 +1,19 @@
 import React, { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useScans, useFindings } from "../../hooks/useApi";
 import {
   ShieldCheck, FolderGit2, GitPullRequest, Rocket, ShieldAlert, FileText,
   Activity, Download, Sparkles, Settings, Sun, Moon, Monitor,
-  PanelLeftClose, PanelLeft
+  PanelLeftClose, PanelLeft, Radar
 } from "lucide-react";
 
 const NAV_SECTIONS = [
   {
     section: "OVERVIEW",
     items: [
-      { path: "/dashboard", label: "Dashboard", Icon: ShieldCheck, badge: "Live" },
+      { path: "/mission-control", label: "Mission Control", Icon: Radar, badge: "New" },
+      { path: "/dashboard", label: "Dashboard", Icon: ShieldCheck, badge: "Legacy" },
       { path: "/repositories", label: "Repositories", Icon: FolderGit2 },
     ],
   },
@@ -42,11 +44,16 @@ const NAV_SECTIONS = [
 
 const THEME_ICONS = { dark: Moon, light: Sun, system: Monitor };
 
-export default function Sidebar({ C, scansCount = 0, openFindingsCount = 0 }) {
+export default function Sidebar({ C }) {
   const { mode, cycleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
 
+  // Live counts from TanStack Query (auto-updates on WS events)
+  const { data: scans } = useScans(200);
+  const { data: findings } = useFindings();
+  const scansCount = scans?.length || 0;
+  const openFindingsCount = findings?.length || 0;
   const counts = { scansCount, openFindingsCount };
   const ThemeIcon = THEME_ICONS[mode];
   const sidebarWidth = collapsed ? 64 : 240;
