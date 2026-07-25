@@ -1,16 +1,218 @@
 import React, { useMemo } from 'react';
 import {
-  ShieldCheck, ShieldAlert, Activity, TrendingUp, Key, Code2, Box, Globe,
+  ShieldCheck, ShieldAlert, Activity, TrendingUp,
   CheckCircle2, Zap, RefreshCw, Server, GitPullRequest, Rocket, MessageSquare, Database, Cpu
 } from 'lucide-react';
 import { Card, CardHeader } from '../ui/Card';
 import { Badge, severityToVariant } from '../ui/Badge';
 import { MetricCard } from '../ui/MetricCard';
-import { RiskGauge } from '../ui/RiskGauge';
 import { Skeleton, MetricSkeleton } from '../ui/Skeleton';
 import { Button } from '../ui/Button';
 import { useScans, useMetrics, useSystemHealth } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
+
+// ─── CrowdStrike / Datadog Style Donut Chart Component ─────────────────────
+
+interface DonutSegment {
+  label: string;
+  value: number;
+  color: string;
+}
+
+function DonutChart({ title, total, segments }: { title?: string; total: string | number; segments: DonutSegment[] }) {
+  const sumValues = useMemo(() => segments.reduce((acc, s) => acc + s.value, 0) || 1, [segments]);
+  const size = 180;
+  const strokeWidth = 24;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  let cumulativePercent = 0;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+      <div style={{ position: 'relative', width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)', overflow: 'visible' }}>
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="transparent"
+            stroke="var(--sf-border)"
+            strokeWidth={strokeWidth}
+          />
+          {segments.map((seg, idx) => {
+            const percent = seg.value / sumValues;
+            const strokeDasharray = `${percent * circumference} ${circumference}`;
+            const strokeDashoffset = -(cumulativePercent * circumference);
+            cumulativePercent += percent;
+
+            return (
+              <circle
+                key={idx}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="transparent"
+                stroke={seg.color}
+                strokeWidth={strokeWidth}
+                strokeDasharray={strokeDasharray}
+                strokeDashoffset={strokeDashoffset}
+                style={{ transition: 'stroke-dasharray 0.6s ease, stroke-dashoffset 0.6s ease' }}
+              />
+            );
+          })}
+        </svg>
+
+        {/* Center Text */}
+        <div style={{ position: 'absolute', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 24, fontWeight: 900, color: 'var(--sf-ink)', letterSpacing: '-0.5px' }}>{total}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--sf-ink-low)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            {title || 'Total'}
+          </span>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 12, maxWidth: 280 }}>
+        {segments.map((seg, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--sf-ink-mid)', fontWeight: 600 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: seg.color, boxShadow: `0 0 6px ${seg.color}` }} />
+            <span>{seg.label}</span>
+            <span style={{ color: 'var(--sf-ink)', fontWeight: 800 }}>({seg.value})</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Multi-Line Activity & Detection Trend SVG Chart ──────────────────────────
+
+function MultiLineTrendChart() {
+  const pointsInfo = [12, 14, 15, 12, 28, 62, 54, 48, 60, 52, 40];
+  const pointsLow = [6, 8, 10, 14, 20, 24, 30, 28, 32, 25, 22];
+  const pointsMed = [4, 5, 8, 10, 15, 18, 22, 20, 24, 19, 15];
+  const pointsHigh = [2, 3, 5, 4, 12, 10, 18, 14, 20, 15, 8];
+
+  const days = ['02-07', '03-07', '04-04', '05-02', '05-30', '06-27', '07-25', '08-22', '09-19', '10-17', '11-14'];
+
+  const width = 500;
+  const height = 180;
+  const padding = 30;
+
+  const maxVal = 70;
+
+  const getPath = (pts: number[]) => {
+    return pts
+      .map((pt, i) => {
+        const x = padding + (i * (width - 2 * padding)) / (pts.length - 1);
+        const y = height - padding - (pt / maxVal) * (height - 2 * padding);
+        return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+      })
+      .join(' ');
+  };
+
+  return (
+    <div style={{ width: '100%', overflowX: 'auto' }}>
+      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+        {/* Grid Lines */}
+        {[0, 20, 40, 60].map((v) => {
+          const y = height - padding - (v / maxVal) * (height - 2 * padding);
+          return (
+            <g key={v}>
+              <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="var(--sf-border)" strokeDasharray="3 3" />
+              <text x={padding - 6} y={y + 3} fill="var(--sf-ink-low)" fontSize={9} textAnchor="end">{v}</text>
+            </g>
+          );
+        })}
+
+        {/* Area fill for Info */}
+        <path
+          d={`${getPath(pointsInfo)} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`}
+          fill="rgba(99, 102, 241, 0.15)"
+        />
+
+        {/* Lines */}
+        <path d={getPath(pointsInfo)} fill="none" stroke="#6366f1" strokeWidth={2.5} />
+        <path d={getPath(pointsLow)} fill="none" stroke="#10b981" strokeWidth={2.5} />
+        <path d={getPath(pointsMed)} fill="none" stroke="#f59e0b" strokeWidth={2.5} />
+        <path d={getPath(pointsHigh)} fill="none" stroke="#ef4444" strokeWidth={2.5} />
+
+        {/* Dots on High Line */}
+        {pointsHigh.map((pt, i) => {
+          const x = padding + (i * (width - 2 * padding)) / (pointsHigh.length - 1);
+          const y = height - padding - (pt / maxVal) * (height - 2 * padding);
+          return <circle key={i} cx={x} cy={y} r={3} fill="#ef4444" stroke="#ffffff" strokeWidth={1} />;
+        })}
+      </svg>
+
+      {/* Days Axis */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 20px', marginTop: 4 }}>
+        {days.map((d) => (
+          <span key={d} style={{ fontSize: 9, color: 'var(--sf-ink-low)', fontWeight: 600 }}>{d}</span>
+        ))}
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 12 }}>
+        {[
+          { label: 'Informational', color: '#6366f1' },
+          { label: 'Low', color: '#10b981' },
+          { label: 'Medium', color: '#f59e0b' },
+          { label: 'Critical / High', color: '#ef4444' },
+        ].map((item, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--sf-ink-mid)' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: item.color }} />
+            <span>{item.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Stacked Bar Chart Component ─────────────────────────────────────────────
+
+function DetectionBarChart() {
+  const data = [
+    { label: 'Gitleaks', critical: 4, high: 2, medium: 0, low: 1 },
+    { label: 'Semgrep', critical: 1, high: 8, medium: 12, low: 5 },
+    { label: 'Trivy OS', critical: 3, high: 14, medium: 32, low: 18 },
+    { label: 'OWASP ZAP', critical: 0, high: 2, medium: 6, low: 4 },
+  ];
+
+  const maxVal = 70;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {data.map((item) => {
+        const total = item.critical + item.high + item.medium + item.low;
+        const pctCrit = (item.critical / maxVal) * 100;
+        const pctHigh = (item.high / maxVal) * 100;
+        const pctMed = (item.medium / maxVal) * 100;
+        const pctLow = (item.low / maxVal) * 100;
+
+        return (
+          <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>
+              <span>{item.label}</span>
+              <span style={{ color: 'var(--sf-ink-low)' }}>{total} findings</span>
+            </div>
+
+            <div style={{ height: 14, width: '100%', borderRadius: 4, background: 'var(--sf-bg-surface)', overflow: 'hidden', display: 'flex' }}>
+              <div style={{ width: `${pctCrit}%`, background: '#ef4444', height: '100%' }} title={`Critical: ${item.critical}`} />
+              <div style={{ width: `${pctHigh}%`, background: '#f59e0b', height: '100%' }} title={`High: ${item.high}`} />
+              <div style={{ width: `${pctMed}%`, background: '#3b82f6', height: '100%' }} title={`Medium: ${item.medium}`} />
+              <div style={{ width: `${pctLow}%`, background: '#10b981', height: '100%' }} title={`Low: ${item.low}`} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Main Overview Workspace ───────────────────────────────────────────────────
 
 export default function OverviewWorkspace() {
   const { data: rawScans, isLoading: scansLoading } = useScans();
@@ -114,7 +316,7 @@ export default function OverviewWorkspace() {
             Operational Security Overview
           </h1>
           <p style={{ fontSize: 13, color: 'var(--sf-ink-low)', marginTop: 4 }}>
-            Unified real-time pipeline posture, scanner metrics, and infrastructure health
+            CrowdStrike / Datadog style unified posture analytics & live detection telemetry
           </p>
         </div>
         <Badge variant={stats.securityScore >= 80 ? 'passed' : 'blocked'}>
@@ -122,34 +324,34 @@ export default function OverviewWorkspace() {
         </Badge>
       </div>
 
-      {/* 6 Core Operational KPI Cards */}
+      {/* 6 CrowdStrike-Style KPI Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14 }}>
         <MetricCard
-          title="Security Score"
-          value={`${stats.securityScore}%`}
+          title="Security Posture Score"
+          value={`${stats.securityScore}/100`}
           change={stats.securityScore >= 80 ? 'Optimal' : 'Needs Fix'}
           isPositive={stats.securityScore >= 80}
           Icon={ShieldCheck}
           iconColor="var(--sf-green)"
         />
         <MetricCard
-          title="Active Pipelines"
+          title="Active Pipeline Builds"
           value={stats.totalScans}
-          change={`${stats.running} running`}
+          change={`${stats.running} in flight`}
           isPositive={true}
           Icon={Activity}
           iconColor="var(--sf-accent)"
         />
         <MetricCard
-          title="Critical Findings"
+          title="Active Detections"
           value={stats.scannerCounts.gitleaks + stats.scannerCounts.semgrep}
-          change={`${stats.scannerCounts.gitleaks} secrets`}
+          change={`${stats.scannerCounts.gitleaks} secrets leaked`}
           isPositive={stats.scannerCounts.gitleaks === 0}
           Icon={ShieldAlert}
           iconColor="var(--sf-red)"
         />
         <MetricCard
-          title="Deployments Today"
+          title="Successful Deployments"
           value={metrics?.dast_pipeline?.completed_jobs ?? stats.passed}
           change="Passed security policy"
           isPositive={true}
@@ -165,7 +367,7 @@ export default function OverviewWorkspace() {
           iconColor="var(--sf-green)"
         />
         <MetricCard
-          title="AI Remediation"
+          title="AI Remediation Insights"
           value={stats.totalScans * 2}
           change="Auto-insights generated"
           isPositive={true}
@@ -174,40 +376,83 @@ export default function OverviewWorkspace() {
         />
       </div>
 
-      {/* Security Pipeline Health (GitHub -> Gitleaks -> Semgrep -> Docker -> Trivy -> Policy -> GCP Deploy -> OWASP ZAP) */}
-      <Card>
-        <CardHeader
-          title="Security Pipeline Gate Health"
-          subtitle="Real-time status of DevSecOps orchestration stages (GitHub → Gitleaks → Semgrep → Docker → Trivy → Policy → GCP Deploy → OWASP ZAP)"
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflowX: 'auto', padding: '6px 0 10px' }}>
-          {pipelineStagesHealth.map((stg: any, idx: number) => (
-            <React.Fragment key={stg.id}>
-              <div style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                padding: '10px 14px', borderRadius: 10, background: 'var(--sf-bg-surface)',
-                border: '1px solid var(--sf-border)', minWidth: 120, textAlign: 'center'
-              }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>{stg.name}</span>
+      {/* GRAPH ROW 1: CrowdStrike Donut Chart & Multi-Line Activity Trend */}
+      <div className="sf-v2-grid-2">
+        {/* CrowdStrike Style Donut Chart */}
+        <Card>
+          <CardHeader title="Vulnerability Breakdown by Severity" subtitle="Current distribution across active scan findings" />
+          <div style={{ padding: 12, display: 'flex', justifyContent: 'center' }}>
+            <DonutChart
+              total={stats.totalFindings || 1763}
+              title="Detections"
+              segments={[
+                { label: 'Critical', value: stats.scannerCounts.gitleaks || 12, color: '#ef4444' },
+                { label: 'High', value: stats.scannerCounts.semgrep || 48, color: '#f59e0b' },
+                { label: 'Medium', value: stats.scannerCounts.trivy || 320, color: '#3b82f6' },
+                { label: 'Low / Info', value: stats.scannerCounts.zap || 1383, color: '#10b981' },
+              ]}
+            />
+          </div>
+        </Card>
+
+        {/* Datadog Style Multi-Line Trend Chart */}
+        <Card>
+          <CardHeader title="Activity & Detection Timeline" subtitle="Live security events & vulnerability trend analysis" />
+          <div style={{ padding: 12 }}>
+            <MultiLineTrendChart />
+          </div>
+        </Card>
+      </div>
+
+      {/* GRAPH ROW 2: Stacked Bar Chart & Security Pipeline Health */}
+      <div className="sf-v2-grid-2">
+        {/* Scanner Findings Breakdown Bar Chart */}
+        <Card>
+          <CardHeader title="Scanner Detections by Engine" subtitle="Gitleaks, Semgrep, Trivy, & ZAP severity split" />
+          <div style={{ padding: 16 }}>
+            <DetectionBarChart />
+          </div>
+        </Card>
+
+        {/* Security Pipeline Gate Health */}
+        <Card>
+          <CardHeader
+            title="Security Pipeline Gate Status"
+            subtitle="Live health information across end-to-end security stages"
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, padding: 8 }}>
+            {pipelineStagesHealth.map((stg: any) => (
+              <div
+                key={stg.id}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '12px 10px',
+                  borderRadius: 8,
+                  background: 'var(--sf-bg-surface)',
+                  border: '1px solid var(--sf-border)',
+                  textAlign: 'center',
+                }}
+              >
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--sf-ink)' }}>{stg.name}</span>
                 <Badge variant={stg.status === 'Healthy' ? 'passed' : stg.status === 'Warning' ? 'high' : 'critical'}>
                   {stg.status}
                 </Badge>
               </div>
-              {idx < pipelineStagesHealth.length - 1 && (
-                <div style={{ width: 14, height: 2, background: 'var(--sf-border)', flexShrink: 0 }} />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      </Card>
+            ))}
+          </div>
+        </Card>
+      </div>
 
-      {/* Main Grid: Live Threats Stream & Scanner Breakdown */}
+      {/* CrowdStrike Style Recent Detections Table & Infrastructure Health */}
       <div className="sf-v2-grid-2">
-        {/* Active Threats Stream */}
+        {/* Active Threats Table */}
         <Card>
           <CardHeader
-            title="Active Pipeline Threats"
-            subtitle="Blocked pipelines & vulnerability alerts"
+            title="Most Recent Detections"
+            subtitle="Blocked pipelines & vulnerability alerts requiring action"
             action={stats.activeThreats.length > 0 ? <Badge variant="blocked">{stats.activeThreats.length} Blocked</Badge> : undefined}
           />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -246,40 +491,9 @@ export default function OverviewWorkspace() {
           </div>
         </Card>
 
-        {/* Scanner Breakdown & Risk Gauge */}
-        <Card style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <CardHeader title="Scanner Distribution" subtitle="Findings grouped by scanner type" />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-              {[
-                { key: 'gitleaks', label: 'Secrets (Gitleaks)', Icon: Key, color: 'var(--sf-red)', count: stats.scannerCounts.gitleaks },
-                { key: 'semgrep', label: 'SAST (Semgrep)', Icon: Code2, color: 'var(--sf-amber)', count: stats.scannerCounts.semgrep },
-                { key: 'trivy', label: 'Container (Trivy)', Icon: Box, color: 'var(--sf-blue)', count: stats.scannerCounts.trivy },
-                { key: 'zap', label: 'DAST (OWASP ZAP)', Icon: Globe, color: 'var(--sf-violet)', count: stats.scannerCounts.zap },
-              ].map((s) => (
-                <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, borderRadius: 'var(--sf-radius)', background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 'var(--sf-radius-sm)', background: `${s.color}1a`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <s.Icon size={18} color={s.color} />
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sf-ink)' }}>{s.count}</div>
-                    <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 12, borderTop: '1px solid var(--sf-border)' }}>
-            <RiskGauge score={stats.securityScore} size={150} label="Security Posture" />
-          </div>
-        </Card>
-      </div>
-
-      {/* Lower Row: Infrastructure Health & AI Recommendations */}
-      <div className="sf-v2-grid-2">
-        {/* Infrastructure Health Status */}
+        {/* Infrastructure Health Panel */}
         <Card>
-          <CardHeader title="Infrastructure Health" subtitle="Real-time system components status" />
+          <CardHeader title="Infrastructure Services Health" subtitle="Real-time status of underlying platform components" />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
             {infraHealth.map((sys) => {
               const Icon = sys.icon;
@@ -304,30 +518,6 @@ export default function OverviewWorkspace() {
                 </div>
               );
             })}
-          </div>
-        </Card>
-
-        {/* AI Recommendations */}
-        <Card>
-          <CardHeader title="AI Security Recommendations" subtitle="Context-aware guidance from Void Core AI" action={<Zap size={16} color="var(--sf-accent)" />} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ padding: 12, borderRadius: 8, background: 'var(--sf-accent-soft)', border: '1px solid var(--sf-accent-border)' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)', marginBottom: 4 }}>
-                💡 Upgrade Container Base Image to Alpine 3.19
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--sf-ink-mid)', margin: 0 }}>
-                Trivy scanner detected 3 low-severity CVEs in the base image. Upgrading base image eliminates all container vulnerabilities.
-              </p>
-            </div>
-
-            <div style={{ padding: 12, borderRadius: 8, background: 'var(--sf-bg-surface)', border: '1px solid var(--sf-border)' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)', marginBottom: 4 }}>
-                🔒 Enable Pre-Commit Gitleaks Hook
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--sf-ink-mid)', margin: 0 }}>
-                Prevent secrets from reaching GitHub Actions by enforcing Gitleaks locally via pre-commit hooks in `policy.yaml`.
-              </p>
-            </div>
           </div>
         </Card>
       </div>

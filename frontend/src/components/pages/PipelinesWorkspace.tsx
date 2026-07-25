@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import {
   GitPullRequest, Play, CheckCircle2, AlertTriangle, ShieldCheck,
-  ChevronDown, ChevronRight, Zap, Terminal, X, Lock,
-  Code2, Box, Globe, Rocket, ShieldAlert, Cpu
+  ChevronDown, ChevronRight, Zap, Terminal, X, Lock, RefreshCw,
+  Code2, Box, Globe, Rocket, ShieldAlert, Cpu, Slash
 } from 'lucide-react';
 import { Card, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
@@ -17,7 +17,7 @@ export interface PipelineStage {
   id: string;
   name: string;
   category: 'source' | 'ci' | 'sast' | 'secrets' | 'build' | 'container' | 'policy' | 'cd' | 'dast' | 'complete';
-  status: 'passed' | 'failed' | 'blocked' | 'running' | 'queued';
+  status: 'passed' | 'failed' | 'blocked' | 'running' | 'queued' | 'skipped';
   duration: string;
   startTime: string;
   endTime: string;
@@ -43,7 +43,7 @@ export default function PipelinesWorkspace() {
     return scans[0] || {};
   }, [scans, selectedScanId]);
 
-  // Construct 10 Pipeline Stages from active scan data
+  // Construct 10 Pipeline Stages with Cascading Skip Logic
   const pipelineStages = useMemo((): PipelineStage[] => {
     if (!activeScan.id) return [];
 
@@ -56,7 +56,7 @@ export default function PipelinesWorkspace() {
     const trivyVulns = trivyResults.reduce((acc: any[], r: any) => [...acc, ...(r.Vulnerabilities || [])], []);
     const zapAlerts = activeScan.zap_findings?.alerts || activeScan.findings?.zap?.alerts || [];
 
-    return [
+    const rawStages: PipelineStage[] = [
       {
         id: 'push',
         name: 'Developer Push',
@@ -91,7 +91,7 @@ export default function PipelinesWorkspace() {
         id: 'gitleaks',
         name: 'Secrets Scan (Gitleaks)',
         category: 'secrets',
-        status: gitleaksFindings.length > 0 ? (isBlocked ? 'blocked' : 'failed') : 'passed',
+        status: gitleaksFindings.length > 0 ? 'blocked' : 'passed',
         duration: '2.8s',
         startTime: '10:14:07',
         endTime: '10:14:10',
@@ -106,14 +106,14 @@ export default function PipelinesWorkspace() {
           ? [`[Gitleaks] LEAK DETECTED: Secret found in ${gitleaksFindings[0]?.File || 'config.env'}`, '[Gitleaks] RuleID: aws-access-token']
           : ['[Gitleaks] No hardcoded secrets or API tokens detected.'],
         blockReason: gitleaksFindings.length > 0 ? 'Hardcoded AWS API Secret Key detected in repository commit history.' : undefined,
-        aiExplanation: gitleaksFindings.length > 0 ? 'Gitleaks flagged an AWS secret key string matching the pattern `AKIAIOSFODNN7EXAMPLE`. Committing secrets directly creates high risk of credential exposure.' : undefined,
-        suggestedFix: gitleaksFindings.length > 0 ? 'Remove secret from source code, revoke key in AWS IAM, and use GitHub Secrets or Cloud Key Management System.' : undefined,
+        aiExplanation: gitleaksFindings.length > 0 ? 'Gitleaks flagged an AWS secret key string matching pattern `AKIAIOSFODNN7EXAMPLE`. Committing secrets creates credential risk.' : undefined,
+        suggestedFix: gitleaksFindings.length > 0 ? 'Remove secret from source code, revoke key in AWS IAM, and use GitHub Secrets.' : undefined,
       },
       {
         id: 'semgrep',
         name: 'SAST (Semgrep)',
         category: 'sast',
-        status: semgrepFindings.length > 0 ? 'failed' : 'passed',
+        status: semgrepFindings.length > 0 ? 'blocked' : 'passed',
         duration: '6.1s',
         startTime: '10:14:10',
         endTime: '10:14:16',
@@ -127,6 +127,9 @@ export default function PipelinesWorkspace() {
         logs: semgrepFindings.length > 0
           ? [`[Semgrep] Finding: SQL Injection risk in app/db.py:42`, '[Semgrep] Rule: python.sqlalchemy.security.sql-injection']
           : ['[Semgrep] 142 security rules evaluated. 0 vulnerabilities found.'],
+        blockReason: semgrepFindings.length > 0 ? 'SQL Injection vulnerability pattern found in python backend code.' : undefined,
+        aiExplanation: semgrepFindings.length > 0 ? 'Semgrep identified unsanitized string formatting in raw SQL query string.' : undefined,
+        suggestedFix: semgrepFindings.length > 0 ? 'Use SQLAlchemy parameterized queries instead of raw string formatting.' : undefined,
       },
       {
         id: 'docker_build',
@@ -144,7 +147,7 @@ export default function PipelinesWorkspace() {
         id: 'trivy',
         name: 'Container Scan (Trivy)',
         category: 'container',
-        status: trivyVulns.length > 0 ? 'failed' : 'passed',
+        status: trivyVulns.length > 0 ? 'blocked' : 'passed',
         duration: '8.3s',
         startTime: '10:14:28',
         endTime: '10:14:36',
@@ -154,6 +157,7 @@ export default function PipelinesWorkspace() {
         logs: trivyVulns.length > 0
           ? [`[Trivy] Vulnerability found: ${trivyVulns[0]?.VulnerabilityID || 'CVE-2024-2189'} in ${trivyVulns[0]?.PkgName || 'openssl'}`]
           : ['[Trivy] Container image scanned. 0 Critical vulnerabilities.'],
+        blockReason: trivyVulns.length > 0 ? 'Container OS layer contains Critical CVE vulnerability.' : undefined,
       },
       {
         id: 'policy',
@@ -174,30 +178,28 @@ export default function PipelinesWorkspace() {
         logs: isBlocked
           ? [`[Policy Engine] EVALUATION: BLOCK`, `[Policy Engine] Reason: ${activeScan.ai_explanation || 'Blocked by security policy'}`]
           : ['[Policy Engine] EVALUATION: ALLOW — All security gates satisfied.'],
-        blockReason: isBlocked ? (activeScan.ai_explanation || 'Pipeline blocked by policy engine rule: block_gitleaks_secrets.') : undefined,
-        aiExplanation: isBlocked ? 'The policy engine evaluated policy.yaml and determined that hardcoded secrets violate pipeline security requirements, triggering an immediate BLOCK decision.' : undefined,
-        suggestedFix: isBlocked ? 'Resolve the flagged secret in Gitleaks stage and re-trigger pipeline.' : undefined,
+        blockReason: isBlocked ? (activeScan.ai_explanation || 'Pipeline blocked by policy engine rule.') : undefined,
+        aiExplanation: isBlocked ? 'The policy engine evaluated policy.yaml and issued an immediate BLOCK signal.' : undefined,
+        suggestedFix: isBlocked ? 'Resolve flagged scanner issues to pass policy gate.' : undefined,
       },
       {
         id: 'deploy',
         name: 'Deployment (Google Cloud)',
         category: 'cd',
-        status: isBlocked ? 'blocked' : isRunning ? 'running' : 'passed',
-        duration: isBlocked ? '0.0s' : '15.2s',
+        status: isRunning ? 'running' : 'passed',
+        duration: '15.2s',
         startTime: '10:14:37',
         endTime: '10:14:52',
         icon: Rocket,
         details: { platform: 'Google Cloud Run', region: 'us-central1', url: 'https://secureflow-frontend-1083585992526.us-central1.run.app' },
-        logs: isBlocked
-          ? ['[GCP Deploy] ABORTED: Policy Engine emitted BLOCK signal. Deployment halted.']
-          : ['[GCP Deploy] Deploying to Cloud Run service...', '[GCP Deploy] Traffic allocated 100% to revision v2.'],
+        logs: ['[GCP Deploy] Deploying to Cloud Run service...', '[GCP Deploy] Traffic allocated 100% to revision v2.'],
       },
       {
         id: 'dast',
         name: 'DAST (OWASP ZAP)',
         category: 'dast',
-        status: isBlocked ? 'queued' : zapAlerts.length > 0 ? 'failed' : 'passed',
-        duration: isBlocked ? '0.0s' : '9.1s',
+        status: zapAlerts.length > 0 ? 'failed' : 'passed',
+        duration: '9.1s',
         startTime: '10:14:52',
         endTime: '10:15:01',
         score: zapAlerts.length > 0 ? 80 : 100,
@@ -220,6 +222,32 @@ export default function PipelinesWorkspace() {
         logs: [`[Pipeline] Workflow completed with status: ${activeScan.action_taken || 'ALLOW'}`],
       },
     ];
+
+    // CASCADING STAGE SKIP EVALUATOR:
+    // If a stage blocks or fails, ALL SUBSEQUENT STAGES ARE SKIPPED!
+    let hasFailed = false;
+    let failedStageName = '';
+
+    return rawStages.map((stage) => {
+      if (hasFailed) {
+        return {
+          ...stage,
+          status: 'skipped' as const,
+          duration: '0.0s',
+          logs: [`[Pipeline] Stage SKIPPED because previous stage '${failedStageName}' emitted BLOCK/FAILURE signal.`],
+          blockReason: undefined,
+          aiExplanation: undefined,
+          suggestedFix: undefined,
+        };
+      }
+
+      if (stage.status === 'blocked' || stage.status === 'failed') {
+        hasFailed = true;
+        failedStageName = stage.name;
+      }
+
+      return stage;
+    });
   }, [activeScan]);
 
   const getStageStatusBadge = (status: PipelineStage['status']) => {
@@ -228,6 +256,7 @@ export default function PipelinesWorkspace() {
       case 'blocked': return <Badge variant="blocked">BLOCKED</Badge>;
       case 'failed': return <Badge variant="failed">FAILED</Badge>;
       case 'running': return <Badge variant="running">RUNNING</Badge>;
+      case 'skipped': return <Badge variant="neutral">SKIPPED</Badge>;
       default: return <Badge variant="info">QUEUED</Badge>;
     }
   };
@@ -236,7 +265,7 @@ export default function PipelinesWorkspace() {
     return (
       <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <Skeleton width={300} height={32} />
-        <Skeleton height={120} />
+        <Skeleton height={140} />
         <Skeleton height={400} />
       </div>
     );
@@ -251,7 +280,7 @@ export default function PipelinesWorkspace() {
             DevSecOps Pipeline Orchestration
           </h1>
           <p style={{ fontSize: 13, color: 'var(--sf-ink-low)', marginTop: 4 }}>
-            End-to-end security gating: Code Push → Scanners → Policy Engine → GCP Deploy → DAST Validation
+            End-to-end security gating with cascading stage skip & targeted block diagnostics
           </p>
         </div>
 
@@ -285,59 +314,110 @@ export default function PipelinesWorkspace() {
         </div>
       </div>
 
-      {/* Hero Pipeline Flow Stepper (Visual Horizontal Flow) */}
-      <Card style={{ padding: 20 }}>
+      {/* CIRCULAR ANIMATED PIPELINE STEPPER (Hero Visual Component) */}
+      <Card style={{ padding: 24 }}>
         <CardHeader
           title={`Pipeline #${activeScan.id || 1} — ${activeScan.repo_name || 'abhienix/SecureFlow'}`}
           subtitle={`Commit SHA: ${(activeScan.commit_sha || '8f9b2a14').substring(0, 8)} | Triggered via GitHub Push`}
           action={<Badge variant={activeScan.action_taken === 'BLOCK' ? 'blocked' : 'passed'}>{activeScan.action_taken || 'ALLOW'}</Badge>}
         />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto', padding: '16px 0 8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, overflowX: 'auto', padding: '24px 0 12px' }}>
           {pipelineStages.map((stage, idx) => {
             const Icon = stage.icon;
             const isSelected = expandedStageId === stage.id;
+            const isPassed = stage.status === 'passed';
+            const isBlocked = stage.status === 'blocked' || stage.status === 'failed';
+            const isRunning = stage.status === 'running';
+            const isSkipped = stage.status === 'skipped';
 
             return (
               <React.Fragment key={stage.id}>
+                {/* Circular Stepper Node */}
                 <div
                   onClick={() => setExpandedStageId(isSelected ? null : stage.id)}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: 6,
-                    padding: '10px 14px',
-                    borderRadius: 10,
-                    background: isSelected ? 'var(--sf-accent-soft)' : 'var(--sf-bg-surface)',
-                    border: `1px solid ${isSelected ? 'var(--sf-accent)' : stage.status === 'blocked' || stage.status === 'failed' ? 'var(--sf-red-border)' : 'var(--sf-border)'}`,
+                    gap: 8,
                     cursor: 'pointer',
-                    minWidth: 110,
-                    transition: 'all 150ms ease',
-                    position: 'relative',
+                    minWidth: 90,
+                    transition: 'all 200ms ease',
                   }}
                 >
+                  {/* Outer Circle Ring */}
                   <div
                     style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 8,
-                      background: stage.status === 'passed' ? 'var(--sf-green-soft)' : stage.status === 'blocked' || stage.status === 'failed' ? 'var(--sf-red-soft)' : 'var(--sf-accent-soft)',
+                      width: 52,
+                      height: 52,
+                      borderRadius: '50%',
+                      background: isPassed
+                        ? 'var(--sf-green-soft)'
+                        : isBlocked
+                        ? 'var(--sf-red-soft)'
+                        : isRunning
+                        ? 'var(--sf-accent-soft)'
+                        : 'var(--sf-bg-surface)',
+                      border: `2px ${isSkipped ? 'dashed' : 'solid'} ${
+                        isPassed
+                          ? 'var(--sf-green)'
+                          : isBlocked
+                          ? 'var(--sf-red)'
+                          : isRunning
+                          ? 'var(--sf-accent)'
+                          : 'var(--sf-border)'
+                      }`,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
+                      boxShadow: isPassed
+                        ? '0 0 12px rgba(16, 185, 129, 0.25)'
+                        : isBlocked
+                        ? '0 0 16px rgba(239, 68, 68, 0.35)'
+                        : isRunning
+                        ? '0 0 16px rgba(99, 102, 241, 0.4)'
+                        : 'none',
+                      position: 'relative',
+                      transform: isSelected ? 'scale(1.1)' : 'scale(1)',
+                      transition: 'transform 200ms ease',
                     }}
                   >
-                    <Icon size={16} color={stage.status === 'passed' ? 'var(--sf-green)' : stage.status === 'blocked' || stage.status === 'failed' ? 'var(--sf-red)' : 'var(--sf-accent)'} />
+                    {isPassed && <CheckCircle2 size={24} color="var(--sf-green)" />}
+                    {isBlocked && <AlertTriangle size={24} color="var(--sf-red)" />}
+                    {isRunning && <RefreshCw size={22} color="var(--sf-accent)" style={{ animation: 'spin 1.5s linear infinite' }} />}
+                    {isSkipped && <Slash size={20} color="var(--sf-ink-low)" />}
+                    {!isPassed && !isBlocked && !isRunning && !isSkipped && <Icon size={22} color="var(--sf-ink-mid)" />}
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--sf-ink)', textAlign: 'center', whiteSpace: 'nowrap' }}>
+
+                  {/* Stage Title */}
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: isSelected ? 800 : 600,
+                      color: isBlocked ? 'var(--sf-red)' : isSkipped ? 'var(--sf-ink-low)' : 'var(--sf-ink)',
+                      textAlign: 'center',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {stage.name.split(' ')[0]}
                   </span>
+
                   {getStageStatusBadge(stage.status)}
                 </div>
 
+                {/* Connector Line */}
                 {idx < pipelineStages.length - 1 && (
-                  <div style={{ width: 16, height: 2, background: 'var(--sf-border)', flexShrink: 0 }} />
+                  <div
+                    style={{
+                      flex: 1,
+                      height: 2,
+                      background: isPassed ? 'var(--sf-green)' : 'var(--sf-border)',
+                      opacity: isSkipped ? 0.3 : 1,
+                      minWidth: 16,
+                      marginTop: -24,
+                    }}
+                  />
                 )}
               </React.Fragment>
             );
@@ -354,14 +434,16 @@ export default function PipelinesWorkspace() {
             {pipelineStages.map((stage) => {
               const Icon = stage.icon;
               const isExpanded = expandedStageId === stage.id;
+              const isBlockedStage = stage.status === 'blocked' || stage.status === 'failed';
 
               return (
                 <div
                   key={stage.id}
                   style={{
                     borderRadius: 10,
-                    border: `1px solid ${stage.status === 'blocked' || stage.status === 'failed' ? 'var(--sf-red-border)' : 'var(--sf-border)'}`,
+                    border: `1px solid ${isBlockedStage ? 'var(--sf-red-border)' : stage.status === 'skipped' ? 'var(--sf-border)' : 'var(--sf-border)'}`,
                     background: 'var(--sf-bg-surface)',
+                    opacity: stage.status === 'skipped' ? 0.7 : 1,
                     overflow: 'hidden',
                   }}
                 >
@@ -399,7 +481,8 @@ export default function PipelinesWorkspace() {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {stage.status === 'blocked' && (
+                      {/* WHY BLOCKED button shown ONLY on the actual blocked/failed stage */}
+                      {isBlockedStage && (
                         <Button
                           variant="danger"
                           size="sm"
@@ -444,7 +527,7 @@ export default function PipelinesWorkspace() {
                             border: '1px solid #1e293b',
                             fontFamily: 'var(--sf-font-mono)',
                             fontSize: 11,
-                            color: '#38bdf8',
+                            color: stage.status === 'skipped' ? '#64748b' : '#38bdf8',
                             lineHeight: 1.6,
                             maxHeight: 140,
                             overflowY: 'auto',
@@ -472,9 +555,9 @@ export default function PipelinesWorkspace() {
           </div>
         </Card>
 
-        {/* Active Scan Telemetry & Logs Summary */}
+        {/* Active Scan Console Stream */}
         <Card>
-          <CardHeader title="Pipeline Execution Logs" subtitle="Real-time console stream & policy decision telemetry" />
+          <CardHeader title="Pipeline Execution Console Stream" subtitle="Real-time console stream & policy decision telemetry" />
           <div
             style={{
               padding: 16,
@@ -490,20 +573,17 @@ export default function PipelinesWorkspace() {
             }}
           >
             <div style={{ color: '#64748b' }}>[10:14:02] Initializing SecureFlow Enterprise Orchestration Worker...</div>
-            <div style={{ color: '#10b981' }}>[10:14:03] ✔ GitHub Webhook Verified: Push to refs/heads/main</div>
-            <div style={{ color: '#10b981' }}>[10:14:07] ✔ CI Workflow #9841203 running on runner ubuntu-latest</div>
-            <div style={{ color: '#ef4444' }}>[10:14:10] ❌ Gitleaks Scanner: AWS API Secret Key found in config/env.sample:14</div>
-            <div style={{ color: '#38bdf8' }}>[10:14:16] ℹ Semgrep SAST: 142 rules evaluated. 1 warning found.</div>
-            <div style={{ color: '#10b981' }}>[10:14:28] ✔ Docker Build: Compiled secureflow:latest (142 MB)</div>
-            <div style={{ color: '#f59e0b' }}>[10:14:36] ⚠️ Trivy Container: 1 Medium CVE detected in openssl layer</div>
-            <div style={{ color: '#ef4444', fontWeight: 800 }}>[10:14:37] ⛔ POLICY ENGINE: BLOCK SIGNAL EMITTED</div>
-            <div style={{ color: '#ef4444' }}>[10:14:37] Reason: Policy rule 'block_gitleaks_secrets' triggered. Pipeline execution aborted.</div>
-            <div style={{ color: '#64748b' }}>[10:14:37] Slack Notification sent to #devsecops-alerts</div>
+            <div style={{ color: '#10b981' }}>[10:14:03] ✔ Developer Push: Commit 8f9b2a14 verified</div>
+            <div style={{ color: '#10b981' }}>[10:14:07] ✔ GitHub Actions Workflow #9841203 running on runner ubuntu-latest</div>
+            <div style={{ color: '#ef4444', fontWeight: 700 }}>[10:14:10] ❌ Gitleaks Scanner: AWS Secret Key string leaked in config/env.sample:14</div>
+            <div style={{ color: '#ef4444', fontWeight: 800 }}>[10:14:10] ⛔ POLICY ENGINE: BLOCK SIGNAL EMITTED (gitleaks_secret_leak)</div>
+            <div style={{ color: '#64748b' }}>[10:14:10] ⏭️ Skipping subsequent stages: Docker Build, Trivy Container, GCP Deploy, OWASP ZAP</div>
+            <div style={{ color: '#f59e0b' }}>[10:14:10] Slack Notification sent to #devsecops-alerts</div>
           </div>
         </Card>
       </div>
 
-      {/* "WHY BLOCKED" Side Investigation Drawer */}
+      {/* "WHY BLOCKED" Side Investigation Drawer (Gated to actual failing stage) */}
       {blockedPanelStage && (
         <div
           onClick={() => setBlockedPanelStage(null)}
@@ -545,7 +625,7 @@ export default function PipelinesWorkspace() {
                     Why Blocked: {blockedPanelStage.name}
                   </h2>
                   <span style={{ fontSize: 11, color: 'var(--sf-red)', fontWeight: 700 }}>
-                    Security Policy Violation
+                    Security Gate Block Trigger
                   </span>
                 </div>
               </div>
@@ -580,7 +660,7 @@ export default function PipelinesWorkspace() {
                 🛠️ Suggested Remediation Fix
               </h3>
               <div style={{ fontSize: 12, color: 'var(--sf-ink-mid)', lineHeight: 1.5, background: 'var(--sf-bg-surface)', padding: 12, borderRadius: 8, border: '1px solid var(--sf-border)' }}>
-                {blockedPanelStage.suggestedFix || 'Remove sensitive credentials and push a updated commit.'}
+                {blockedPanelStage.suggestedFix || 'Remove sensitive credentials and push a clean updated commit.'}
               </div>
             </div>
 
