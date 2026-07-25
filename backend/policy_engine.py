@@ -138,6 +138,31 @@ def evaluate_policy(scan_findings, repo_name, custom_policy=None):
 
     gitleaks_findings = _as_list(scan_findings.get("gitleaks"))
     semgrep_findings = _as_list(scan_findings.get("semgrep"))
+    zap_findings = _as_list(
+        scan_findings.get("zap")
+        or scan_findings.get("zap_findings", {}).get("alerts")
+        or scan_findings.get("dast_findings")
+    )
+
+    if zap_findings:
+        return {
+            "action": "BLOCK",
+            "reason": f"{len(zap_findings)} DAST security alert(s) detected by OWASP ZAP",
+            "policy_used": "dast-scan",
+            "severity": "HIGH",
+            "blocked": [
+                {
+                    "cve": item.get("alert") or item.get("name") or "owasp-zap-alert",
+                    "severity": (item.get("risk") or "HIGH").upper(),
+                    "cvss": 7.5,
+                    "package": item.get("url") or "target-endpoint",
+                    "fix": item.get("solution") or "add missing security headers and anti-CSRF protection",
+                }
+                for item in zap_findings[:20]
+            ],
+            "warned": [],
+            "allowlisted": [],
+        }
 
     if gitleaks_findings:
         return {
