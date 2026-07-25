@@ -379,8 +379,16 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
     if scan.dast_status in ("queued", "running", "completed"):
         logger.info(f"[start_scan_run] Scan {scan.id} DAST already in status '{scan.dast_status}'. Skipping queueing.")
     else:
-        # Asynchronously publish task to Celery without blocking HTTP response
+        logger.info(
+            f"[start_scan_run] Dispatching DAST — scan_id={scan.id}, "
+            f"target={resolved_target}, current_dast_status={scan.dast_status}"
+        )
         pub_res = await asyncio.to_thread(publish_dast_task, scan.id, resolved_target, req_deploy_url)
+        logger.info(
+            f"[start_scan_run] DAST dispatch result — scan_id={scan.id}, "
+            f"success={pub_res.get('success')}, simulated={pub_res.get('simulated')}, "
+            f"task_id={pub_res.get('task_id')}, error={pub_res.get('error')}"
+        )
         
         steps = dict(scan.pipeline_steps or {})
         if pub_res.get("success"):
@@ -450,6 +458,7 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
         scan.status = data["status"]
         
     await db.commit()
+    await db.refresh(scan)
 
     await manager.broadcast({
         "type": "scan_progress",
@@ -458,7 +467,12 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
         "status": scan.status,
     })
 
-    return {"status": "progress updated", "run_id": run_id}
+    return {
+        "status": "progress updated",
+        "run_id": run_id,
+        "dast_status": scan.dast_status,
+        "pipeline_steps": scan.pipeline_steps,
+    }
 
 
 @app.post("/api/scan-results/cleanup-stale")
@@ -1040,36 +1054,6 @@ async def get_scan_results(db: AsyncSession = Depends(get_db), limit: int = SCAN
         for r in rows
     ]
     return {"total": total, "limit": limit, "scans": scans}
-
-
-@app.get("/api/scan-results/{run_id}")
-async def get_scan_result(run_id: int, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(ScanResult).filter(ScanResult.id == run_id))
-    scan = res.scalars().first()
-    if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
-    return scan_summary_response(scan)
-
-
-def scan_summary_response(scan: ScanResult) -> dict:
-    return {
-        "id": scan.id,
-        "repo_name": scan.repo_name,
-        "commit_sha": scan.commit_sha,
-        "branch": scan.branch,
-        "status": scan.status,
-        "dast_status": scan.dast_status,
-        "pipeline_steps": scan.pipeline_steps or {},
-        "target_url": scan.target_url,
-        "worker_name": scan.worker_name,
-        "worker_id": scan.worker_id,
-        "zap_findings": scan.zap_findings,
-        "zap_summary": scan.zap_summary,
-        "created_at": utc_iso(scan.created_at),
-        "dast_completed_at": utc_iso(scan.dast_completed_at),
-        "scan_duration": scan.scan_duration,
-        "zap_report_path": scan.zap_report_path,
-    }
 
 
 @app.get("/api/observability/metrics")

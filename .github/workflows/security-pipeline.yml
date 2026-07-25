@@ -827,7 +827,11 @@ jobs:
 
           echo "Backend DAST Trigger Response: $RESPONSE"
 
-      # ── Step 17: ZAP Policy Gate — Block if DAST Failed ──────────────────
+      # ── Step 17: ZAP Policy Gate — Poll DAST Results & Gate ──────────────────
+      # Uses PATCH /api/scan-results/{run_id}/progress (always exists on the
+      # production backend) instead of a dedicated GET endpoint. The backend
+      # returns dast_status + pipeline_steps in the response, so the polling
+      # loop reads the current state from what is normally a write endpoint.
       - name: ZAP Policy Gate — Poll DAST Results & Gate
         id: zap_gate
         if: steps.deploy_staging.outcome == 'success'
@@ -836,14 +840,16 @@ jobs:
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
         run: |
           POLL_INTERVAL=15
-          MAX_RETRIES=40  # 10 minutes total timeout
+          MAX_RETRIES=40
           retry=0
 
           echo "Polling backend for DAST completion on run $RUN_ID..."
+          echo "Endpoint: $BACKEND_URL/api/scan-results/$RUN_ID/progress"
 
           while [ $retry -lt $MAX_RETRIES ]; do
-            RESPONSE=$(curl -sS -f "$BACKEND_URL/api/scan-results/$RUN_ID" \
-              -H "Content-Type: application/json" || echo '{"dast_status":"error"}')
+            RESPONSE=$(curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Content-Type: application/json" \
+              -d '{}' || echo '{"dast_status":"error","pipeline_steps":{}}')
 
             DAST_STATUS=$(echo "$RESPONSE" | jq -r '.dast_status // "unknown"')
             ZAP_RESULT=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap.result // "PENDING"')
@@ -875,12 +881,11 @@ jobs:
               exit 1
             fi
 
-            echo "DAST still running ($DAST_STATUS) — waiting ${POLL_INTERVAL}s..."
+            echo "DAST still running (status=$DAST_STATUS) — waiting ${POLL_INTERVAL}s..."
             sleep $POLL_INTERVAL
             retry=$((retry + 1))
           done
 
-          # Timeout reached
           echo "Timeout waiting for DAST to complete after $((MAX_RETRIES * POLL_INTERVAL))s."
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Content-Type: application/json" \
