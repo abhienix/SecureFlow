@@ -342,7 +342,7 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         logger.info(
             f"[start_scan_run] Updating existing scan id={scan.id} — "
             f"current dast_status='{scan.dast_status}', "
-            f"current zap.result='{(scan.pipeline_steps or {}).get(\"zap\", {}).get(\"result\", \"?\")}'"
+            f"current zap.result='{(scan.pipeline_steps or {}).get('zap', {}).get('result', '?')}'"
         )
         scan.target_url = resolved_target
         if req_deploy_url:
