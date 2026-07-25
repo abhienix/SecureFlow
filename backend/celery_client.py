@@ -10,6 +10,7 @@ import os
 import time
 import uuid
 import logging
+import traceback
 from typing import Optional, Dict, Any
 from celery import Celery
 
@@ -36,8 +37,18 @@ CELERY_TASK_NAME = os.getenv("CELERY_TASK_NAME", "tasks.run_zap_scan")
 # ---------------------------------------------------------------------------
 # Log the Redis host (masked) so we can verify producer and worker point to
 # the same broker WITHOUT leaking credentials in plaintext logs.
+def _mask_redis_url(url: str) -> str:
+    """Mask password in redis:// URL for safe logging."""
+    if "@" in url:
+        prefix, rest = url.split("@", 1)
+        if "://" in prefix:
+            scheme_part = prefix.split("://")[0]
+            return f"{scheme_part}://*****@{rest}"
+        return f"*****@{rest}"
+    return url
+
 _redis_host = REDIS_URL.split("@")[-1].split("/")[0] if "@" in REDIS_URL else REDIS_URL.split("://")[1].split("/")[0] if "://" in REDIS_URL else REDIS_URL
-logger.info(f"[celery_client] Initializing Celery producer — broker host={_redis_host}, queue={WORKER_QUEUE}, task={CELERY_TASK_NAME}")
+logger.info(f"[celery_client] Initializing Celery producer — broker URL={_mask_redis_url(REDIS_URL)}, host={_redis_host}, queue={WORKER_QUEUE}, task={CELERY_TASK_NAME}")
 
 celery_app = Celery(
     "secureflow_producer",
@@ -103,8 +114,13 @@ def publish_dast_task(
         attempt += 1
         try:
             logger.info(
-                f"[celery_client] Publishing DAST task '{task_name}' for scan_id={scan_id}, "
-                f"target='{target_url}' (attempt={attempt}/{max_attempts})..."
+                f"[celery_client] TEMP_DEBUG Publishing DAST task — "
+                f"broker={_mask_redis_url(REDIS_URL)}, "
+                f"queue={WORKER_QUEUE}, "
+                f"task={task_name}, "
+                f"scan_id={scan_id}, "
+                f"target={target_url}, "
+                f"attempt={attempt}/{max_attempts}"
             )
 
             async_result = celery_app.send_task(
@@ -115,7 +131,10 @@ def publish_dast_task(
             )
 
             task_id = async_result.id
-            logger.info(f"[celery_client] SUCCESS: Task published with task_id={task_id}")
+            logger.info(
+                f"[celery_client] TEMP_DEBUG SUCCESS — task_id={task_id}, "
+                f"async_result.id={async_result.id}, type(async_result)={type(async_result).__name__}"
+            )
             return {
                 "success": True,
                 "task_id": task_id,
@@ -125,7 +144,15 @@ def publish_dast_task(
             }
 
         except Exception as e:
-            logger.warning(f"[celery_client] Attempt {attempt}/{max_attempts} failed to reach Redis broker: {e}")
+            tb = traceback.format_exc()
+            logger.warning(
+                f"[celery_client] TEMP_DEBUG FAILURE — attempt {attempt}/{max_attempts}, "
+                f"broker={_mask_redis_url(REDIS_URL)}, "
+                f"queue={WORKER_QUEUE}, "
+                f"exception_type={type(e).__name__}, "
+                f"exception_msg={e}\n"
+                f"Full traceback:\n{tb}"
+            )
             if attempt < max_attempts:
                 time.sleep(0.3)
 
