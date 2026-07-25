@@ -653,7 +653,7 @@ export default function PipelinesWorkspace() {
         </div>
 
         {/* Stages Track */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', padding: '30px 10px 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', padding: '30px 4px 10px', overflowX: 'auto' }}>
           {pipelineStages.map((stage, idx) => {
             const isPassed = stage.status === 'passed';
             const isFailed = stage.status === 'failed' || stage.status === 'blocked';
@@ -663,21 +663,24 @@ export default function PipelinesWorkspace() {
             const nextStage = pipelineStages[idx + 1];
             const nextStatus = nextStage?.status;
 
-            const isMiddleStage = idx >= 3 && idx <= 7;
+            // Short display label for stage name
+            const shortStageName =
+              stage.id === 'push' ? 'Push' :
+              stage.id === 'github_actions' ? 'CI Runner' :
+              stage.id === 'gitleaks' ? 'Gitleaks' :
+              stage.id === 'semgrep' ? 'Semgrep' :
+              stage.id === 'docker' ? 'Docker' :
+              stage.id === 'trivy' ? 'Trivy' :
+              stage.id === 'policy' ? 'Policy' :
+              stage.id === 'deploy' ? 'GCP Deploy' :
+              stage.id === 'dast' ? 'OWASP ZAP' :
+              'Complete';
 
             return (
               <React.Fragment key={stage.id}>
-                {/* Responsive Middle Stage Collapse Pill at < lg breakpoint */}
-                {idx === 3 && (
-                  <div className="flex lg:hidden items-center justify-center px-3 py-1 bg-green-500/10 border border-green-500/30 text-green-600 rounded-full text-xs font-bold" title="5 middle stages passed">
-                    5 passed ✓
-                  </div>
-                )}
-
-                {/* Stage Node (hidden on < lg for middle stages 4–8) */}
+                {/* Stage Node */}
                 <div
                   tabIndex={0}
-                  className={isMiddleStage ? 'hidden lg:flex' : 'flex'}
                   onMouseEnter={() => setHoveredStage(stage)}
                   onMouseLeave={() => setHoveredStage(null)}
                   onFocus={() => setHoveredStage(stage)}
@@ -690,6 +693,7 @@ export default function PipelinesWorkspace() {
                     }
                   }}
                   style={{
+                    display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     gap: 6,
@@ -697,6 +701,7 @@ export default function PipelinesWorkspace() {
                     cursor: 'pointer',
                     outline: 'none',
                     zIndex: 2,
+                    minWidth: 64,
                   }}
                 >
                   {/* Tooltip */}
@@ -757,34 +762,32 @@ export default function PipelinesWorkspace() {
                     {isRunning && <RefreshCw size={18} color="#3b82f6" />}
                   </div>
 
-                  {/* Label Below Node */}
+                  {/* Stage Name & Status Badge Below Node */}
                   <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                     <span
                       style={{
-                        fontSize: 10,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: 'var(--sf-ink)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {shortStageName}
+                    </span>
+
+                    <span
+                      style={{
+                        fontSize: 9,
                         fontWeight: 800,
-                        color: isPassed ? '#16a34a' : isFailed ? '#dc2626' : '#9ca3af',
+                        padding: '1px 5px',
+                        borderRadius: 6,
+                        background: isPassed ? '#dcfce7' : isFailed ? '#fee2e2' : isSkipped ? '#f3f4f6' : '#eff6ff',
+                        color: isPassed ? '#16a34a' : isFailed ? '#dc2626' : isSkipped ? '#6b7280' : '#2563eb',
                         textTransform: 'uppercase',
                       }}
                     >
-                      {isPassed ? 'PASSED' : isFailed ? 'FAILED' : isSkipped ? 'SKIPPED' : 'RUNNING'}
+                      {stage.findingBadge || (isPassed ? 'PASSED' : isFailed ? 'FAILED' : isSkipped ? 'SKIPPED' : 'RUNNING')}
                     </span>
-
-                    {/* Finding Count Badges */}
-                    {stage.findingBadge && (
-                      <span
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          padding: '2px 6px',
-                          borderRadius: 8,
-                          background: isFailed ? '#fee2e2' : '#fef9c3',
-                          color: isFailed ? '#b91c1c' : '#854d0e',
-                        }}
-                      >
-                        {stage.findingBadge}
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -793,6 +796,7 @@ export default function PipelinesWorkspace() {
                   <div
                     style={{
                       flex: 1,
+                      minWidth: 16,
                       height: 2,
                       borderTop: nextStatus === 'skipped' ? '2px dashed #9ca3af' : 'none',
                       background:
