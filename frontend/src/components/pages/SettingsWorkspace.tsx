@@ -16,6 +16,10 @@ export default function SettingsWorkspace() {
   const { data: sysInfo } = useSystemInfo();
   const { data: sysHealth } = useSystemHealth();
   const [activeTab, setActiveTab] = useState<Tab>('appearance');
+
+  React.useEffect(() => {
+    document.title = 'Settings — SecureFlow';
+  }, []);
   const [compactMode, setCompactMode] = useState(false);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
 

@@ -53,6 +53,22 @@ export default function PipelinesWorkspace() {
   const [hoveredStage, setHoveredStage] = useState<PipelineStage | null>(null);
   const [copiedLogs, setCopiedLogs] = useState(false);
 
+  React.useEffect(() => {
+    document.title = 'Pipelines — SecureFlow';
+  }, []);
+
+  // Keyboard accessibility: Escape key closes dropdown and blocked panel drawer
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDropdownOpen(false);
+        setBlockedPanelStage(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const scans = useMemo(() => rawScans || [], [rawScans]);
   const activeScan = useMemo(() => {
     if (selectedScanId) return scans.find((s) => s.id === selectedScanId) || scans[0];
@@ -625,20 +641,39 @@ export default function PipelinesWorkspace() {
             const nextStage = pipelineStages[idx + 1];
             const nextStatus = nextStage?.status;
 
+            const isMiddleStage = idx >= 3 && idx <= 7;
+
             return (
               <React.Fragment key={stage.id}>
-                {/* Stage Node */}
+                {/* Responsive Middle Stage Collapse Pill at < lg breakpoint */}
+                {idx === 3 && (
+                  <div className="flex lg:hidden items-center justify-center px-3 py-1 bg-green-500/10 border border-green-500/30 text-green-600 rounded-full text-xs font-bold" title="5 middle stages passed">
+                    5 passed ✓
+                  </div>
+                )}
+
+                {/* Stage Node (hidden on < lg for middle stages 4–8) */}
                 <div
+                  tabIndex={0}
+                  className={isMiddleStage ? 'hidden lg:flex' : 'flex'}
                   onMouseEnter={() => setHoveredStage(stage)}
                   onMouseLeave={() => setHoveredStage(null)}
+                  onFocus={() => setHoveredStage(stage)}
+                  onBlur={() => setHoveredStage(null)}
                   onClick={() => setExpandedStageId(stage.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setExpandedStageId(stage.id);
+                    }
+                  }}
                   style={{
-                    display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     gap: 6,
                     position: 'relative',
                     cursor: 'pointer',
+                    outline: 'none',
                     zIndex: 2,
                   }}
                 >

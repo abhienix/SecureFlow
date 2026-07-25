@@ -45,8 +45,33 @@ export default function SecurityCenterWorkspace() {
     MEDIUM: true,
     LOW: true,
   });
-
   const [drawerFinding, setDrawerFinding] = useState<FindingRow | null>(null);
+  const [isSmallScreen, setIsSmallScreen] = useState<boolean>(window.innerWidth < 1200);
+  const lastActiveElementRef = React.useRef<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    document.title = 'Security Center — SecureFlow';
+  }, []);
+
+  React.useEffect(() => {
+    const handleResize = () => setIsSmallScreen(window.innerWidth < 1200);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Keyboard accessibility: Escape key closes drawer and returns focus
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && drawerFinding) {
+        setDrawerFinding(null);
+        if (lastActiveElementRef.current) {
+          lastActiveElementRef.current.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [drawerFinding]);
 
   // Convert raw API findings or fallback mock 432 dataset
   const allFindings = useMemo((): FindingRow[] => {
@@ -507,22 +532,53 @@ export default function SecurityCenterWorkspace() {
         </>
       )}
 
-      {/* FINDINGS DETAIL DRAWER */}
+      {/* FINDINGS DETAIL DRAWER / FULL-SCREEN MODAL */}
       {drawerFinding && (
         <div
-          onClick={() => setDrawerFinding(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 9990, display: 'flex', justifyContent: 'flex-end' }}
+          onClick={() => {
+            setDrawerFinding(null);
+            if (lastActiveElementRef.current) lastActiveElementRef.current.focus();
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9990,
+            display: 'flex',
+            alignItems: isSmallScreen ? 'center' : 'stretch',
+            justifyContent: isSmallScreen ? 'center' : 'flex-end',
+          }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ width: 440, maxWidth: '92vw', height: '100vh', background: 'var(--sf-bg-card)', padding: 24, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}
+            style={{
+              width: isSmallScreen ? '92vw' : 440,
+              maxWidth: isSmallScreen ? 640 : '92vw',
+              height: isSmallScreen ? '88vh' : '100vh',
+              borderRadius: isSmallScreen ? 16 : 0,
+              background: 'var(--sf-bg-card)',
+              border: isSmallScreen ? '1px solid var(--sf-border)' : 'none',
+              padding: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              overflowY: 'auto',
+              boxShadow: '0 12px 36px rgba(0,0,0,0.5)',
+            }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--sf-border)', paddingBottom: 12 }}>
               <div>
                 <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>{drawerFinding.packageName}</h2>
                 <span style={{ fontSize: 11, color: 'var(--sf-ink-low)' }}>{drawerFinding.cveId || 'Vulnerability Detail'}</span>
               </div>
-              <button onClick={() => setDrawerFinding(null)} style={{ background: 'none', border: 'none', color: 'var(--sf-ink-low)', cursor: 'pointer' }}>
+              <button
+                onClick={() => {
+                  setDrawerFinding(null);
+                  if (lastActiveElementRef.current) lastActiveElementRef.current.focus();
+                }}
+                style={{ background: 'none', border: 'none', color: 'var(--sf-ink-low)', cursor: 'pointer' }}
+              >
                 <X size={20} />
               </button>
             </div>
@@ -552,15 +608,29 @@ export default function SecurityCenterWorkspace() {
             </div>
 
             <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--sf-border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  setDrawerFinding(null);
-                  openVoidWithContext({ cve: drawerFinding.cveId, package: drawerFinding.packageName, remediation: drawerFinding.remediation });
+              {/* Item 1 QA Pass: Disabled "Ask Void for Fix" button */}
+              <button
+                disabled
+                title="Void AI coming soon"
+                style={{
+                  opacity: 0.5,
+                  cursor: 'not-allowed',
+                  width: '100%',
+                  padding: '10px 16px',
+                  borderRadius: 8,
+                  background: 'var(--sf-bg-surface)',
+                  border: '1px solid var(--sf-border)',
+                  color: 'var(--sf-ink-mid)',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
                 }}
               >
                 <Zap size={14} /> Ask Void for Fix
-              </Button>
+              </button>
               <Button variant="secondary" onClick={() => window.open(`https://nvd.nist.gov/vuln/detail/${drawerFinding.cveId}`, '_blank')}>
                 <ExternalLink size={14} /> NVD Entry Advisory
               </Button>
