@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lock, X, Loader2, Shield } from "lucide-react";
-import { BACKEND } from "../../contexts/AppContext";
+import { API_BASE } from "../../lib/api";
 import { Badge, IconBtn, SectionTitle } from "./Common";
 
 export function PolicySandbox({
@@ -43,7 +43,7 @@ export function PolicySandbox({
     setSavingPolicy(true);
     setAdminError("");
     try {
-      const res = await fetch(`${BACKEND}/api/policy/update`, {
+      const res = await fetch(`${API_BASE}/api/policy/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cvss_threshold: cvssThreshold, admin_key: adminKey.trim() }),

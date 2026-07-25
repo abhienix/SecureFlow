@@ -1176,7 +1176,7 @@ async def get_deployments(db: AsyncSession = Depends(get_db)):
     
     deployments = []
     for s in scans:
-        if s.deployment_url or (s.pipeline_steps or {}).get("deploy"):
+        if s.deployment_url or (s.pipeline_steps or {}).get("deploy_prod"):
             deployments.append({
                 "id": f"dep-{s.id}",
                 "run_id": s.id,

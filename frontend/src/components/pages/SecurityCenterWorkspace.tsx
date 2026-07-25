@@ -10,8 +10,6 @@ import { Skeleton } from '../ui/Skeleton';
 import { useFindings } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
 
-const { FixedSizeList } = require('react-window');
-
 export interface FindingRow {
   id: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -73,75 +71,32 @@ export default function SecurityCenterWorkspace() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [drawerFinding]);
 
-  // Convert raw API findings or fallback mock 432 dataset
+  // Normalize the backend's unified findings without inventing data when no
+  // scans have been recorded yet.
   const allFindings = useMemo((): FindingRow[] => {
-    if (rawFindings && rawFindings.length > 0) {
-      return rawFindings.map((f: any, idx: number) => ({
-        id: `f-${idx}`,
-        severity: f.severity || (idx === 0 ? 'CRITICAL' : idx < 5 ? 'HIGH' : 'MEDIUM'),
-        scanner: f.scanner || (idx % 4 === 0 ? 'Gitleaks' : idx % 4 === 1 ? 'Semgrep' : idx % 4 === 2 ? 'Trivy' : 'OWASP ZAP'),
-        packageName: f.packageName || f.rule || `package-lib-${idx}`,
-        ruleName: f.rule || `security.rule.${idx}`,
-        description: f.description || `Vulnerability pattern detected in scanner pass`,
-        cveId: f.cve || `CVE-2026-${1000 + idx}`,
-        cvssScore: f.cvss || (idx === 0 ? 9.8 : idx < 5 ? 8.2 : 5.4),
-        fileTarget: f.file || `src/app/component_${idx}.py:42`,
-        repo: f.repo || 'abhienix/SecureFlow',
-        fixedVersion: f.fixedVersion || 'v1.4.2',
-        remediation: f.remediation || 'Upgrade dependency to latest patched release.',
-      }));
-    }
+    return (rawFindings || []).flatMap((f: any): FindingRow[] => {
+      const severity = String(f.severity || '').toUpperCase();
+      if (!['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(severity)) return [];
 
-    const mock: FindingRow[] = [
-      {
-        id: 'f-crit-1',
-        severity: 'CRITICAL',
-        scanner: 'Gitleaks',
-        packageName: 'AWS IAM Secret Token',
-        ruleName: 'aws-access-token',
-        description: 'Hardcoded AWS secret key string found in env sample file',
-        cveId: 'SECRET-2026-001',
-        cvssScore: 9.8,
-        fileTarget: 'config/env.sample:14',
-        repo: 'abhienix/SecureFlow',
-        remediation: 'Remove hardcoded secret from repository history and revoke IAM key in AWS console.',
-      },
-    ];
+      const scannerMap: Record<string, FindingRow['scanner']> = {
+        gitleaks: 'Gitleaks', semgrep: 'Semgrep', trivy: 'Trivy', zap: 'OWASP ZAP',
+      };
+      const scanner = scannerMap[String(f.scanner || '').toLowerCase()];
+      if (!scanner) return [];
 
-    for (let i = 1; i <= 48; i++) {
-      mock.push({
-        id: `f-high-${i}`,
-        severity: 'HIGH',
-        scanner: i % 2 === 0 ? 'Semgrep' : 'Trivy',
-        packageName: i % 2 === 0 ? 'starlette 0.27.0' : 'openssl 1.1.1u',
-        ruleName: i % 2 === 0 ? 'python.sqlalchemy.sql-injection' : 'CVE-2026-48818',
-        description: i % 2 === 0 ? 'Unsanitized string formatting in database query' : 'Remote code execution via request header parsing',
-        cveId: `CVE-2026-${2000 + i}`,
-        cvssScore: 8.4,
-        fileTarget: `app/services/db_query_${i}.py:${10 + i}`,
-        repo: 'abhienix/SecureFlow',
-        fixedVersion: '0.49.1+',
-        remediation: 'Upgrade package version to fixed release.',
-      });
-    }
-
-    for (let i = 1; i <= 383; i++) {
-      mock.push({
-        id: `f-med-${i}`,
-        severity: i > 300 ? 'LOW' : 'MEDIUM',
-        scanner: i % 2 === 0 ? 'Trivy' : 'OWASP ZAP',
-        packageName: `pkg-dep-${i}`,
-        ruleName: `vulnerability.rule.${i}`,
-        description: `Informational security finding in dependency tree`,
-        cveId: `CVE-2025-${3000 + i}`,
-        cvssScore: i > 300 ? 3.2 : 5.8,
-        fileTarget: `lib/deps/node_modules/module_${i}.js`,
-        repo: 'abhienix/SecureFlow',
-        remediation: 'Monitor upstream package updates.',
-      });
-    }
-
-    return mock;
+      return [{
+        id: String(f.id), severity: severity as FindingRow['severity'], scanner,
+        packageName: f.title || f.package_name || f.rule || f.category || 'Untitled finding',
+        ruleName: f.cve_cwe || f.rule || f.category || 'Unclassified',
+        description: f.ai_explanation || f.description || f.title || 'No description provided.',
+        cveId: f.cve_cwe,
+        cvssScore: Number.isFinite(Number(f.cvss_score ?? f.cvss)) ? Number(f.cvss_score ?? f.cvss) : 0,
+        fileTarget: [f.file, f.line].filter(Boolean).join(':') || 'Unknown location',
+        repo: f.repo_name || f.repo || 'Unknown repository',
+        fixedVersion: f.fixed_version,
+        remediation: f.ai_fix || f.remediation || 'No remediation guidance provided.',
+      }];
+    });
   }, [rawFindings]);
 
   // Filter findings
@@ -349,6 +304,18 @@ export default function SecurityCenterWorkspace() {
           </Card>
 
           {/* ITEM 1 QA: SEVERITY-GROUPED TABLE WITH VIRTUALIZATION FOR MEDIUM/LOW */}
+          {filteredFindings.length === 0 && (
+            <Card style={{ padding: 32, textAlign: 'center' }}>
+              <h2 style={{ fontSize: 16, color: 'var(--sf-ink)', marginBottom: 8 }}>
+                {allFindings.length === 0 ? 'No security findings yet' : 'No findings match these filters'}
+              </h2>
+              <p style={{ color: 'var(--sf-ink-low)', fontSize: 13 }}>
+                {allFindings.length === 0
+                  ? 'Findings will appear here after SecureFlow receives a completed scan.'
+                  : 'Adjust or clear the filters to see available findings.'}
+              </p>
+            </Card>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const).map((sev) => {
               const items = groupedFindings[sev];
@@ -357,82 +324,6 @@ export default function SecurityCenterWorkspace() {
               const isCollapsed = collapsedGroups[sev];
               const borderColor = sev === 'CRITICAL' ? '#dc2626' : sev === 'HIGH' ? '#ea580c' : sev === 'MEDIUM' ? '#ca8a04' : '#2563eb';
               const headerBg = sev === 'CRITICAL' ? '#fef2f2' : sev === 'HIGH' ? '#fff7ed' : sev === 'MEDIUM' ? '#fefce8' : '#eff6ff';
-
-              // Item Renderer for react-window Virtualized List
-              const RowRenderer = ({ index, style }: { index: number; style: React.CSSProperties }) => {
-                const row = items[index];
-                return (
-                  <div
-                    key={row.id}
-                    onClick={() => setDrawerFinding(row)}
-                    style={{
-                      ...style,
-                      display: 'flex',
-                      alignItems: 'center',
-                      borderBottom: '1px solid var(--sf-border)',
-                      cursor: 'pointer',
-                      background: 'var(--sf-bg-card)',
-                      boxSizing: 'border-box',
-                    }}
-                  >
-                    <div style={{ padding: '0 12px', width: 90 }}>
-                      <Badge variant={row.severity === 'CRITICAL' ? 'critical' : row.severity === 'HIGH' ? 'high' : 'medium'}>
-                        {row.severity}
-                      </Badge>
-                    </div>
-
-                    <div style={{ padding: '0 12px', width: 110, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--sf-ink)' }}>
-                      {getScannerIcon(row.scanner)}
-                      <span>{row.scanner}</span>
-                    </div>
-
-                    <div style={{ flex: 1, padding: '0 12px', overflow: 'hidden' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sf-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {row.packageName}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--sf-ink-low)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {row.description} {row.cveId && `(${row.cveId})`}
-                      </div>
-                    </div>
-
-                    <div style={{ padding: '0 12px', width: 110 }}>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 800,
-                          padding: '3px 8px',
-                          borderRadius: 12,
-                          background: row.cvssScore >= 9 ? '#fee2e2' : '#fef9c3',
-                          color: row.cvssScore >= 9 ? '#b91c1c' : '#854d0e',
-                        }}
-                      >
-                        {row.cvssScore} CVSS
-                      </span>
-                    </div>
-
-                    <div style={{ padding: '0 12px', width: 180, fontFamily: 'var(--sf-font-mono)', fontSize: 11, color: 'var(--sf-ink-mid)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {row.fileTarget}
-                    </div>
-
-                    <div style={{ padding: '0 12px', width: 160, textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openVoidWithContext({ cve: row.cveId, package: row.packageName, message: row.description })}
-                        >
-                          Ask Void
-                        </Button>
-                        <Button variant="primary" size="sm" onClick={() => setDrawerFinding(row)}>
-                          View fix
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              };
-
-              const useVirtualization = sev === 'MEDIUM' || sev === 'LOW';
 
               return (
                 <Card key={sev} style={{ padding: 0, overflow: 'hidden', borderLeft: `4px solid ${borderColor}` }}>
@@ -455,22 +346,12 @@ export default function SecurityCenterWorkspace() {
                     </div>
 
                     <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: '#ffffff', color: borderColor, border: `1px solid ${borderColor}` }}>
-                      {items.length} findings {useVirtualization && '(Virtualized)'}
+                      {items.length} findings
                     </span>
                   </div>
 
                   {!isCollapsed && (
                     <div>
-                      {useVirtualization && items.length > 10 ? (
-                        <FixedSizeList
-                          height={Math.min(items.length * 52, 400)}
-                          itemCount={items.length}
-                          itemSize={52}
-                          width="100%"
-                        >
-                          {RowRenderer}
-                        </FixedSizeList>
-                      ) : (
                         <div style={{ overflowX: 'auto' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <tbody>
@@ -522,7 +403,6 @@ export default function SecurityCenterWorkspace() {
                             </tbody>
                           </table>
                         </div>
-                      )}
                     </div>
                   )}
                 </Card>
