@@ -1042,6 +1042,36 @@ async def get_scan_results(db: AsyncSession = Depends(get_db), limit: int = SCAN
     return {"total": total, "limit": limit, "scans": scans}
 
 
+@app.get("/api/scan-results/{run_id}")
+async def get_scan_result(run_id: int, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(ScanResult).filter(ScanResult.id == run_id))
+    scan = res.scalars().first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    return scan_summary_response(scan)
+
+
+def scan_summary_response(scan: ScanResult) -> dict:
+    return {
+        "id": scan.id,
+        "repo_name": scan.repo_name,
+        "commit_sha": scan.commit_sha,
+        "branch": scan.branch,
+        "status": scan.status,
+        "dast_status": scan.dast_status,
+        "pipeline_steps": scan.pipeline_steps or {},
+        "target_url": scan.target_url,
+        "worker_name": scan.worker_name,
+        "worker_id": scan.worker_id,
+        "zap_findings": scan.zap_findings,
+        "zap_summary": scan.zap_summary,
+        "created_at": utc_iso(scan.created_at),
+        "dast_completed_at": utc_iso(scan.dast_completed_at),
+        "scan_duration": scan.scan_duration,
+        "zap_report_path": scan.zap_report_path,
+    }
+
+
 @app.get("/api/observability/metrics")
 @app.get("/api/observability/overview")
 async def get_observability_metrics(db: AsyncSession = Depends(get_db)):
