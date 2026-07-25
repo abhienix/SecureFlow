@@ -2,17 +2,19 @@ import React, { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { X, Send, Bot, User, Terminal, RefreshCw } from "lucide-react";
 import { useApp } from "../contexts/AppContext";
+import { useUIStore } from "../stores/uiStore";
 import FormattedCopilotMessage from "./shared/FormattedCopilotMessage";
 import VoidCoreIcon from "./shared/VoidCoreIcon";
 
 export default function GlobalAICopilot({ C, isOpen, onClose }) {
   const location = useLocation();
   const { scans, findings, BACKEND } = useApp();
+  const { activeVoidContext, setVoidContext } = useUIStore();
   const [messages, setMessages] = useState([
     {
       id: 1,
       sender: "ai",
-      text: "Hello! I am **Void** — SecureFlow's Autonomous DevSecOps Core AI. I have complete RAG context over your pipeline runs, policy.yaml rules, Gitleaks secrets, Semgrep SAST findings, Trivy container CVEs, and OWASP ZAP DAST probes. How can I assist you?",
+      text: "Hello! I am **Void** — SecureFlow's Autonomous DevSecOps Core AI. I have complete real-time RAG context over your pipeline runs, policy.yaml rules, Gitleaks secrets, Semgrep SAST findings, Trivy container CVEs, and OWASP ZAP DAST probes. How can I assist you?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
   ]);
@@ -30,7 +32,7 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
 
   if (!isOpen) return null;
 
-  const currentRouteName = location.pathname.split("/")[1] || "dashboard";
+  const currentRouteName = location.pathname.split("/")[1] || "overview";
   const activeScan = scans[0] || {};
 
   const handleSend = async (customPrompt) => {
@@ -49,18 +51,21 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
     setIsLoading(true);
 
     try {
+      const payloadContext = {
+        route: location.pathname,
+        repo: activeScan.repo_name || "abhienix/SecureFlow",
+        commit: activeScan.commit_sha || "HEAD",
+        active_findings_count: findings.length,
+        ...(activeVoidContext || {}),
+      };
+
       const response = await fetch(`${BACKEND}/api/copilot/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: queryText,
           scan_id: activeScan.id || 1,
-          context: {
-            route: location.pathname,
-            repo: activeScan.repo_name || "abhienix/SecureFlow",
-            commit: activeScan.commit_sha || "HEAD",
-            active_findings_count: findings.length,
-          }
+          context: payloadContext,
         }),
       });
 
@@ -146,10 +151,24 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
         {/* Active Context Banner */}
         <div style={{
           padding: "8px 16px", background: C.accentSoft, borderBottom: `1px solid ${C.accentBorder}`,
-          display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: C.accent, fontWeight: 600
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 11, color: C.accent, fontWeight: 600
         }}>
-          <Terminal size={13} />
-          <span>Active Repo: {activeScan.repo_name || "SecureFlow"} | SHA: {(activeScan.commit_sha || "HEAD").substring(0, 7)}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <Terminal size={13} />
+            {activeVoidContext ? (
+              <span>Context: {String(activeVoidContext.stage || activeVoidContext.scanner || activeVoidContext.cve || activeVoidContext.title || "Active Resource")} ({String(activeVoidContext.repo || activeScan.repo_name || "SecureFlow")})</span>
+            ) : (
+              <span>Active Repo: {activeScan.repo_name || "SecureFlow"} | SHA: {(activeScan.commit_sha || "HEAD").substring(0, 7)}</span>
+            )}
+          </div>
+          {activeVoidContext && (
+            <button
+              onClick={() => setVoidContext(null)}
+              style={{ background: "transparent", border: "none", color: C.accent, cursor: "pointer", fontSize: 10, fontWeight: 700 }}
+            >
+              Clear Context
+            </button>
+          )}
         </div>
 
         {/* Messages Body */}

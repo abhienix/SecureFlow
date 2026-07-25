@@ -1,20 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
-import {
-  Search, FolderGit2, GitPullRequest, Rocket, ShieldAlert,
-  FileText, Activity, Download, Sparkles, Settings, Radar
-} from "lucide-react";
+import { Search, ShieldAlert, FileText, Settings, Radar, GitPullRequest } from "lucide-react";
 
 const COMMANDS = [
-  { id: "mission-control", label: "Mission Control", path: "/mission-control", Icon: Radar, section: "Navigation" },
-  { id: "repositories", label: "Repositories", path: "/repositories", Icon: FolderGit2, section: "Navigation" },
+  { id: "overview", label: "Overview", path: "/overview", Icon: Radar, section: "Navigation" },
   { id: "pipelines", label: "Pipelines", path: "/pipelines", Icon: GitPullRequest, section: "Navigation" },
-  { id: "deployments", label: "Deployments", path: "/deployments", Icon: Rocket, section: "Navigation" },
-  { id: "findings", label: "Unified Findings", path: "/findings", Icon: ShieldAlert, section: "Navigation" },
-  { id: "policies", label: "Policies", path: "/policies", Icon: FileText, section: "Navigation" },
-  { id: "observability", label: "Observability", path: "/observability", Icon: Activity, section: "Navigation" },
-  { id: "reports", label: "Reports", path: "/reports", Icon: Download, section: "Navigation" },
-  { id: "copilot", label: "AI Copilot", path: "/copilot", Icon: Sparkles, section: "Navigation" },
-  { id: "settings", label: "Settings", path: "/settings", Icon: Settings, section: "Navigation" },
+  { id: "security-center", label: "Security Center (Findings & Reports)", path: "/security-center", Icon: ShieldAlert, section: "Navigation" },
+  { id: "policies", label: "Policy Engine", path: "/policies", Icon: FileText, section: "Navigation" },
+  { id: "settings", label: "Settings & System Health", path: "/settings", Icon: Settings, section: "Navigation" },
 ];
 
 export default function CommandPalette({ isOpen, onClose, onNavigate, C }) {

@@ -8,6 +8,9 @@ type BadgeVariant =
   | 'low'
   | 'passed'
   | 'blocked'
+  | 'failed'
+  | 'running'
+  | 'info'
   | 'neutral';
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
@@ -21,6 +24,9 @@ const variantClass: Record<BadgeVariant, string> = {
   low: 'sf-v2-badge--low',
   passed: 'sf-v2-badge--passed',
   blocked: 'sf-v2-badge--blocked',
+  failed: 'sf-v2-badge--critical',
+  running: 'sf-v2-badge--high',
+  info: 'sf-v2-badge--medium',
   neutral: 'sf-v2-badge--neutral',
 };
 
