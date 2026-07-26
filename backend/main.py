@@ -373,7 +373,7 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         scan.target_url = resolved_target
         if req_deploy_url:
             scan.deployment_url = req_deploy_url
-        if scan.dast_status in ("queued", "failed", "unknown") or scan.dast_status is None:
+        if scan.dast_status != "running":
             scan.dast_status = "not_queued"
     else:
         logger.info(f"[start_scan_run] Creating NEW scan (run_id={run_id}, repo={repo_name})")
@@ -425,7 +425,7 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
     logger.info(
         f"[start_scan_run] DAST STATUS CHECK — scan_id={scan.id}, "
         f"dast_status='{scan.dast_status}', "
-        f"skip_condition_met={scan.dast_status in ('queued', 'running', 'completed')}"
+        f"skip_condition_met={scan.dast_status in ('running', 'completed')}"
     )
     if scan.dast_status in ("running", "completed"):
         logger.info(f"[start_scan_run] SKIPPING dispatch — dast_status='{scan.dast_status}' already in progress/completed")
