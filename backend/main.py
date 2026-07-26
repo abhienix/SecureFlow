@@ -513,9 +513,16 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
     existing_steps = dict(scan.pipeline_steps or {})
     existing_steps.update(data.get("pipeline_steps", {}))
     scan.pipeline_steps = existing_steps
-    
+
     if "status" in data:
         scan.status = data["status"]
+
+    # Allow worker to update dast_status (e.g. to "completed" after ZAP scan)
+    if "dast_status" in data:
+        scan.dast_status = data["dast_status"]
+        if data["dast_status"] == "completed":
+            from datetime import datetime as _dt
+            scan.dast_completed_at = _dt.utcnow()
         
     await db.commit()
     await db.refresh(scan)
