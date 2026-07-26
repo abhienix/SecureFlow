@@ -44,7 +44,6 @@ from celery_client import (
     DEFAULT_TARGET_URL,
     DAST_ENABLED,
 )
-from dast_router import router as dast_router
 
 # ---------------------------------------------------------------------------
 # Logging & Environment configuration
@@ -171,7 +170,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="SecureFlow — AI-Powered DevSecOps & Distributed DAST Gateway", version="2.0.0", lifespan=lifespan)
-app.include_router(dast_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1575,4 +1573,5 @@ async def global_search(q: str = "", db: AsyncSession = Depends(get_db)):
                 })
 
     return {"query": q, "results": results[:15]}
+
 
