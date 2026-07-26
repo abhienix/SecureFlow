@@ -700,6 +700,7 @@ jobs:
           echo "staging_url=$STAGING_URL" >> "$GITHUB_OUTPUT"
           echo "Staging URL: $STAGING_URL"
           sleep 30
+          sleep 30
 
       - name: Notify Staging Deploy Success
         if: steps.deploy_staging.outcome == 'success'
