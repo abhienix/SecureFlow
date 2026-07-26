@@ -787,6 +787,7 @@ jobs:
 
       # ── Step 16b: Trigger Distributed DAST Pipeline ─────────────────────────
       - name: Trigger Automated Distributed DAST Pipeline
+        id: trigger_dast
         if: steps.deploy_staging.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
@@ -825,9 +826,21 @@ jobs:
 
           RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results/start" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD" || echo '{"status":"trigger_failed"}')
+            -d "$PAYLOAD" || echo '{"status":"trigger_failed","run_id":null}')
 
           echo "Backend DAST Trigger Response: $RESPONSE"
+
+          # Capture the actual run_id returned by THIS trigger call.
+          # The ZAP gate MUST poll this id, not the pipeline_start id which
+          # may be empty if the very first backend call failed at pipeline start.
+          DAST_RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id // empty')
+          if [ -n "$DAST_RUN_ID" ] && [ "$DAST_RUN_ID" != "null" ]; then
+            echo "dast_run_id=${DAST_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "DAST task dispatched for run_id=${DAST_RUN_ID}"
+          else
+            echo "WARNING: DAST trigger returned no run_id — falling back to pipeline_start run_id"
+            echo "dast_run_id=${RUN_ID:-}" >> "$GITHUB_OUTPUT"
+          fi
 
       # ── Step 17: ZAP Policy Gate — Poll DAST Results & Gate ──────────────────
       # Uses PATCH /api/scan-results/{run_id}/progress (always exists on the
@@ -839,7 +852,7 @@ jobs:
         if: steps.deploy_staging.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
-          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+          RUN_ID: ${{ steps.trigger_dast.outputs.dast_run_id || steps.pipeline_start.outputs.run_id }}
         run: |
           POLL_INTERVAL=15
           MAX_RETRIES=40
