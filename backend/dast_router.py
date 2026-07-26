@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from models import ScanResult
 from dast_service import trigger_dast_scan
+from main import get_db
 
 logger = logging.getLogger("secureflow.dast_router")
 
@@ -62,5 +63,6 @@ async def get_dast_status(scan_id: int, db: AsyncSession = Depends(get_db)):
         "target_url": scan.target_url,
         "pipeline_steps": scan.pipeline_steps or {}
     }
+
 
 
