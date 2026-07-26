@@ -70,7 +70,7 @@ if "postgresql" in ASYNC_DATABASE_URL:
     kw = {
         "pool_size": 20,
         "max_overflow": 10,
-        "connect_args": {"timeout": 3, "command_timeout": 5}
+        "connect_args": {"timeout": 30, "command_timeout": 30}
     }
 
 engine = create_async_engine(ASYNC_DATABASE_URL, **kw)
@@ -158,7 +158,7 @@ async def lifespan(app: FastAPI):
 
     # Idempotently create tables and add missing DAST columns on app startup (non-blocking)
     try:
-        await asyncio.wait_for(_init_db_tables(), timeout=3.0)
+        await asyncio.wait_for(_init_db_tables(), timeout=20.0)
     except asyncio.TimeoutError:
         logger.warning("[startup migration] Database connection timed out after 3.0s — proceeding with startup")
     except Exception as ex:
