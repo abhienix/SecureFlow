@@ -20,8 +20,8 @@ logger = logging.getLogger("secureflow.dast_router")
 router = APIRouter(prefix="/api/dast", tags=["DAST Orchestration"])
 
 
-@router.post("/trigger")
-async def trigger_dast_endpoint(data: dict, db: AsyncSession = Depends):
+@router.post("/trigger", response_model=None)
+async def trigger_dast_endpoint(data: dict, db: AsyncSession = Depends(get_db):
     """
     Triggers a DAST scan.
     Does NOT catch publish exceptions — allows them to bubble up to FastAPI to return HTTP 500.
@@ -48,7 +48,7 @@ async def trigger_dast_endpoint(data: dict, db: AsyncSession = Depends):
 
 
 @router.get("/status/{scan_id}")
-async def get_dast_status(scan_id: int, db: AsyncSession = Depends):
+async def get_dast_status(scan_id: int, db: AsyncSession = Depends(get_db):
     """
     Returns current DAST status for a scan record.
     """
@@ -62,3 +62,4 @@ async def get_dast_status(scan_id: int, db: AsyncSession = Depends):
         "target_url": scan.target_url,
         "pipeline_steps": scan.pipeline_steps or {}
     }
+
