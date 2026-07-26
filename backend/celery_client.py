@@ -3,7 +3,6 @@ SecureFlow — Celery Producer & Redis Task Enqueueing Module
 
 Handles asynchronous, non-blocking publishing of DAST scanning tasks
 to the Redis queue consumed by the remote OWASP ZAP Celery Worker VM.
-Includes graceful fallback for cloud environments without local Redis daemons.
 """
 
 import os
@@ -12,43 +11,58 @@ import uuid
 import logging
 import traceback
 from typing import Optional, Dict, Any
+from dotenv import load_dotenv
 from celery import Celery
 
 # ---------------------------------------------------------------------------
-# Logging Configuration
+# Load Environment & Logging Configuration
 # ---------------------------------------------------------------------------
+load_dotenv()
+
 logger = logging.getLogger("secureflow.celery_producer")
 logging.basicConfig(level=logging.INFO)
 
+# Shared Constants Exported for End-to-End Pipeline Consistency
+DAST_QUEUE = "celery"
+TASK_RUN_ZAP_SCAN = "tasks.run_zap_scan"
+WORKER_QUEUE = DAST_QUEUE
+CELERY_TASK_NAME = TASK_RUN_ZAP_SCAN
+
 # ---------------------------------------------------------------------------
-# Environment Variables & Sensible Defaults
+# Environment Variables & Lazy Broker Resolution
 # ---------------------------------------------------------------------------
-# Broker URL resolution priority:
-#   1. CELERY_BROKER_URL  (explicit — set in Cloud Run env)
-#   2. UPSTASH_REDIS_URL  (legacy — Upstash SaaS Redis)
-#   3. REDIS_URL          (generic fallback)
-#   4. redis://localhost:6379/0 (local dev default)
-BROKER_URL = (
-    os.getenv("CELERY_BROKER_URL")
-    or os.getenv("UPSTASH_REDIS_URL")
-    or os.getenv("REDIS_URL", "redis://localhost:6379/0")
-)
-REDIS_URL = BROKER_URL  # keep REDIS_URL alias for backwards compat in main.py imports
-WORKER_QUEUE = os.getenv("WORKER_QUEUE", "celery")
+def get_broker_url() -> str:
+    """
+    Lazy broker URL resolution priority:
+      1. CELERY_BROKER_URL  (explicit — set in Cloud Run env)
+      2. UPSTASH_REDIS_URL  (legacy — Upstash SaaS Redis)
+      3. REDIS_URL          (generic fallback)
+      4. redis://10.128.0.2:6379/0 (Worker VM private IP default)
+    """
+    return (
+        os.getenv("CELERY_BROKER_URL")
+        or os.getenv("UPSTASH_REDIS_URL")
+        or os.getenv("REDIS_URL")
+        or "redis://10.128.0.2:6379/0"
+    )
+
+def get_redis_url() -> str:
+    return get_broker_url()
+
+# Dynamic properties for backwards compatibility
+REDIS_URL = get_broker_url()
+BROKER_URL = get_broker_url()
 DEFAULT_TARGET_URL = os.getenv(
     "DEFAULT_TARGET_URL",
     "https://secureflow-backend-1083585992526.us-central1.run.app"
 )
 DAST_ENABLED = os.getenv("DAST_ENABLED", "true").lower() in ("true", "1", "yes")
-CELERY_TASK_NAME = os.getenv("CELERY_TASK_NAME", "tasks.run_zap_scan")
 
-# ---------------------------------------------------------------------------
-# Celery Producer Initialization
-# ---------------------------------------------------------------------------
-# Log the Redis host (masked) so we can verify producer and worker point to
-# the same broker WITHOUT leaking credentials in plaintext logs.
+
 def _mask_redis_url(url: str) -> str:
     """Mask password in redis:// URL for safe logging."""
+    if not url:
+        return url
     if "@" in url:
         prefix, rest = url.split("@", 1)
         if "://" in prefix:
@@ -57,21 +71,25 @@ def _mask_redis_url(url: str) -> str:
         return f"*****@{rest}"
     return url
 
-_broker_host = BROKER_URL.split("@")[-1].split("/")[0] if "@" in BROKER_URL else BROKER_URL.split("://")[1].split("/")[0] if "://" in BROKER_URL else BROKER_URL
+
+# ---------------------------------------------------------------------------
+# Celery Producer Singleton Initialization
+# ---------------------------------------------------------------------------
+_initial_broker = get_broker_url()
 logger.info(
-    f"[celery_client] Initializing Celery producer — "
-    f"broker={_mask_redis_url(BROKER_URL)}, "
-    f"queue={WORKER_QUEUE}, "
-    f"task={CELERY_TASK_NAME}"
+    f"[celery_client] Initializing Celery producer singleton — "
+    f"broker={_mask_redis_url(_initial_broker)}, "
+    f"queue={DAST_QUEUE}, "
+    f"task={TASK_RUN_ZAP_SCAN}"
 )
 
 celery_app = Celery(
     "secureflow_producer",
-    broker=BROKER_URL
+    broker=_initial_broker
 )
 
 celery_app.conf.update(
-    task_default_queue=WORKER_QUEUE,
+    task_default_queue=DAST_QUEUE,
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
@@ -101,12 +119,13 @@ def publish_dast_task(
     deployment_url: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Publishes tasks.run_zap_scan to Redis with exponential backoff.
-    If Redis broker is unreachable (e.g. serverless Cloud Run or GitHub Actions),
-    it falls back gracefully to a simulated DAST runner so CI pipelines never fail on infra.
+    Publishes tasks.run_zap_scan to Redis Celery queue.
+    Executes send_task() directly using DAST_QUEUE ('celery').
+    Logs exact required output formats on start, success, and failure.
+    On failure, logs full traceback and re-raises as RuntimeError.
     """
     if not DAST_ENABLED:
-        logger.info(f"[celery_client] DAST is disabled (DAST_ENABLED=false). Skipping queue for scan_id={scan_id}")
+        logger.info(f"[trigger_dast_scan] DAST is disabled (DAST_ENABLED=false). Skipping queue for scan_id={scan_id}")
         return {
             "success": False,
             "task_id": None,
@@ -114,85 +133,55 @@ def publish_dast_task(
             "attempts": 0
         }
 
-    task_name = CELERY_TASK_NAME
-    kwargs = {
+    broker_url = get_broker_url()
+    celery_app.conf.broker_url = broker_url
+
+    payload = {
         "scan_id": scan_id,
         "target_url": target_url,
     }
     if deployment_url:
-        kwargs["deployment_url"] = deployment_url
+        payload["deployment_url"] = deployment_url
 
-    max_attempts = 2
-    attempt = 0
-
-    while attempt < max_attempts:
-        attempt += 1
-        try:
-            logger.info(
-                f"[celery_client] TEMP_DEBUG Publishing DAST task — "
-                f"broker={_mask_redis_url(BROKER_URL)}, "
-                f"queue={WORKER_QUEUE}, "
-                f"task={task_name}, "
-                f"scan_id={scan_id}, "
-                f"target={target_url}, "
-                f"attempt={attempt}/{max_attempts}"
-            )
-
-            async_result = celery_app.send_task(
-                task_name,
-                kwargs=kwargs,
-                queue=WORKER_QUEUE,
-                ignore_result=True
-            )
-
-            task_id = async_result.id
-            logger.info(
-                f"[celery_client] TEMP_DEBUG SUCCESS — task_id={task_id}, "
-                f"async_result.id={async_result.id}, type(async_result)={type(async_result).__name__}"
-            )
-            return {
-                "success": True,
-                "task_id": task_id,
-                "error": None,
-                "attempts": attempt,
-                "simulated": False
-            }
-
-        except Exception as e:
-            tb = traceback.format_exc()
-            logger.warning(
-                f"[celery_client] TEMP_DEBUG FAILURE — attempt {attempt}/{max_attempts}, "
-                f"broker={_mask_redis_url(BROKER_URL)}, "
-                f"queue={WORKER_QUEUE}, "
-                f"exception_type={type(e).__name__}, "
-                f"exception_msg={e}\n"
-                f"Full traceback:\n{tb}"
-            )
-            if attempt < max_attempts:
-                time.sleep(0.3)
-
-    # -----------------------------------------------------------------------
-    # Graceful Cloud / Serverless Fallback
-    # -----------------------------------------------------------------------
-    # When Redis server isn't running on localhost in Cloud Run / CI,
-    # generate a valid DAST task execution result instead of failing the pipeline.
-    # IMPORTANT: In simulated mode the worker NEVER receives the task — the
-    # pipeline uses fake ZAP findings. To run real DAST scans, set the
-    # CELERY_BROKER_URL (or UPSTASH_REDIS_URL / REDIS_URL) env var to the same
-    # Redis instance the Worker VM consumes from.
-    simulated_task_id = f"zap-auto-{uuid.uuid4().hex[:8]}"
-    logger.warning(
-        f"[celery_client] SIMULATED DAST FALLBACK — Redis broker unreachable at "
-        f"'{_broker_host}' after {attempt} attempt(s). "
-        f"scan will use simulated findings. "
-        f"To dispatch to real Worker, set CELERY_BROKER_URL / UPSTASH_REDIS_URL / REDIS_URL "
-        f"to a Redis instance the Worker can reach."
+    logger.info(
+        f"[trigger_dast_scan] Publishing Celery task | "
+        f"broker={_mask_redis_url(broker_url)} | "
+        f"queue={DAST_QUEUE} | "
+        f"task={TASK_RUN_ZAP_SCAN} | "
+        f"scan_id={scan_id} | "
+        f"payload={payload}"
     )
 
-    return {
-        "success": True,
-        "task_id": simulated_task_id,
-        "error": None,
-        "attempts": attempt,
-        "simulated": True
-    }
+    try:
+        async_result = celery_app.send_task(
+            TASK_RUN_ZAP_SCAN,
+            kwargs=payload,
+            queue=DAST_QUEUE,
+            ignore_result=True
+        )
+
+        task_id = async_result.id
+        logger.info(
+            f"[trigger_dast_scan] Task published successfully | "
+            f"task_id={task_id} | "
+            f"broker={_mask_redis_url(broker_url)} | "
+            f"queue={DAST_QUEUE}"
+        )
+
+        return {
+            "success": True,
+            "task_id": task_id,
+            "error": None,
+            "simulated": False
+        }
+
+    except Exception as e:
+        tb = traceback.format_exc()
+        logger.error(
+            f"[trigger_dast_scan] PUBLISH FAILED | "
+            f"broker={_mask_redis_url(broker_url)} | "
+            f"queue={DAST_QUEUE} | "
+            f"scan_id={scan_id} |\n{tb}"
+        )
+        raise RuntimeError(f"Failed to publish DAST task for scan_id={scan_id}: {e}") from e
+

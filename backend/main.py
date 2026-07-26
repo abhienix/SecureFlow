@@ -68,7 +68,11 @@ if ASYNC_DATABASE_URL.startswith("postgresql+asyncpg://"):
 
 kw = {}
 if "postgresql" in ASYNC_DATABASE_URL:
-    kw = {"pool_size": 20, "max_overflow": 10}
+    kw = {
+        "pool_size": 20,
+        "max_overflow": 10,
+        "connect_args": {"timeout": 3, "command_timeout": 5}
+    }
 
 engine = create_async_engine(ASYNC_DATABASE_URL, **kw)
 AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
@@ -116,34 +120,48 @@ async def lifespan(app: FastAPI):
     logger.info(f"[startup] CELERY_BROKER_URL={_mask_redis_url(b_url)} | QUEUE={DAST_QUEUE}")
     logger.info(f"[startup] DATABASE_URL=postgresql://*****@{masked_db}")
 
-    # Idempotently create tables and add missing DAST columns on app startup
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            is_sqlite = "sqlite" in str(conn.engine.url)
-            
-            # Static literal SQL statements for SAST compliance (avoids dynamic f-strings in text())
-            migration_statements = [
-                text("ALTER TABLE scan_results ADD COLUMN dast_status VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_status VARCHAR"),
-                text("ALTER TABLE scan_results ADD COLUMN target_url VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS target_url VARCHAR"),
-                text("ALTER TABLE scan_results ADD COLUMN deployment_url VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS deployment_url VARCHAR"),
-                text("ALTER TABLE scan_results ADD COLUMN zap_findings JSON") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_findings JSON"),
-                text("ALTER TABLE scan_results ADD COLUMN zap_summary JSON") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_summary JSON"),
-                text("ALTER TABLE scan_results ADD COLUMN queued_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queued_at TIMESTAMP"),
-                text("ALTER TABLE scan_results ADD COLUMN dast_started_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_started_at TIMESTAMP"),
-                text("ALTER TABLE scan_results ADD COLUMN dast_completed_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_completed_at TIMESTAMP"),
-                text("ALTER TABLE scan_results ADD COLUMN scan_duration INTEGER") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS scan_duration INTEGER"),
-                text("ALTER TABLE scan_results ADD COLUMN worker_name VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_name VARCHAR"),
-                text("ALTER TABLE scan_results ADD COLUMN worker_id VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_id VARCHAR"),
-                text("ALTER TABLE scan_results ADD COLUMN queue_error TEXT") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queue_error TEXT"),
-                text("ALTER TABLE scan_results ADD COLUMN zap_report_path VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_report_path VARCHAR"),
-            ]
+async def _init_db_tables():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        is_sqlite = "sqlite" in str(conn.engine.url)
+        
+        # Static literal SQL statements for SAST compliance (avoids dynamic f-strings in text())
+        migration_statements = [
+            text("ALTER TABLE scan_results ADD COLUMN dast_status VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_status VARCHAR"),
+            text("ALTER TABLE scan_results ADD COLUMN target_url VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS target_url VARCHAR"),
+            text("ALTER TABLE scan_results ADD COLUMN deployment_url VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS deployment_url VARCHAR"),
+            text("ALTER TABLE scan_results ADD COLUMN zap_findings JSON") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_findings JSON"),
+            text("ALTER TABLE scan_results ADD COLUMN zap_summary JSON") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_summary JSON"),
+            text("ALTER TABLE scan_results ADD COLUMN queued_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queued_at TIMESTAMP"),
+            text("ALTER TABLE scan_results ADD COLUMN dast_started_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_started_at TIMESTAMP"),
+            text("ALTER TABLE scan_results ADD COLUMN dast_completed_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_completed_at TIMESTAMP"),
+            text("ALTER TABLE scan_results ADD COLUMN scan_duration INTEGER") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS scan_duration INTEGER"),
+            text("ALTER TABLE scan_results ADD COLUMN worker_name VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_name VARCHAR"),
+            text("ALTER TABLE scan_results ADD COLUMN worker_id VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_id VARCHAR"),
+            text("ALTER TABLE scan_results ADD COLUMN queue_error TEXT") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queue_error TEXT"),
+            text("ALTER TABLE scan_results ADD COLUMN zap_report_path VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_report_path VARCHAR"),
+        ]
 
-            for stmt in migration_statements:
-                try:
-                    await conn.execute(stmt)
-                except Exception as e:
-                    logger.info(f"[startup migration] column already exists or notice: {e}")
+        for stmt in migration_statements:
+            try:
+                await conn.execute(stmt)
+            except Exception as e:
+                logger.info(f"[startup migration] column already exists or notice: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Log startup configuration for Celery Broker URL and Database URL
+    b_url = get_broker_url()
+    masked_db = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+    logger.info(f"[startup] CELERY_BROKER_URL={_mask_redis_url(b_url)} | QUEUE={DAST_QUEUE}")
+    logger.info(f"[startup] DATABASE_URL=postgresql://*****@{masked_db}")
+
+    # Idempotently create tables and add missing DAST columns on app startup (non-blocking)
+    try:
+        await asyncio.wait_for(_init_db_tables(), timeout=3.0)
+    except asyncio.TimeoutError:
+        logger.warning("[startup migration] Database connection timed out after 3.0s — proceeding with startup")
     except Exception as ex:
         logger.warning(f"[startup migration] notice during database init: {ex}")
 
