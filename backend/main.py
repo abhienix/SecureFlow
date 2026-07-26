@@ -33,15 +33,18 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from models import Base, ScanResult
 from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label, load_policy_file
 from ai_analysis import analyze_scan, analyze_code_scan_failure, answer_copilot_question
-from slack_notifier import send_slack_alert
 from celery_client import (
     publish_dast_task,
     resolve_target_url,
+    get_broker_url,
+    _mask_redis_url,
     REDIS_URL,
     WORKER_QUEUE,
+    DAST_QUEUE,
     DEFAULT_TARGET_URL,
     DAST_ENABLED,
 )
+from dast_router import router as dast_router
 
 # ---------------------------------------------------------------------------
 # Logging & Environment configuration
@@ -49,7 +52,7 @@ from celery_client import (
 
 logger = logging.getLogger("secureflow.backend")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/secureflow")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@10.128.0.2:5432/secureflow")
 STALE_RUN_TIMEOUT_MINUTES = int(os.getenv("STALE_RUN_TIMEOUT_MINUTES", "20"))
 WATCHDOG_INTERVAL_SECONDS = int(os.getenv("WATCHDOG_INTERVAL_SECONDS", "30"))
 
@@ -107,6 +110,12 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Log startup configuration for Celery Broker URL and Database URL
+    b_url = get_broker_url()
+    masked_db = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+    logger.info(f"[startup] CELERY_BROKER_URL={_mask_redis_url(b_url)} | QUEUE={DAST_QUEUE}")
+    logger.info(f"[startup] DATABASE_URL=postgresql://*****@{masked_db}")
+
     # Idempotently create tables and add missing DAST columns on app startup
     try:
         async with engine.begin() as conn:
@@ -144,6 +153,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="SecureFlow — AI-Powered DevSecOps & Distributed DAST Gateway", version="2.0.0", lifespan=lifespan)
+app.include_router(dast_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -347,6 +357,8 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         scan.target_url = resolved_target
         if req_deploy_url:
             scan.deployment_url = req_deploy_url
+        if scan.dast_status in ("queued", "failed", "unknown") or scan.dast_status is None:
+            scan.dast_status = "not_queued"
     else:
         logger.info(f"[start_scan_run] Creating NEW scan (run_id={run_id}, repo={repo_name})")
         # Supersede older active runs on the same branch (concurrency control)
@@ -399,7 +411,7 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         f"dast_status='{scan.dast_status}', "
         f"skip_condition_met={scan.dast_status in ('queued', 'running', 'completed')}"
     )
-    if scan.dast_status in ("queued", "running", "completed"):
+    if scan.dast_status in ("running", "completed"):
         logger.info(f"[start_scan_run] SKIPPING dispatch — dast_status='{scan.dast_status}' already in progress/completed")
     else:
         logger.info(
@@ -1545,3 +1557,4 @@ async def global_search(q: str = "", db: AsyncSession = Depends(get_db)):
                 })
 
     return {"query": q, "results": results[:15]}
+
