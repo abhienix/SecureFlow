@@ -1002,3 +1002,4 @@ jobs:
             }')
           curl -sS -X POST "$BACKEND_URL/api/scan-results" \
             -H "Content-Type: application/json" -d "$PAYLOAD" || true
+
