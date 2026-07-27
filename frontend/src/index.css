@@ -743,6 +743,39 @@ button:focus-visible {
   [class*="backdrop"] {
     display: block !important;
   }
+
+  /* Ensure console logs wrap instead of overflowing */
+  [class*="console-log"],
+  [class*="terminal"],
+  pre, code {
+    word-break: break-all !important;
+    white-space: pre-wrap !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  /* TopBar: allow buttons to wrap gracefully */
+  header > div:last-child {
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+    justify-content: flex-end !important;
+  }
+
+  /* Dropdown panels fill screen width */
+  [style*="position: absolute"][style*="top:"][style*="width:"] {
+    max-width: calc(100vw - 16px) !important;
+    right: 8px !important;
+  }
+
+  /* Touch targets at least 44px */
+  button, [tabindex] {
+    min-height: 44px;
+  }
+
+  /* Stage view on mobile compact */
+  [class*="stage-node"] {
+    width: 100%;
+  }
 }
 
 /* ─── Skeleton Loaders ────────────────────────────────────────────── */

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUIStore } from "../../stores/uiStore";
@@ -19,7 +19,12 @@ export default function TopBar({ C }) {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { notifications, wsConnected, toggleCmdPalette, toggleCopilot, toggleNotification } = useUIStore();
+  const { notifications, wsConnected, lastApiResponse, toggleCmdPalette, toggleCopilot, toggleNotification } = useUIStore();
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
   const unreadCount = notifications.filter(n => !n.read).length || notifications.length;
 
   const currentLabel = ROUTE_LABELS[location.pathname] || "SecureFlow";
@@ -117,16 +122,18 @@ export default function TopBar({ C }) {
           <span>Void AI</span>
         </button>
 
-        {/* WebSocket Status */}
+        {/* Connection Status */}
         <div style={{
           display: "flex", alignItems: "center", gap: 5, padding: "5px 10px",
           borderRadius: 8, fontSize: 11, fontWeight: 600,
-          background: wsConnected ? C.greenSoft : C.redSoft,
-          color: wsConnected ? C.green : C.red,
-          border: `1px solid ${wsConnected ? C.greenBorder : C.redBorder}`,
+          background: wsConnected ? C.greenSoft : (lastApiResponse ? C.accentSoft : C.redSoft),
+          color: wsConnected ? C.green : (lastApiResponse ? C.accent : C.red),
+          border: `1px solid ${wsConnected ? C.greenBorder : (lastApiResponse ? C.accentBorder : C.redBorder)}`,
         }}>
-          {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
-          <span>{wsConnected ? "Live" : "Offline"}</span>
+          {wsConnected ? <Wifi size={12} /> : (lastApiResponse ? <RefreshCw size={12} /> : <WifiOff size={12} />)}
+          <span>
+            {wsConnected ? "Live" : lastApiResponse ? `Polling ${Math.floor((now - lastApiResponse) / 1000)}s` : "Offline"}
+          </span>
         </div>
       </div>
     </header>

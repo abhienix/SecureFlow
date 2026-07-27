@@ -359,7 +359,7 @@ notifications:
       {/* SECTION 5E: CONFIRMATION MODAL */}
       {showConfirmModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 9990, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ width: 440, background: 'var(--sf-bg-card)', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, border: '1px solid var(--sf-border)' }}>
+          <div style={{ width: 'min(440px, 100vw - 32px)', background: 'var(--sf-bg-card)', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, border: '1px solid var(--sf-border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <AlertTriangle size={22} color="#f59e0b" />
               <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>Confirm Policy Save & Deploy</h3>

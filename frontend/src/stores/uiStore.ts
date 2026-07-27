@@ -21,6 +21,8 @@ interface UIState {
   setPersona: (persona: Persona) => void;
   wsConnected: boolean;
   setWsConnected: (connected: boolean) => void;
+  lastApiResponse: number | null;
+  setLastApiResponse: (ts: number) => void;
   notifications: NotificationItem[];
   addNotification: (notification: Omit<NotificationItem, 'id' | 'timestamp' | 'read'>) => void;
   dismissNotification: (id: number) => void;
@@ -58,6 +60,8 @@ export const useUIStore = create<UIState>((set) => ({
   setPersona: (persona) => set({ persona }),
   wsConnected: false,
   setWsConnected: (wsConnected) => set({ wsConnected }),
+  lastApiResponse: null,
+  setLastApiResponse: (ts) => set({ lastApiResponse: ts }),
   notifications: [],
   addNotification: (notification) => set((state) => ({
     notifications: [

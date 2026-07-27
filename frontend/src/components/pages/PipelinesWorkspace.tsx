@@ -10,6 +10,7 @@ import { Button } from '../ui/Button';
 import { Skeleton } from '../ui/Skeleton';
 import { useScans } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 export interface PipelineStage {
   id: string;
@@ -51,6 +52,7 @@ export default function PipelinesWorkspace() {
   const [autoScroll, setAutoScroll] = useState(true);
   const consoleRef = useRef<HTMLDivElement>(null);
   const [hoveredStage, setHoveredStage] = useState<PipelineStage | null>(null);
+  const isMobile = useMediaQuery('(max-width: 767px)');
   const [copiedLogs, setCopiedLogs] = useState(false);
 
   React.useEffect(() => {
@@ -607,7 +609,7 @@ export default function PipelinesWorkspace() {
                 position: 'absolute',
                 right: 0,
                 top: 44,
-                width: 340,
+                width: 'min(340px, 100vw - 32px)',
                 maxHeight: 400,
                 background: 'var(--sf-bg-card)',
                 border: '1px solid var(--sf-border)',
@@ -706,8 +708,14 @@ export default function PipelinesWorkspace() {
           </div>
         </div>
 
-        {/* Stages Track */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', padding: '30px 4px 10px', overflowX: 'auto' }}>
+        {/* Stages Track — horizontal on desktop, vertical list on mobile */}
+        <div style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          alignItems: isMobile ? 'stretch' : 'center',
+          justifyContent: isMobile ? 'stretch' : 'center',
+          position: 'relative', padding: isMobile ? '8px 4px' : '30px 4px 10px', gap: isMobile ? 8 : 4,
+        }}>
           {pipelineStages.map((stage, idx) => {
             const isPassed = stage.status === 'passed';
             const isFailed = stage.status === 'failed' || stage.status === 'blocked';
@@ -749,14 +757,18 @@ export default function PipelinesWorkspace() {
                   }}
                   style={{
                     display: 'flex',
-                    flexDirection: 'column',
+                    flexDirection: isMobile ? 'row' : 'column',
                     alignItems: 'center',
-                    gap: 6,
+                    gap: isMobile ? 12 : 6,
                     position: 'relative',
                     cursor: 'pointer',
                     outline: 'none',
                     zIndex: 2,
-                    minWidth: 64,
+                    minWidth: isMobile ? '100%' : 64,
+                    padding: isMobile ? '8px 12px' : 0,
+                    background: isMobile ? 'var(--sf-bg-surface)' : 'transparent',
+                    borderRadius: isMobile ? 8 : 0,
+                    border: isMobile ? '1px solid var(--sf-border)' : 'none',
                   }}
                 >
                   {/* Tooltip */}
@@ -847,7 +859,7 @@ export default function PipelinesWorkspace() {
                 </div>
 
                 {/* Connector Line to Next Stage */}
-                {idx < pipelineStages.length - 1 && (
+                {!isMobile && idx < pipelineStages.length - 1 && (
                   <div
                     style={{
                       flex: 1,
