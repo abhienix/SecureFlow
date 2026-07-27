@@ -20,6 +20,7 @@ export function useScans(limit = 200) {
       return data;
     },
     select: (data) => data.scans,
+    staleTime: 0,
     refetchInterval: 5000,
     retry: 5,
     retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 15000),
