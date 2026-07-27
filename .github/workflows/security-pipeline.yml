@@ -824,47 +824,76 @@ jobs:
               environment: $environment, run_id: $run_id
             }')
 
-          RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results/start" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD" || echo '{"status":"trigger_failed","run_id":null}')
+          # Retry up to 5 times to handle Cloud Run cold-start/deployment rollout latency
+          RESPONSE=""
+          DAST_RUN_ID=""
+          for attempt in 1 2 3 4 5; do
+            echo "Attempt $attempt/5: Posting to $BACKEND_URL/api/scan-results/start..."
+            RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results/start" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" || echo '{"status":"trigger_failed","run_id":null}')
 
-          echo "Backend DAST Trigger Response: $RESPONSE"
+            DAST_RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id // empty')
+            if [ -n "$DAST_RUN_ID" ] && [ "$DAST_RUN_ID" != "null" ]; then
+              echo "DAST trigger successful on attempt $attempt! run_id=${DAST_RUN_ID}"
+              break
+            fi
+            echo "Attempt $attempt failed (Response: $RESPONSE). Retrying in 5 seconds..."
+            sleep 5
+          done
 
-          # Capture the actual run_id returned by THIS trigger call.
-          # The ZAP gate MUST poll this id, not the pipeline_start id which
-          # may be empty if the very first backend call failed at pipeline start.
-          DAST_RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id // empty')
-          if [ -n "$DAST_RUN_ID" ] && [ "$DAST_RUN_ID" != "null" ]; then
+          if [ -z "$DAST_RUN_ID" ] || [ "$DAST_RUN_ID" = "null" ]; then
+            echo "WARNING: DAST trigger did not return a valid run_id after 5 attempts."
+            echo "dast_run_id=${RUN_ID:-}" >> "$GITHUB_OUTPUT"
+          else
             echo "dast_run_id=${DAST_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "DAST task dispatched for run_id=${DAST_RUN_ID}"
-          else
-            echo "WARNING: DAST trigger returned no run_id — falling back to pipeline_start run_id"
-            echo "dast_run_id=${RUN_ID:-}" >> "$GITHUB_OUTPUT"
           fi
 
       # ── Step 17: ZAP Policy Gate — Poll DAST Results & Gate ──────────────────
-      # Uses PATCH /api/scan-results/{run_id}/progress (always exists on the
-      # production backend) instead of a dedicated GET endpoint. The backend
-      # returns dast_status + pipeline_steps in the response, so the polling
-      # loop reads the current state from what is normally a write endpoint.
+      # Uses PATCH /api/scan-results/{run_id}/progress to poll DAST status.
       - name: ZAP Policy Gate — Poll DAST Results & Gate
         id: zap_gate
         if: steps.deploy_staging.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
-          RUN_ID: ${{ steps.trigger_dast.outputs.dast_run_id || steps.pipeline_start.outputs.run_id }}
+          TRIGGER_RUN_ID: ${{ steps.trigger_dast.outputs.dast_run_id }}
+          START_RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
         run: |
           POLL_INTERVAL=15
           MAX_RETRIES=40
           retry=0
 
+          RUN_ID="${TRIGGER_RUN_ID:-$START_RUN_ID}"
+
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "ERROR: Cannot poll DAST progress — no valid run_id was provided!"
+            echo "zap_passed=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
           echo "Polling backend for DAST completion on run $RUN_ID..."
           echo "Endpoint: $BACKEND_URL/api/scan-results/$RUN_ID/progress"
+
+          consecutive_404=0
 
           while [ $retry -lt $MAX_RETRIES ]; do
             RESPONSE=$(curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
               -H "Content-Type: application/json" \
               -d '{}' || echo '{"dast_status":"error","pipeline_steps":{}}')
+
+            IS_NOT_FOUND=$(echo "$RESPONSE" | jq -r '.detail // empty')
+            if [ "$IS_NOT_FOUND" = "Run not found" ] || [ "$IS_NOT_FOUND" = "Not Found" ]; then
+              consecutive_404=$((consecutive_404 + 1))
+              echo "Poll $((retry + 1))/$MAX_RETRIES — Run $RUN_ID not found on backend (404 count: $consecutive_404/3)"
+              if [ $consecutive_404 -ge 3 ]; then
+                echo "ERROR: Scan run_id=$RUN_ID does not exist on backend after 3 checks."
+                echo "zap_passed=false" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+            else
+              consecutive_404=0
+            fi
 
             DAST_STATUS=$(echo "$RESPONSE" | jq -r '.dast_status // "unknown"')
             ZAP_RESULT=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap.result // "PENDING"')
