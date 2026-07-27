@@ -166,3 +166,6 @@ REACT_APP_API_URL=https://your-backend-service-url.run.app
 2. **Decoupled Architecture**: OWASP ZAP DAST scans are offloaded to an isolated Compute Engine VM worker via Redis and Celery, keeping CI pipeline execution fast and preventing runner timeout issues.
 3. **Multi-Model AI Fallback Chain**: Remediation AI calls prioritize Groq (Llama 3.3 70B), fallback to Google Gemini Flash Lite, and finally fall back to deterministic local rule heuristics if all AI APIs fail.
 4. **Optimized Container Rebuild Logic**: Git diff scope checks dynamically analyze incoming commits to avoid expensive Docker container rebuilds when only frontend assets or documentation files change.
+
+<!-- Verification Run 1: Doc-only change without deploy tag -->
+
