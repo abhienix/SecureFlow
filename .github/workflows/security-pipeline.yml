@@ -806,6 +806,7 @@ jobs:
 
       - name: Build DAST Target URL
         id: dast_target
+        if: steps.deploy_staging.outcome == 'success' || steps.deploy_frontend_staging.outcome == 'success'
         env:
           STAGING_URL: ${{ steps.staging_url.outputs.staging_url }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -813,15 +814,23 @@ jobs:
           if [ -n "$STAGING_URL" ]; then
             DAST_TARGET="$STAGING_URL"
             echo "dast_target=$DAST_TARGET" >> "$GITHUB_OUTPUT"
+            echo "DAST target URL from staging deploy: $DAST_TARGET"
           else
-            echo "::error::Staging URL is empty — cannot build valid DAST target endpoint."
-            exit 1
+            echo "Backend staging deploy was skipped — querying GCP for active secureflow-backend-staging URL..."
+            DAST_TARGET=$(gcloud run services describe secureflow-backend-staging --region us-central1 --format 'value(status.url)' 2>/dev/null || echo "")
+            if [ -n "$DAST_TARGET" ]; then
+              echo "dast_target=$DAST_TARGET" >> "$GITHUB_OUTPUT"
+              echo "Resolved DAST target URL from GCP: $DAST_TARGET"
+            else
+              echo "::error::Staging URL is empty — cannot build valid DAST target endpoint."
+              exit 1
+            fi
           fi
 
       # ── Step 16b: Trigger Distributed DAST Pipeline ─────────────────────────
       - name: Trigger Automated Distributed DAST Pipeline
         id: trigger_dast
-        if: steps.deploy_staging.outcome == 'success'
+        if: steps.deploy_staging.outcome == 'success' || steps.deploy_frontend_staging.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -889,7 +898,7 @@ jobs:
       # Uses PATCH /api/scan-results/{run_id}/progress to poll DAST status.
       - name: ZAP Policy Gate — Poll DAST Results & Gate
         id: zap_gate
-        if: steps.deploy_staging.outcome == 'success'
+        if: steps.deploy_staging.outcome == 'success' || steps.deploy_frontend_staging.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           TRIGGER_RUN_ID: ${{ steps.trigger_dast.outputs.dast_run_id }}
