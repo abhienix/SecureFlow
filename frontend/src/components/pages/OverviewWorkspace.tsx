@@ -14,27 +14,7 @@ export default function OverviewWorkspace() {
     document.title = 'Overview — SecureFlow';
   }, []);
 
-  if (isLoading) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#f8f8f6', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
-        <div style={{ width: 48, height: 48, border: '4px solid #e8e8e4', borderTop: '4px solid #6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <p style={{ fontSize: 14, color: '#888' }}>Loading scan data...</p>
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#f8f8f6', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-        <div style={{ fontSize: 40 }}>⚠️</div>
-        <p style={{ fontSize: 15, fontWeight: 600, color: '#dc2626' }}>Failed to load scan data</p>
-        <p style={{ fontSize: 13, color: '#888' }}>The backend API may be unreachable. Check your connection and try again.</p>
-      </div>
-    );
-  }
-
   const scans = useMemo(() => rawScans || [], [rawScans]);
-
   const stats = useMemo(() => {
     const totalScans = scans.length || 1;
     const passed = scans.filter((s) => s.action_taken === 'ALLOW').length;
@@ -395,7 +375,9 @@ export default function OverviewWorkspace() {
               { name: 'Trivy', count: vulnStats.totalVulns },
               { name: 'Semgrep', count: scannerCounts.semgrep?.total || 0 },
               { name: 'ZAP', count: scannerCounts.zap?.total || 0 },
-            ].filter(sc => sc.count > 0).map((sc) => { const pct = Math.round((sc.count / Math.max(vulnStats.totalVulns, 1)) * 100); return (
+            ].filter(sc => sc.count > 0).map((sc) => {
+              const pct = Math.round((sc.count / Math.max(vulnStats.totalVulns, 1)) * 100);
+              return (
               <div key={sc.name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10 }}>
                 <span style={{ width: 50, color: '#777' }} className="dark:text-gray-400">
                   {sc.name}
@@ -412,7 +394,7 @@ export default function OverviewWorkspace() {
                 >
                   <div
                     style={{
-                      width: `${sc.pct}%`,
+                      width: `${pct}%`,
                       height: '100%',
                       background: '#f59e0b',
                       borderRadius: 2,
@@ -423,7 +405,8 @@ export default function OverviewWorkspace() {
                   {sc.count}
                 </span>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -776,7 +759,7 @@ export default function OverviewWorkspace() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {[
-              { name: 'Trivy', data: vulnStats },
+              { name: 'Trivy', data: { total: vulnStats.critical + vulnStats.high + vulnStats.medium + vulnStats.low, critical: vulnStats.critical, high: vulnStats.high, medium: vulnStats.medium, low: vulnStats.low } },
               { name: 'Gitleaks', data: { total: scannerCounts.gitleaks?.total || 0, critical: 0, high: 0, medium: 0, low: 0 } },
               { name: 'Semgrep', data: { total: scannerCounts.semgrep?.total || 0, critical: 0, high: 0, medium: 0, low: 0 } },
               { name: 'OWASP ZAP', data: { total: scannerCounts.zap?.total || 0, critical: 0, high: 0, medium: 0, low: 0 } },

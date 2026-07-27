@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUIStore } from "../../stores/uiStore";
 import {
-  Search, Bell, RefreshCw, Sparkles, Wifi, WifiOff, ChevronRight
+  Search, Bell, RefreshCw, Sparkles, Wifi, WifiOff, ChevronRight, Menu
 } from "lucide-react";
 
 const ROUTE_LABELS = {
@@ -25,6 +25,7 @@ export default function TopBar({ C }) {
   const currentLabel = ROUTE_LABELS[location.pathname] || "SecureFlow";
   const parentPath = location.pathname.split("/").slice(0, -1).join("/");
   const parentLabel = ROUTE_LABELS[parentPath];
+  const { toggleMobileSidebar } = useUIStore();
 
   return (
     <header style={{
@@ -33,8 +34,14 @@ export default function TopBar({ C }) {
       background: C.bgSurface, borderBottom: `1px solid ${C.border}`,
       gap: 16,
     }}>
-      {/* Left: Breadcrumbs */}
+      {/* Left: Hamburger + Breadcrumbs */}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button onClick={toggleMobileSidebar} style={{
+          display: "none", background: "none", border: "none", color: C.inkLow,
+          cursor: "pointer", padding: 4, marginRight: 4,
+        }} className="mobile-hamburger" title="Toggle sidebar">
+          <Menu size={18} />
+        </button>
         <button onClick={() => navigate("/overview")} style={{
           background: "none", border: "none", color: C.inkLow, fontSize: 13,
           fontWeight: 500, cursor: "pointer", padding: 0,
