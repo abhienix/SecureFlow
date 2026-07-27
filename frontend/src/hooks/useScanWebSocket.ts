@@ -1,29 +1,51 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { WS_URL } from '../lib/api';
+import { API_BASE, WS_URL } from '../lib/api';
 import { queryKeys } from '../lib/queryClient';
 import { useUIStore } from '../stores/uiStore';
 import type { WSEvent } from '../types';
 
 /**
  * WebSocket hook with exponential backoff reconnection.
- * On scan events, invalidates the relevant TanStack Query caches
- * so the UI updates in real-time without manual polling.
- *
- * Replaces the old AppContext WebSocket logic which:
- * - Used a fixed 5s reconnect (no backoff)
- * - Directly mutated local state (now handled by query invalidation)
- * - Had no cleanup on unmount (now properly cleaned up)
+ * Falls back to REST health polling if WebSocket cannot connect (e.g. Cloud Run w/o HTTP/2).
  */
 export function useScanWebSocket() {
   const qc = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const healthTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fallbackActive = useRef(false);
   const attemptRef = useRef(0);
   const { setWsConnected, addNotification } = useUIStore();
 
   useEffect(() => {
     let mounted = true;
+    let wsConnectTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    // REST health polling fallback
+    const startHealthPoll = () => {
+      if (fallbackActive.current) return;
+      fallbackActive.current = true;
+      const poll = async () => {
+        if (!mounted) return;
+        try {
+          const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(5000) });
+          if (mounted) setWsConnected(res.ok);
+        } catch {
+          if (mounted) setWsConnected(false);
+        }
+      };
+      poll();
+      healthTimer.current = setInterval(poll, 15000);
+    };
+
+    const stopHealthPoll = () => {
+      fallbackActive.current = false;
+      if (healthTimer.current) {
+        clearInterval(healthTimer.current);
+        healthTimer.current = null;
+      }
+    };
 
     const connect = () => {
       if (!mounted) return;
@@ -33,9 +55,19 @@ export function useScanWebSocket() {
         const ws = new WebSocket(WS_URL);
         wsRef.current = ws;
 
+        wsConnectTimeout = setTimeout(() => {
+          if (!mounted) return;
+          if (ws.readyState !== WebSocket.OPEN) {
+            ws.close();
+            startHealthPoll();
+          }
+        }, 8000);
+
         ws.onopen = () => {
           if (!mounted) return;
+          if (wsConnectTimeout) clearTimeout(wsConnectTimeout);
           attemptRef.current = 0;
+          stopHealthPoll();
           setWsConnected(true);
         };
 
@@ -44,7 +76,6 @@ export function useScanWebSocket() {
             const data: WSEvent = JSON.parse(event.data);
             if (data.type === 'ping') return;
 
-            // Invalidate the scans query so TanStack refetches fresh data
             if (
               data.type === 'scan_complete' ||
               data.type === 'scan_started' ||
@@ -76,7 +107,8 @@ export function useScanWebSocket() {
           if (!mounted) return;
           setWsConnected(false);
           wsRef.current = null;
-          // Exponential backoff: 1s, 2s, 4s, 8s, capped at 30s
+          if (wsConnectTimeout) clearTimeout(wsConnectTimeout);
+          startHealthPoll();
           const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
           attemptRef.current++;
           reconnectTimer.current = setTimeout(connect, delay);
@@ -84,9 +116,11 @@ export function useScanWebSocket() {
 
         ws.onerror = () => {
           setWsConnected(false);
+          startHealthPoll();
         };
       } catch {
         setWsConnected(false);
+        startHealthPoll();
         const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
         attemptRef.current++;
         reconnectTimer.current = setTimeout(connect, delay);
@@ -97,7 +131,9 @@ export function useScanWebSocket() {
 
     return () => {
       mounted = false;
+      if (wsConnectTimeout) clearTimeout(wsConnectTimeout);
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      stopHealthPoll();
       if (wsRef.current) {
         wsRef.current.onclose = null;
         wsRef.current.close();
