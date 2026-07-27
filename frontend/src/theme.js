@@ -3,6 +3,7 @@ import {
 } from "lucide-react";
 
 // Re-export from contexts for backward compatibility
+// Frontend-only verification run without deploy tag
 export { THEMES } from "./contexts/ThemeContext";
 
 const apiUrl = process.env.REACT_APP_API_URL || "https://secureflow-backend-1083585992526.us-central1.run.app";
