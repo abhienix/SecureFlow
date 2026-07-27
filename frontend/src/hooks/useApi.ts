@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { queryKeys } from '../lib/queryClient';
+import { useUIStore } from '../stores/uiStore';
 
 /**
  * Server-state hooks powered by TanStack Query.
@@ -10,11 +11,18 @@ import { queryKeys } from '../lib/queryClient';
  */
 
 export function useScans(limit = 200) {
+  const { setWsConnected } = useUIStore();
   return useQuery({
     queryKey: queryKeys.scans,
-    queryFn: () => api.getScans(limit),
+    queryFn: async () => {
+      const data = await api.getScans(limit);
+      setWsConnected(true);
+      return data;
+    },
     select: (data) => data.scans,
     refetchInterval: 5000,
+    retry: 5,
+    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 15000),
   });
 }
 

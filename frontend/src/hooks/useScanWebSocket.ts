@@ -34,7 +34,7 @@ export function useScanWebSocket() {
         const ac = new AbortController();
         const tid = setTimeout(() => ac.abort(), 5000);
         try {
-          const res = await fetch(`${API_BASE}/health`, { signal: ac.signal });
+          const res = await fetch(`${API_BASE}/`, { signal: ac.signal });
           clearTimeout(tid);
           if (mounted) setWsConnected(res.ok);
         } catch {
