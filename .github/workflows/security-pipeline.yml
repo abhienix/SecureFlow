@@ -829,16 +829,18 @@ jobs:
           DAST_RUN_ID=""
           for attempt in 1 2 3 4 5; do
             echo "Attempt $attempt/5: Posting to $BACKEND_URL/api/scan-results/start..."
-            RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results/start" \
+            HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" -X POST "$BACKEND_URL/api/scan-results/start" \
               -H "Content-Type: application/json" \
-              -d "$PAYLOAD" || echo '{"status":"trigger_failed","run_id":null}')
-
-            DAST_RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id // empty')
-            if [ -n "$DAST_RUN_ID" ] && [ "$DAST_RUN_ID" != "null" ]; then
-              echo "DAST trigger successful on attempt $attempt! run_id=${DAST_RUN_ID}"
-              break
+              -d "$PAYLOAD")
+            RESPONSE=$(cat response.json)
+            if [[ $HTTP_CODE -ge 200 && $HTTP_CODE -lt 300 ]]; then
+              DAST_RUN_ID=$(echo "$RESPONSE" | jq -r '.run_id // empty')
+              if [ -n "$DAST_RUN_ID" ] && [ "$DAST_RUN_ID" != "null" ]; then
+                echo "DAST trigger successful on attempt $attempt! run_id=${DAST_RUN_ID}"
+                break
+              fi
             fi
-            echo "Attempt $attempt failed (Response: $RESPONSE). Retrying in 5 seconds..."
+            echo "Attempt $attempt failed (HTTP $HTTP_CODE, Response: $RESPONSE). Retrying in 5 seconds..."
             sleep 5
           done
 
