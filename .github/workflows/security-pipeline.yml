@@ -759,6 +759,16 @@ jobs:
             --allow-unauthenticated \
             --port 8080
 
+      - name: Notify Staging Deploy Complete
+        if: steps.deploy_staging.outcome == 'success'
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+        run: |
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d '{ "pipeline_steps": { "deploy_staging": { "result": "PASS", "detail": "Staging Cloud Run deployment completed" } } }' || true
+
       - name: Build DAST Target URL
         id: dast_target
         env:
@@ -941,7 +951,7 @@ jobs:
 
       # ── Step 18: Deploy to PRODUCTION ──────────────────────────────────────
       - name: Notify Production Deploy
-        if: steps.zap_gate.outputs.zap_passed == 'true'
+        if: steps.zap_gate.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -951,7 +961,7 @@ jobs:
             -d '{ "pipeline_steps": { "deploy_prod": { "result": "RUNNING", "detail": "Deploying to production Cloud Run..." } } }' || true
 
       - name: Deploy Backend to Production Cloud Run
-        if: steps.changes.outputs.image_changed == 'true' && steps.zap_gate.outputs.zap_passed == 'true'
+        if: steps.changes.outputs.image_changed == 'true' && steps.zap_gate.outcome == 'success'
         run: |
           gcloud run deploy secureflow-backend \
             --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
@@ -961,7 +971,7 @@ jobs:
       - name: Deploy Frontend to Production Cloud Run
         if: >
           steps.changes.outputs.frontend_changed == 'true' &&
-          steps.zap_gate.outputs.zap_passed == 'true'
+          steps.zap_gate.outcome == 'success'
         run: |
           gcloud run deploy secureflow-frontend \
             --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }} \
@@ -970,7 +980,7 @@ jobs:
             --port 8080
 
       - name: Notify Production Deploy Success
-        if: steps.zap_gate.outputs.zap_passed == 'true'
+        if: steps.zap_gate.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
@@ -980,7 +990,7 @@ jobs:
             -d '{ "status": "complete", "pipeline_steps": { "deploy_prod": { "result": "PASS", "detail": "Production Cloud Run deployment finished successfully" } } }' || true
 
       - name: Notify Production Deploy Failure
-        if: failure() && steps.zap_gate.outputs.zap_passed == 'true'
+        if: failure() && steps.zap_gate.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
