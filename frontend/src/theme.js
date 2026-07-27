@@ -7,6 +7,7 @@ export { THEMES } from "./contexts/ThemeContext";
 
 export const BACKEND = "https://secureflow-backend-1083585992526.us-central1.run.app";
 
+// Phase 3b test: Frontend-only change for diff verification
 export const PIPELINE_STAGES = [
   { key: "checkout",        label: "Checkout",          Icon: GitBranch },
   { key: "code_scan",       label: "Code Scan",         Icon: Terminal  },
