@@ -10,6 +10,7 @@ import { Button } from '../ui/Button';
 import { Skeleton } from '../ui/Skeleton';
 import { useScans } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
+import WhyBlockedModal from '../modals/WhyBlockedModal';
 
 export interface PipelineStage {
   id: string;
