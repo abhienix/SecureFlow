@@ -1,12 +1,12 @@
 import React from "react";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 
-export default function SeverityDonut({ C }) {
-  const data = [
-    { name: "Critical", value: 3, color: "#EF4444" },
-    { name: "High", value: 8, color: "#F97316" },
-    { name: "Medium", value: 18, color: "#F59E0B" },
-    { name: "Low", value: 32, color: "#3B82F6" }
+export default function SeverityDonut({ C, data: propData }) {
+  const data = propData && propData.length > 0 ? propData : [
+    { name: "Critical", value: 0, color: "#EF4444" },
+    { name: "High", value: 0, color: "#F97316" },
+    { name: "Medium", value: 0, color: "#F59E0B" },
+    { name: "Low", value: 0, color: "#3B82F6" }
   ];
 
   return (

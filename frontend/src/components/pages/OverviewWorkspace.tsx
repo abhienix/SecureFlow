@@ -6,13 +6,32 @@ import { useScans } from '../../hooks/useApi';
 
 export default function OverviewWorkspace() {
   const navigate = useNavigate();
-  const { data: rawScans } = useScans();
+  const { data: rawScans, isLoading, isError } = useScans();
 
   const [activeTimelineTab, setActiveTimelineTab] = useState<'30d' | '90d' | 'all'>('30d');
 
   useEffect(() => {
     document.title = 'Overview — SecureFlow';
   }, []);
+
+  if (isLoading) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#f8f8f6', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
+        <div style={{ width: 48, height: 48, border: '4px solid #e8e8e4', borderTop: '4px solid #6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <p style={{ fontSize: 14, color: '#888' }}>Loading scan data...</p>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#f8f8f6', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
+        <div style={{ fontSize: 40 }}>⚠️</div>
+        <p style={{ fontSize: 15, fontWeight: 600, color: '#dc2626' }}>Failed to load scan data</p>
+        <p style={{ fontSize: 13, color: '#888' }}>The backend API may be unreachable. Check your connection and try again.</p>
+      </div>
+    );
+  }
 
   const scans = useMemo(() => rawScans || [], [rawScans]);
 
@@ -30,25 +49,76 @@ export default function OverviewWorkspace() {
     };
   }, [scans]);
 
-  // Posture score math for circular arc gauge
-  // score = 0 (as critical secret exists)
-  const score = 0;
-  const circumference = 2 * Math.PI * 36; // ~226.19
-  // At score=0: dashoffset = 219 (leaving a tiny ~7px red sliver visible)
-  const dashOffset = score === 0 ? 219 : circumference * (1 - score / 100);
+  // Compute real stats from scan data
+  const { vulnStats, severityCounts, scannerCounts, latestGates } = useMemo(() => {
+    const vs = { totalVulns: 0, critical: 0, high: 0, medium: 0, low: 0 };
+    const sc: Record<string, Record<string, number>> = {};
+    let latestScans = scans.slice(0, 5);
 
-  // Gates data (9 gates total, 3x3 grid)
-  const gates = [
-    { name: 'GitHub Actions', status: 'healthy', sub: 'Workflow active' },
-    { name: 'Gitleaks', status: 'healthy', sub: 'Secrets scanner' },
-    { name: 'Semgrep SAST', status: 'healthy', sub: 'Code analysis' },
-    { name: 'Docker Engine', status: 'healthy', sub: 'Container runtime' },
-    { name: 'Trivy', status: 'healthy', sub: 'Vulnerability scanner' },
-    { name: 'Policy Engine', status: 'healthy', sub: 'Rules enforced' },
-    { name: 'GCP Deploy', status: 'healthy', sub: 'Cloud Run target' },
-    { name: 'OWASP ZAP', status: 'failed', sub: '2 findings' },
-    { name: 'Overall policy', status: 'unknown', sub: 'Blocked' },
-  ];
+    for (const s of scans) {
+      const findings = s.findings || {};
+      const trivyResults = findings.Results || [];
+      for (const r of trivyResults) {
+        for (const v of r.Vulnerabilities || []) {
+          vs.totalVulns++;
+          const sev = (v.Severity || '').toUpperCase();
+          if (sev === 'CRITICAL') vs.critical++;
+          else if (sev === 'HIGH') vs.high++;
+          else if (sev === 'MEDIUM') vs.medium++;
+          else vs.low++;
+        }
+      }
+      for (const scanner of ['gitleaks', 'semgrep', 'zap']) {
+        const items = findings[scanner];
+        if (Array.isArray(items) && items.length) {
+          if (!sc[scanner]) sc[scanner] = { total: 0, critical: 0, high: 0, medium: 0, low: 0 };
+          sc[scanner].total += items.length;
+        }
+      }
+    }
+
+    const gates = [
+      { name: 'GitHub Actions', status: 'healthy', sub: 'Workflow active' },
+      { name: 'Gitleaks', status: (sc.gitleaks?.total || 0) > 0 ? 'failed' : 'healthy', sub: (sc.gitleaks?.total || 0) > 0 ? `${sc.gitleaks.total} leaks` : 'Secrets scanner' },
+      { name: 'Semgrep SAST', status: (sc.semgrep?.total || 0) > 0 ? 'failed' : 'healthy', sub: (sc.semgrep?.total || 0) > 0 ? `${sc.semgrep.total} findings` : 'Code analysis' },
+      { name: 'Docker Engine', status: 'healthy', sub: 'Container runtime' },
+      { name: 'Trivy', status: vs.totalVulns > 0 ? 'healthy' : 'healthy', sub: `${vs.totalVulns} vulns` },
+      { name: 'Policy Engine', status: vs.high > 0 ? 'failed' : 'healthy', sub: vs.high > 0 ? `${vs.high} high` : 'Rules enforced' },
+      { name: 'GCP Deploy', status: 'healthy', sub: 'Cloud Run target' },
+      { name: 'OWASP ZAP', status: (sc.zap?.total || 0) > 0 ? 'failed' : 'healthy', sub: (sc.zap?.total || 0) > 0 ? `${sc.zap.total} alerts` : 'DAST scanner' },
+      { name: 'Overall policy', status: stats.blocked > 0 ? 'failed' : 'healthy', sub: stats.blocked > 0 ? `${stats.blocked} blocked` : 'All clear' },
+    ];
+
+    return { vulnStats: vs, severityCounts: vs, scannerCounts: sc, latestGates: gates };
+  }, [scans, stats]);
+
+  // Trend timeline data from last 7 scans
+  const timelineData = useMemo(() => {
+    const sorted = [...scans].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).slice(-7);
+    return sorted.map((s) => {
+      const findings = s.findings || {};
+      const trivyResults = findings.Results || [];
+      let c = 0, h = 0, m = 0, l = 0;
+      for (const r of trivyResults) {
+        for (const v of r.Vulnerabilities || []) {
+          const sev = (v.Severity || '').toUpperCase();
+          if (sev === 'CRITICAL') c++;
+          else if (sev === 'HIGH') h++;
+          else if (sev === 'MEDIUM') m++;
+          else l++;
+        }
+      }
+      const date = s.created_at ? new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A';
+      return { day: date, critical: c, high: h, medium: m, low: l };
+    });
+  }, [scans]);
+
+  const score = Math.max(0, Math.min(100, stats.passRate));
+  const circumference = 2 * Math.PI * 36;
+  const dashOffset = score === 0 ? circumference : circumference * (1 - score / 100);
+  const gates = latestGates;
+  const failedGates = gates.filter(g => g.status === 'failed').length;
+  const totalVulns = vulnStats.totalVulns || severityCounts.totalVulns;
 
   return (
     <div
@@ -174,7 +244,7 @@ export default function OverviewWorkspace() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#dc2626' }}>
-                  Needs immediate fix
+                  {score >= 70 ? 'Good posture' : score >= 40 ? 'Needs attention' : 'Needs immediate fix'}
                 </span>
               </div>
               <p
@@ -190,7 +260,11 @@ export default function OverviewWorkspace() {
                 }}
                 className="dark:text-gray-300"
               >
-                1 critical secret leak detected in repository. Immediate remediation required.
+                {vulnStats.critical > 0
+                  ? `${vulnStats.critical} critical, ${vulnStats.high} high severity vulns detected in last ${scans.length} scans.`
+                  : vulnStats.high > 0
+                  ? `${vulnStats.high} high severity vulnerabilities found across packages.`
+                  : `${scans.length} pipeline scans processed. ${stats.blocked} blocked by policy.`}
               </p>
 
               {/* Last 7 pipelines mini bar chart */}
@@ -199,26 +273,22 @@ export default function OverviewWorkspace() {
                   Last 7 pipelines
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 22 }}>
-                  {[
-                    { h: 14, col: '#22c55e' },
-                    { h: 18, col: '#22c55e' },
-                    { h: 16, col: '#22c55e' },
-                    { h: 20, col: '#22c55e' },
-                    { h: 22, col: '#22c55e' },
-                    { h: 12, col: '#f59e0b' },
-                    { h: 8, col: '#ef4444' },
-                  ].map((b, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        width: 14,
-                        height: b.h,
-                        background: b.col,
-                        borderRadius: '2px 2px 0 0',
-                      }}
-                      title={`Run #${i + 1}`}
-                    />
-                  ))}
+                  {scans.slice(0, 7).reverse().map((s, i) => {
+                    const blocked = s.action_taken === 'BLOCK';
+                    const h = blocked ? 8 : 14 + Math.min(s.findings?.Results?.length || 0, 8);
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          width: 14,
+                          height: h,
+                          background: blocked ? '#ef4444' : (s.severity === 'HIGH' ? '#f59e0b' : '#22c55e'),
+                          borderRadius: '2px 2px 0 0',
+                        }}
+                        title={`Run #${s.id}: ${blocked ? 'BLOCKED' : 'ALLOWED'}`}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -253,20 +323,22 @@ export default function OverviewWorkspace() {
           </div>
 
           <div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#dc2626', lineHeight: 1 }}>1</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginTop: 2 }}>
-              secret leaked
+            <div style={{ fontSize: 28, fontWeight: 800, color: vulnStats.critical > 0 ? '#dc2626' : vulnStats.high > 0 ? '#f97316' : '#10b981', lineHeight: 1 }}>
+              {vulnStats.critical + vulnStats.high}
             </div>
-            <div style={{ fontSize: 11, color: '#dc2626', marginTop: 2 }}>
-              1 critical · action required
+            <div style={{ fontSize: 13, fontWeight: 700, color: vulnStats.critical > 0 ? '#dc2626' : vulnStats.high > 0 ? '#f97316' : '#10b981', marginTop: 2 }}>
+              {vulnStats.critical > 0 ? 'critical + high' : vulnStats.high > 0 ? 'high severity' : 'vulnerabilities'}
+            </div>
+            <div style={{ fontSize: 11, color: vulnStats.critical > 0 ? '#dc2626' : '#888', marginTop: 2 }}>
+              {vulnStats.critical > 0 ? `${vulnStats.critical} critical · action required` : `${vulnStats.high} high · needs review`}
             </div>
           </div>
 
           {/* Info pill at bottom */}
           <div
             style={{
-              background: '#fef2f2',
-              color: '#b91c1c',
+              background: vulnStats.critical > 0 ? '#fef2f2' : vulnStats.high > 0 ? '#fff7ed' : '#f0fdf4',
+              color: vulnStats.critical > 0 ? '#b91c1c' : vulnStats.high > 0 ? '#c2410c' : '#15803d',
               fontSize: 11,
               borderRadius: 6,
               padding: '8px',
@@ -275,7 +347,9 @@ export default function OverviewWorkspace() {
             }}
             className="dark:bg-red-950/40 dark:text-red-300 font-mono"
           >
-            AWS key in config/env.sample:14
+            {vulnStats.totalVulns > 0
+              ? `Last ${scans.length} scans: ${vulnStats.critical}C / ${vulnStats.high}H / ${vulnStats.medium}M / ${vulnStats.low}L vulns`
+              : 'No vulnerabilities found in recent scans'}
           </div>
         </div>
 
@@ -308,20 +382,20 @@ export default function OverviewWorkspace() {
 
           <div>
             <div style={{ fontSize: 28, fontWeight: 800, color: '#b45309', lineHeight: 1 }} className="dark:text-amber-500">
-              400
+              {vulnStats.totalVulns + (scannerCounts.gitleaks?.total || 0) + (scannerCounts.semgrep?.total || 0)}
             </div>
             <div style={{ fontSize: 11, color: '#b45309', marginTop: 4 }} className="dark:text-amber-400">
-              400 auto-generated
+              {scans.length > 0 ? 'total findings across all scanners' : 'no scans yet'}
             </div>
           </div>
 
           {/* Mini scanner breakdown */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
             {[
-              { name: 'Trivy', pct: 75, count: 300 },
-              { name: 'Semgrep', pct: 30, count: 88 },
-              { name: 'ZAP', pct: 14, count: 12 },
-            ].map((sc) => (
+              { name: 'Trivy', count: vulnStats.totalVulns },
+              { name: 'Semgrep', count: scannerCounts.semgrep?.total || 0 },
+              { name: 'ZAP', count: scannerCounts.zap?.total || 0 },
+            ].filter(sc => sc.count > 0).map((sc) => { const pct = Math.round((sc.count / Math.max(vulnStats.totalVulns, 1)) * 100); return (
               <div key={sc.name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10 }}>
                 <span style={{ width: 50, color: '#777' }} className="dark:text-gray-400">
                   {sc.name}
@@ -385,31 +459,29 @@ export default function OverviewWorkspace() {
               {stats.passRate}%
             </div>
             <div style={{ fontSize: 11, color: '#888', marginTop: 4 }} className="dark:text-gray-400">
-              112 passed · 39 blocked
+              {stats.passed} passed · {stats.blocked} blocked
             </div>
           </div>
 
           {/* Sparkline (7 bars) */}
           <div style={{ height: 32, display: 'flex', alignItems: 'flex-end', gap: 3, marginTop: 4 }}>
-            {[
-              { h: 22, col: '#22c55e' },
-              { h: 27, col: '#22c55e' },
-              { h: 19, col: '#22c55e' },
-              { h: 29, col: '#22c55e' },
-              { h: 13, col: '#ef4444' },
-              { h: 24, col: '#22c55e' },
-              { h: 10, col: '#ef4444' },
-            ].map((b, i) => (
-              <div
-                key={i}
-                style={{
-                  flex: 1,
-                  height: b.h,
-                  background: b.col,
-                  borderRadius: '2px 2px 0 0',
-                }}
-              />
-            ))}
+            {scans.slice(0, 7).reverse().map((s, i) => {
+              const blocked = s.action_taken === 'BLOCK';
+              const h = blocked ? 10 : 16 + Math.min(s.findings?.Results?.length || 0, 3) * 4;
+              return (
+                <div
+                  key={i}
+                  style={{
+                    flex: 1,
+                    height: h,
+                    background: blocked ? '#ef4444' : '#22c55e',
+                    borderRadius: '2px 2px 0 0',
+                    transition: 'height 300ms ease',
+                  }}
+                  title={`#${s.id}: ${blocked ? 'BLOCKED' : 'ALLOWED'}`}
+                />
+              );
+            })}
           </div>
         </div>
       </div>
@@ -463,75 +535,38 @@ export default function OverviewWorkspace() {
               <div style={{ position: 'relative', width: 110, height: 110, flexShrink: 0 }}>
                 <svg width={110} height={110} viewBox="0 0 110 110" style={{ transform: 'rotate(-90deg)' }}>
                   {/* Base Track */}
-                  <circle
-                    cx={55}
-                    cy={55}
-                    r={42}
-                    fill="transparent"
-                    stroke="#e8e8e4"
-                    strokeWidth={12}
-                    className="dark:stroke-[#2e2e2a]"
-                  />
-                  {/* Low/Info (24 - 5.4%) */}
-                  <circle
-                    cx={55}
-                    cy={55}
-                    r={42}
-                    fill="transparent"
-                    stroke="#3b82f6"
-                    strokeWidth={12}
-                    strokeDasharray="14.2 263.89"
-                    strokeDashoffset="0"
-                  />
-                  {/* Medium (371 - 83.6%) */}
-                  <circle
-                    cx={55}
-                    cy={55}
-                    r={42}
-                    fill="transparent"
-                    stroke="#f59e0b"
-                    strokeWidth={12}
-                    strokeDasharray="220.6 263.89"
-                    strokeDashoffset="-14.2"
-                  />
-                  {/* High (48 - 10.8%) */}
-                  <circle
-                    cx={55}
-                    cy={55}
-                    r={42}
-                    fill="transparent"
-                    stroke="#f97316"
-                    strokeWidth={12}
-                    strokeDasharray="28.5 263.89"
-                    strokeDashoffset="-234.8"
-                  />
-                  {/* Critical (1 - 0.2%) - thicker & round stroke for visible dot */}
-                  <circle
-                    cx={55}
-                    cy={55}
-                    r={42}
-                    fill="transparent"
-                    stroke="#ef4444"
-                    strokeWidth={16}
-                    strokeLinecap="round"
-                    strokeDasharray="4 263.89"
-                    strokeDashoffset="-263.3"
-                  />
+                  <circle cx={55} cy={55} r={42} fill="transparent" stroke="#e8e8e4" strokeWidth={12} className="dark:stroke-[#2e2e2a]" />
+                  {(() => {
+                    const total = Math.max(vulnStats.totalVulns, 1);
+                    const circ = 2 * Math.PI * 42;
+                    const slices = [
+                      { val: vulnStats.low, col: '#3b82f6', offset: 0 },
+                      { val: vulnStats.medium, col: '#f59e0b', offset: 0 },
+                      { val: vulnStats.high, col: '#f97316', offset: 0 },
+                      { val: vulnStats.critical, col: '#ef4444', offset: 0 },
+                    ];
+                    let runningOffset = 0;
+                    return slices.map((s, i) => {
+                      const pct = s.val / total;
+                      const dashLen = pct * circ;
+                      const dashGap = circ - dashLen;
+                      const el = (
+                        <circle key={i} cx={55} cy={55} r={42} fill="transparent" stroke={s.col}
+                          strokeWidth={s.val > 0 && s.val === vulnStats.critical ? 16 : 12}
+                          strokeLinecap="round"
+                          strokeDasharray={`${dashLen} ${dashGap}`}
+                          strokeDashoffset={-runningOffset}
+                          style={{ transition: 'stroke-dasharray 500ms ease' }}
+                        />
+                      );
+                      runningOffset += dashLen;
+                      return el;
+                    });
+                  })()}
                 </svg>
-
-                {/* Center text: 444 findings */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                   <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }} className="dark:text-white">
-                    444
+                    {vulnStats.totalVulns}
                   </span>
                   <span style={{ fontSize: 9, color: '#888', marginTop: 2 }} className="dark:text-gray-400">
                     findings
@@ -541,86 +576,42 @@ export default function OverviewWorkspace() {
 
               {/* Legend Right */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 160 }}>
-                {/* Critical Row */}
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: '50%',
-                          background: '#ef4444',
-                          boxShadow: '0 0 0 3px #fee2e2',
-                        }}
-                        className="dark:shadow-red-950/60"
-                      />
-                      <span style={{ fontWeight: 700, color: '#dc2626' }}>Critical</span>
+                {[
+                  { label: 'Critical', val: vulnStats.critical, col: '#ef4444', darkCol: '#dc2626' },
+                  { label: 'High', val: vulnStats.high, col: '#f97316', darkCol: '#ea580c' },
+                  { label: 'Medium', val: vulnStats.medium, col: '#f59e0b', darkCol: '#ca8a04' },
+                  { label: 'Low / Info', val: vulnStats.low, col: '#3b82f6', darkCol: '#2563eb' },
+                ].map((item, idx) => {
+                  const pct = Math.max(vulnStats.totalVulns, 1);
+                  return (
+                    <div key={item.label}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: item.col }} />
+                          <span style={{ fontWeight: idx === 0 ? 700 : 400, color: idx === 0 ? item.darkCol : '#555' }} className={idx === 0 ? '' : 'dark:text-gray-300'}>
+                            {item.label}
+                          </span>
+                        </div>
+                        <div>
+                          <span style={{ fontWeight: 700 }}>{item.val}</span>{' '}
+                          <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">
+                            ({((item.val / pct) * 100).toFixed(1)}%)
+                          </span>
+                        </div>
+                      </div>
+                      {idx === 0 && vulnStats.critical > 0 && (
+                        <div onClick={() => navigate('/security-center')} style={{
+                          marginTop: 4, background: '#fef2f2', color: '#dc2626', fontSize: 10, fontWeight: 600,
+                          borderRadius: 4, padding: '4px 8px', cursor: 'pointer', display: 'flex',
+                          alignItems: 'center', justifyContent: 'space-between',
+                        }} className="dark:bg-red-950/40 dark:text-red-300 hover:opacity-90">
+                          <span>{vulnStats.critical} critical · view in Security Center</span>
+                          <span>→</span>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <span style={{ fontWeight: 800, color: '#dc2626' }}>1</span>{' '}
-                      <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">(0.2%)</span>
-                    </div>
-                  </div>
-
-                  {/* Callout Pill */}
-                  <div
-                    onClick={() => navigate('/security-center')}
-                    style={{
-                      marginTop: 4,
-                      background: '#fef2f2',
-                      color: '#dc2626',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      borderRadius: 4,
-                      padding: '4px 8px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                    className="dark:bg-red-950/40 dark:text-red-300 hover:opacity-90"
-                  >
-                    <span>AWS key leaked · immediate action</span>
-                    <span>→</span>
-                  </div>
-                </div>
-
-                {/* High */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f97316' }} />
-                    <span style={{ color: '#555' }} className="dark:text-gray-300">High</span>
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>48</span>{' '}
-                    <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">(10.8%)</span>
-                  </div>
-                </div>
-
-                {/* Medium */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b' }} />
-                    <span style={{ color: '#555' }} className="dark:text-gray-300">Medium</span>
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>371</span>{' '}
-                    <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">(83.6%)</span>
-                  </div>
-                </div>
-
-                {/* Low/Info */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6' }} />
-                    <span style={{ color: '#555' }} className="dark:text-gray-300">Low / Info</span>
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>24</span>{' '}
-                    <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">(5.4%)</span>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -784,103 +775,38 @@ export default function OverviewWorkspace() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* Gitleaks: 7 total — 1 critical (14%), 6 high (86%) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: '#333' }} className="dark:text-gray-200">
-                Gitleaks
-              </span>
-              <div
-                style={{
-                  flex: 1,
-                  height: 8,
-                  background: '#f0f0ec',
-                  borderRadius: 4,
-                  display: 'flex',
-                  overflow: 'hidden',
-                }}
-                className="dark:bg-[#2e2e2a]"
-              >
-                <div style={{ width: '14%', background: '#ef4444' }} title="1 Critical" />
-                <div style={{ width: '86%', background: '#f97316' }} title="6 High" />
-              </div>
-              <span style={{ width: 60, fontSize: 11, color: '#888', textAlign: 'right' }} className="dark:text-gray-400">
-                7 findings
-              </span>
-            </div>
-
-            {/* Semgrep: 26 total — 2 high (8%), 8 medium (31%), 16 low (62%) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: '#333' }} className="dark:text-gray-200">
-                Semgrep
-              </span>
-              <div
-                style={{
-                  flex: 1,
-                  height: 8,
-                  background: '#f0f0ec',
-                  borderRadius: 4,
-                  display: 'flex',
-                  overflow: 'hidden',
-                }}
-                className="dark:bg-[#2e2e2a]"
-              >
-                <div style={{ width: '8%', background: '#f97316' }} title="2 High" />
-                <div style={{ width: '31%', background: '#f59e0b' }} title="8 Medium" />
-                <div style={{ width: '61%', background: '#3b82f6' }} title="16 Low" />
-              </div>
-              <span style={{ width: 60, fontSize: 11, color: '#888', textAlign: 'right' }} className="dark:text-gray-400">
-                26 findings
-              </span>
-            </div>
-
-            {/* Trivy: 67 total — 4 high (6%), 20 medium (30%), 43 low (64%) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: '#333' }} className="dark:text-gray-200">
-                Trivy
-              </span>
-              <div
-                style={{
-                  flex: 1,
-                  height: 8,
-                  background: '#f0f0ec',
-                  borderRadius: 4,
-                  display: 'flex',
-                  overflow: 'hidden',
-                }}
-                className="dark:bg-[#2e2e2a]"
-              >
-                <div style={{ width: '6%', background: '#f97316' }} title="4 High" />
-                <div style={{ width: '30%', background: '#f59e0b' }} title="20 Medium" />
-                <div style={{ width: '64%', background: '#3b82f6' }} title="43 Low" />
-              </div>
-              <span style={{ width: 60, fontSize: 11, color: '#888', textAlign: 'right' }} className="dark:text-gray-400">
-                67 findings
-              </span>
-            </div>
-
-            {/* OWASP ZAP: 12 total — 6 medium (50%), 6 low (50%) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: '#333' }} className="dark:text-gray-200">
-                OWASP ZAP
-              </span>
-              <div
-                style={{
-                  flex: 1,
-                  height: 8,
-                  background: '#f0f0ec',
-                  borderRadius: 4,
-                  display: 'flex',
-                  overflow: 'hidden',
-                }}
-                className="dark:bg-[#2e2e2a]"
-              >
-                <div style={{ width: '50%', background: '#f59e0b' }} title="6 Medium" />
-                <div style={{ width: '50%', background: '#3b82f6' }} title="6 Low" />
-              </div>
-              <span style={{ width: 60, fontSize: 11, color: '#888', textAlign: 'right' }} className="dark:text-gray-400">
-                12 findings
-              </span>
-            </div>
+            {[
+              { name: 'Trivy', data: vulnStats },
+              { name: 'Gitleaks', data: { total: scannerCounts.gitleaks?.total || 0, critical: 0, high: 0, medium: 0, low: 0 } },
+              { name: 'Semgrep', data: { total: scannerCounts.semgrep?.total || 0, critical: 0, high: 0, medium: 0, low: 0 } },
+              { name: 'OWASP ZAP', data: { total: scannerCounts.zap?.total || 0, critical: 0, high: 0, medium: 0, low: 0 } },
+            ].filter(sc => sc.data.total > 0).map((sc) => {
+              const d = sc.data;
+              const total = Math.max(d.total, 1);
+              return (
+                <div key={sc.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: '#333' }} className="dark:text-gray-200">
+                    {sc.name}
+                  </span>
+                  <div style={{ flex: 1, height: 8, background: '#f0f0ec', borderRadius: 4, display: 'flex', overflow: 'hidden' }} className="dark:bg-[#2e2e2a]">
+                    {(() => {
+                      const segments = [
+                        { pct: (d.critical / total) * 100, col: '#ef4444', label: 'Critical' },
+                        { pct: (d.high / total) * 100, col: '#f97316', label: 'High' },
+                        { pct: (d.medium / total) * 100, col: '#f59e0b', label: 'Medium' },
+                        { pct: (d.low / total) * 100, col: '#3b82f6', label: 'Low' },
+                      ].filter(s => s.pct > 0);
+                      return segments.map((s, i) => (
+                        <div key={i} style={{ width: `${s.pct}%`, background: s.col }} title={`${s.label}: ${Math.round(s.pct)}%`} />
+                      ));
+                    })()}
+                  </div>
+                  <span style={{ width: 60, fontSize: 11, color: '#888', textAlign: 'right' }} className="dark:text-gray-400">
+                    {d.total} findings
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
           {/* Severity Legend */}
@@ -957,8 +883,8 @@ export default function OverviewWorkspace() {
             }}
             className="dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/60"
           >
-            1 gate failed
-          </div>
+             {failedGates > 0 ? `${failedGates} gate${failedGates > 1 ? 's' : ''} failed` : 'All gates healthy'}
+           </div>
         </div>
 
         {/* 3x3 Grid */}
