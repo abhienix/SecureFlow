@@ -22,16 +22,23 @@ export function useScanWebSocket() {
     let mounted = true;
     let wsConnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
+    // Debug: log which backend URL we are connecting to
+    console.log('[SecureFlow] WS_URL:', WS_URL, 'API_BASE:', API_BASE);
+
     // REST health polling fallback
     const startHealthPoll = () => {
       if (fallbackActive.current) return;
       fallbackActive.current = true;
       const poll = async () => {
         if (!mounted) return;
+        const ac = new AbortController();
+        const tid = setTimeout(() => ac.abort(), 5000);
         try {
-          const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(5000) });
+          const res = await fetch(`${API_BASE}/health`, { signal: ac.signal });
+          clearTimeout(tid);
           if (mounted) setWsConnected(res.ok);
         } catch {
+          clearTimeout(tid);
           if (mounted) setWsConnected(false);
         }
       };
