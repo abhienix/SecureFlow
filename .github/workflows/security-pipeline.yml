@@ -713,6 +713,7 @@ jobs:
           gcloud run deploy secureflow-backend-staging \
             --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
             --region us-central1 \
+            --set-secrets="GROQ_API_KEY=GROQ_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
             --allow-unauthenticated
 
       - name: Get Staging URL
@@ -979,6 +980,7 @@ jobs:
           gcloud run deploy secureflow-backend \
             --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
             --region us-central1 \
+            --set-secrets="GROQ_API_KEY=GROQ_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
             --allow-unauthenticated
 
       - name: Deploy Frontend to Production Cloud Run
