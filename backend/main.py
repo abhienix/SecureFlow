@@ -523,6 +523,16 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
         if data["dast_status"] == "completed":
             from datetime import datetime as _dt
             scan.dast_completed_at = _dt.utcnow()
+
+    # Save ZAP findings telemetry and update merged findings dict
+    if "zap_findings" in data:
+        scan.zap_findings = data["zap_findings"]
+        existing_findings = dict(scan.findings or {})
+        existing_findings["zap"] = data["zap_findings"]
+        scan.findings = existing_findings
+
+    if "zap_summary" in data:
+        scan.zap_summary = data["zap_summary"]
         
     await db.commit()
     await db.refresh(scan)
