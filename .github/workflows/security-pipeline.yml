@@ -662,7 +662,7 @@ jobs:
             echo "Policy gate says BLOCK — not deploying."
             curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
               -H "Content-Type: application/json" \
-              -d '{ "pipeline_steps": { "policy": { "result": "BLOCK", "detail": "'"$REASON"'" } } }' || true
+              -d '{ "status": "complete", "pipeline_steps": { "policy": { "result": "BLOCK", "detail": "'"$REASON"'" } } }' || true
             exit 1
           else
             curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
@@ -922,7 +922,7 @@ jobs:
                 echo "ZAP DAST FAILED (result=$ZAP_RESULT) — blocking production deploy."
                 curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
                   -H "Content-Type: application/json" \
-                  -d '{ "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "ZAP DAST failed on staging — production deploy blocked" } } }' || true
+                  -d '{ "status": "complete", "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "ZAP DAST failed on staging — production deploy blocked" } } }' || true
                 echo "zap_passed=false" >> "$GITHUB_OUTPUT"
                 exit 1
               fi
@@ -932,7 +932,7 @@ jobs:
               echo "DAST failed (status=$DAST_STATUS) — blocking production deploy."
               curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
                 -H "Content-Type: application/json" \
-                -d '{ "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "DAST scan failed on staging — production deploy blocked" } } }' || true
+                -d '{ "status": "complete", "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "DAST scan failed on staging — production deploy blocked" } } }' || true
               echo "zap_passed=false" >> "$GITHUB_OUTPUT"
               exit 1
             fi
@@ -945,7 +945,7 @@ jobs:
           echo "Timeout waiting for DAST to complete after $((MAX_RETRIES * POLL_INTERVAL))s."
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Content-Type: application/json" \
-            -d '{ "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "DAST timed out — production deploy blocked" } } }' || true
+            -d '{ "status": "complete", "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "DAST timed out — production deploy blocked" } } }' || true
           echo "zap_passed=false" >> "$GITHUB_OUTPUT"
           exit 1
 
@@ -1058,4 +1058,7 @@ jobs:
             }')
           curl -sS -X POST "$BACKEND_URL/api/scan-results" \
             -H "Content-Type: application/json" -d "$PAYLOAD" || true
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Content-Type: application/json" \
+            -d '{ "status": "complete" }' || true
 
