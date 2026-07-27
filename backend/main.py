@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 # runs after the import, the .env file values won't be available.
 load_dotenv()
 
-from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
@@ -186,6 +186,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    return response
 
 
 async def get_db():
