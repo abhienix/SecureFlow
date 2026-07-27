@@ -376,45 +376,62 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         if scan.dast_status not in ("running", "completed"):
             scan.dast_status = "not_queued"
     else:
-        logger.info(f"[start_scan_run] Creating NEW scan (run_id={run_id}, repo={repo_name})")
-        # Supersede older active runs on the same branch (concurrency control)
-        result = await db.execute(
-            select(ScanResult)
-            .filter(ScanResult.repo_name == repo_name)
-            .filter(ScanResult.branch == branch)
-            .filter(ScanResult.status == "running")
-        )
-        prev_running = result.scalars().all()
-        for prev in prev_running:
-            prev.status = "superseded"
-            prev.action_taken = prev.action_taken or "SKIPPED"
-            prev.ai_explanation = prev.ai_explanation or "Superseded by newer commit build push."
+        # Idempotent: check for existing scan with same parameters
+        existing_scan = None
+        try:
+            existing_res = await db.execute(
+                select(ScanResult)
+                .filter(ScanResult.repo_name == repo_name)
+                .filter(ScanResult.branch == branch)
+                .filter(ScanResult.commit_sha == data.get("commit_sha", "unknown"))
+                .filter(ScanResult.target_url == resolved_target)
+                .filter(ScanResult.status != "superseded")
+            )
+            existing_scan = existing_res.scalars().first()
+        except Exception as e:
+            logger.error(f"[start_scan_run] Error checking existing scan for idempotency: {e}")
 
-        pipeline_steps = {
-            "checkout": {"result": "PASS", "detail": "code checked out"},
-            "zap": {"result": "PENDING", "detail": f"DAST target resolved: {resolved_target}"}
-        }
+        if existing_scan:
+            logger.info(f"[start_scan_run] Reusing existing scan id={existing_scan.id} for repo={repo_name}, commit_sha={data.get('commit_sha', 'unknown')}")
+            scan = existing_scan
+        else:
+            # Supersede any running scans for this specific commit/branch combination
+            res_prev = await db.execute(
+                select(ScanResult)
+                .filter(ScanResult.repo_name == repo_name)
+                .filter(ScanResult.branch == branch)
+                .filter(ScanResult.status == "running")
+            )
+            for prev in res_prev.scalars().all():
+                prev.status = "superseded"
+                prev.action_taken = prev.action_taken or "SKIPPED"
+                prev.ai_explanation = prev.ai_explanation or "Superseded by newer commit build push."
 
-        scan = ScanResult(
-            commit_sha=data.get("commit_sha", "unknown"),
-            commit_message=data.get("commit_message", ""),
-            repo_name=repo_name,
-            branch=branch,
-            scan_type=data.get("scan_type", "full-pipeline"),
-            severity=None,
-            findings={},
-            ai_explanation="",
-            ai_fix="",
-            risk_score=None,
-            action_taken=None,
-            pipeline_steps=pipeline_steps,
-            status="running",
-            started_at=datetime.utcnow(),
-            target_url=resolved_target,
-            deployment_url=req_deploy_url,
-            dast_status="not_queued"
-        )
-        db.add(scan)
+            pipeline_steps = {
+                "checkout": {"result": "PASS", "detail": "code checked out"},
+                "zap": {"result": "PENDING", "detail": f"DAST target resolved: {resolved_target}"}
+            }
+
+            scan = ScanResult(
+                commit_sha=data.get("commit_sha", "unknown"),
+                commit_message=data.get("commit_message", ""),
+                repo_name=repo_name,
+                branch=branch,
+                scan_type=data.get("scan_type", "full-pipeline"),
+                severity=None,
+                findings={},
+                ai_explanation="",
+                ai_fix="",
+                risk_score=None,
+                action_taken=None,
+                pipeline_steps=pipeline_steps,
+                status="running",
+                started_at=datetime.utcnow(),
+                target_url=resolved_target,
+                deployment_url=req_deploy_url,
+                dast_status="not_queued"
+            )
+            db.add(scan)
 
     await db.commit()
     await db.refresh(scan)
