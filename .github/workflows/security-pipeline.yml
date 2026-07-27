@@ -895,7 +895,7 @@ jobs:
               consecutive_404=0
             fi
 
-            DAST_STATUS=$(echo "$RESPONSE" | jq -r '.dast_status // "unknown"')
+            DAST_STATUS=$(echo "$RESPONSE" | jq -r '.dast_status // "running"')
             ZAP_RESULT=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap.result // "PENDING"')
 
             echo "Poll $((retry + 1))/$MAX_RETRIES — dast_status=$DAST_STATUS  zap.result=$ZAP_RESULT"

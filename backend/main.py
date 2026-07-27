@@ -547,7 +547,7 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
     return {
         "status": "progress updated",
         "run_id": run_id,
-        "dast_status": scan.dast_status,
+        "dast_status": scan.dast_status or "running",
         "pipeline_steps": scan.pipeline_steps,
     }
 
