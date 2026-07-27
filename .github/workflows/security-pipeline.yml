@@ -390,14 +390,23 @@ jobs:
           echo "$CHANGED"
 
           DEPLOY_ALL=false
-          if printf '%s' "$COMMIT_MESSAGE" | grep -qF '[deploy]'; then
+          DEPLOY_BACKEND_ONLY=false
+          DEPLOY_FRONTEND_ONLY=false
+
+          if printf '%s' "$COMMIT_MESSAGE" | grep -qE '\[deploy:all\]|\[deploy\]'; then
             DEPLOY_ALL=true
-            echo "Commit message contains [deploy] — forcing backend + frontend deploy"
+            echo "Commit message contains [deploy] or [deploy:all] — forcing backend + frontend deploy"
+          elif printf '%s' "$COMMIT_MESSAGE" | grep -qF '[deploy:backend]'; then
+            DEPLOY_BACKEND_ONLY=true
+            echo "Commit message contains [deploy:backend] — forcing backend deploy"
+          elif printf '%s' "$COMMIT_MESSAGE" | grep -qF '[deploy:frontend]'; then
+            DEPLOY_FRONTEND_ONLY=true
+            echo "Commit message contains [deploy:frontend] — forcing frontend deploy"
           fi
 
-          if [ "$FORCE_BACKEND" = "true" ] || [ "$DEPLOY_ALL" = "true" ]; then
+          if [ "$FORCE_BACKEND" = "true" ] || [ "$DEPLOY_ALL" = "true" ] || [ "$DEPLOY_BACKEND_ONLY" = "true" ]; then
             echo "image_changed=true" >> "$GITHUB_OUTPUT"
-            echo "Force / [deploy]: backend deploy enabled"
+            echo "Force override active: backend deploy enabled"
           elif echo "$CHANGED" | grep -qE '(^|/)backend/|(^|/)docker/|policy\.yaml|requirements.*\.txt|Dockerfile'; then
             echo "image_changed=true" >> "$GITHUB_OUTPUT"
             echo "Backend/docker files changed — full image scan required"
@@ -406,9 +415,9 @@ jobs:
             echo "No backend/docker files in push — skipping backend image scan"
           fi
 
-          if [ "$FORCE_FRONTEND" = "true" ] || [ "$DEPLOY_ALL" = "true" ]; then
+          if [ "$FORCE_FRONTEND" = "true" ] || [ "$DEPLOY_ALL" = "true" ] || [ "$DEPLOY_FRONTEND_ONLY" = "true" ]; then
             echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
-            echo "Force / [deploy]: frontend deploy enabled"
+            echo "Force override active: frontend deploy enabled"
           elif echo "$CHANGED" | grep -qE '(^|/)frontend/'; then
             echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
             echo "Frontend files changed — frontend rebuild required"
