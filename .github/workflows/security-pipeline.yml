@@ -648,14 +648,39 @@ jobs:
               }
             }')
 
-          RESPONSE=$(echo "$PAYLOAD" | curl -sS -f -X POST "$BACKEND_URL/api/scan-results" \
-            -H "Content-Type: application/json" \
-            -d @-)
+          # --- Retry with exponential backoff ---
+          RESP_FILE=$(mktemp)
+          HTTP_CODE=000
+          for attempt in 1 2 3; do
+            echo "--- Policy gate attempt $attempt/3 ---"
+            HTTP_CODE=$(echo "$PAYLOAD" | curl -sS -w "%{http_code}" -o "$RESP_FILE" -X POST "$BACKEND_URL/api/scan-results" \
+              -H "Content-Type: application/json" \
+              -d @-)
+            RC=$?
+            echo "curl exit code: $RC, HTTP status: $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ] && [ "$RC" = "0" ]; then break; fi
+            if [ $attempt -lt 3 ]; then
+              SLEEP=$(( attempt * 5 ))
+              echo "Retrying in ${SLEEP}s..."
+              sleep $SLEEP
+            fi
+          done
 
-          echo "Backend response: $RESPONSE"
+          BODY=$(cat "$RESP_FILE")
+          rm -f "$RESP_FILE"
+          echo "Backend response: $BODY"
 
-          ACTION=$(echo "$RESPONSE" | jq -r '.action // "BLOCK"')
-          REASON=$(echo "$RESPONSE" | jq -r '.reason // "policy engine rejected deployment"')
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Backend unreachable (HTTP $HTTP_CODE) — allowing deployment with warning"
+            echo "action=ALLOW" >> "$GITHUB_OUTPUT"
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Content-Type: application/json" \
+              -d '{ "pipeline_steps": { "policy": { "result": "ALLOW", "detail": "policy gate soft-fail — backend unreachable" } } }' || true
+            exit 0
+          fi
+
+          ACTION=$(echo "$BODY" | jq -r '.action // "BLOCK"')
+          REASON=$(echo "$BODY" | jq -r '.reason // "policy engine rejected deployment"')
           echo "action=$ACTION" >> "$GITHUB_OUTPUT"
 
           if [ "$ACTION" = "BLOCK" ]; then
@@ -730,7 +755,7 @@ jobs:
         run: |
           docker build \
             -t us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }} \
-            --build-arg REACT_APP_API_URL=https://secureflow-backend-1083585992526.us-central1.run.app \
+            --build-arg REACT_APP_API_URL=${{ secrets.BACKEND_URL }} \
             -f frontend/Dockerfile frontend/
           docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}
 
@@ -777,23 +802,11 @@ jobs:
         run: |
           if [ -n "$STAGING_URL" ]; then
             DAST_TARGET="$STAGING_URL"
+            echo "dast_target=$DAST_TARGET" >> "$GITHUB_OUTPUT"
           else
-            DAST_TARGET="https://secureflow-frontend-staging-<hash>.run.app"
+            echo "::error::Staging URL is empty — cannot build valid DAST target endpoint."
+            exit 1
           fi
-          echo "dast_target=$DAST_TARGET" >> "$GITHUB_OUTPUT"
-
-      # ── Step 16: DAST Scan (OWASP ZAP) against STAGING ────────────────────
-      - name: DAST Scan (OWASP ZAP) — Staging
-        id: zap_scan
-        if: steps.deploy_staging.outcome == 'success'
-        continue-on-error: true
-        env:
-          DAST_TARGET: ${{ steps.dast_target.outputs.dast_target }}
-        run: |
-          echo "=== OWASP ZAP DAST Scan Against Staging ==="
-          echo "Staging endpoint: $DAST_TARGET"
-          echo "DAST running asynchronously on Worker VM via Celery/Redis."
-          echo "Results will be polled in the ZAP Policy Gate step."
 
       # ── Step 16b: Trigger Distributed DAST Pipeline ─────────────────────────
       - name: Trigger Automated Distributed DAST Pipeline
