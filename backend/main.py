@@ -373,7 +373,7 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         scan.target_url = resolved_target
         if req_deploy_url:
             scan.deployment_url = req_deploy_url
-        if scan.dast_status != "running":
+        if scan.dast_status not in ("running", "completed"):
             scan.dast_status = "not_queued"
     else:
         logger.info(f"[start_scan_run] Creating NEW scan (run_id={run_id}, repo={repo_name})")
