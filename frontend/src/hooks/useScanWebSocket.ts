@@ -16,7 +16,7 @@ export function useScanWebSocket() {
   const healthTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const fallbackActive = useRef(false);
   const attemptRef = useRef(0);
-  const { setWsConnected, addNotification } = useUIStore();
+  const { setWsConnected, setLastApiResponse, addNotification } = useUIStore();
 
   useEffect(() => {
     let mounted = true;
@@ -36,7 +36,10 @@ export function useScanWebSocket() {
         try {
           const res = await fetch(`${API_BASE}/`, { signal: ac.signal });
           clearTimeout(tid);
-          if (mounted) setWsConnected(res.ok);
+          if (mounted) {
+            setWsConnected(res.ok);
+            if (res.ok) setLastApiResponse(Date.now());
+          }
         } catch {
           clearTimeout(tid);
           if (mounted) setWsConnected(false);
@@ -76,6 +79,7 @@ export function useScanWebSocket() {
           attemptRef.current = 0;
           stopHealthPoll();
           setWsConnected(true);
+          setLastApiResponse(Date.now());
         };
 
         ws.onmessage = (event) => {
@@ -112,7 +116,7 @@ export function useScanWebSocket() {
 
         ws.onclose = () => {
           if (!mounted) return;
-          setWsConnected(false);
+          if (!fallbackActive.current) setWsConnected(false);
           wsRef.current = null;
           if (wsConnectTimeout) clearTimeout(wsConnectTimeout);
           startHealthPoll();
@@ -122,11 +126,11 @@ export function useScanWebSocket() {
         };
 
         ws.onerror = () => {
-          setWsConnected(false);
+          if (!fallbackActive.current) setWsConnected(false);
           startHealthPoll();
         };
       } catch {
-        setWsConnected(false);
+        if (!fallbackActive.current) setWsConnected(false);
         startHealthPoll();
         const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
         attemptRef.current++;

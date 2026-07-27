@@ -11,12 +11,13 @@ import { useUIStore } from '../stores/uiStore';
  */
 
 export function useScans(limit = 200) {
-  const { setWsConnected } = useUIStore();
+  const { setWsConnected, setLastApiResponse } = useUIStore();
   return useQuery({
     queryKey: queryKeys.scans,
     queryFn: async () => {
       const data = await api.getScans(limit);
       setWsConnected(true);
+      setLastApiResponse(Date.now());
       return data;
     },
     select: (data) => data.scans,
