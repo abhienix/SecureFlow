@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useScans, useFindings } from "../../hooks/useApi";
+import { useUIStore } from "../../stores/uiStore";
 import {
   ShieldCheck, GitPullRequest, ShieldAlert, FileText,
   Settings, Sun, Moon, Monitor, PanelLeftClose, PanelLeft, Radar
@@ -29,6 +30,7 @@ const THEME_ICONS = { dark: Moon, light: Sun, system: Monitor };
 
 export default function Sidebar({ C }) {
   const { mode, cycleTheme } = useTheme();
+  const { mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
 
@@ -42,14 +44,29 @@ export default function Sidebar({ C }) {
   const sidebarWidth = collapsed ? 64 : 240;
 
   return (
-    <aside style={{
-      width: sidebarWidth, minWidth: sidebarWidth,
-      background: C.bgSurface, borderRight: `1px solid ${C.border}`,
-      display: "flex", flexDirection: "column", height: "100vh",
-      padding: collapsed ? "16px 8px" : "16px 12px", gap: 16,
-      transition: "width 200ms ease, min-width 200ms ease, padding 200ms ease",
-      userSelect: "none", overflow: "hidden",
-    }}>
+    <>
+      {/* Mobile overlay backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          onClick={() => setMobileSidebarOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            zIndex: 999, display: 'none',
+          }}
+          className="mobile-hamburger"
+        />
+      )}
+      <aside
+        className={mobileSidebarOpen ? 'mobile-sidebar-open' : ''}
+        style={{
+          width: sidebarWidth, minWidth: sidebarWidth,
+          background: C.bgSurface, borderRight: `1px solid ${C.border}`,
+          display: "flex", flexDirection: "column", height: "100vh",
+          padding: collapsed ? "16px 8px" : "16px 12px", gap: 16,
+          transition: "width 200ms ease, min-width 200ms ease, padding 200ms ease, transform 200ms ease",
+          userSelect: "none", overflow: "hidden",
+        }}
+      >
       {/* Brand Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "0 4px" : "0 8px", minHeight: 40 }}>
         <div style={{
@@ -164,5 +181,6 @@ export default function Sidebar({ C }) {
         </button>
       </div>
     </aside>
+    </>
   );
 }

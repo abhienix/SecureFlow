@@ -10,7 +10,6 @@ import { Button } from '../ui/Button';
 import { Skeleton } from '../ui/Skeleton';
 import { useScans } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
-import WhyBlockedModal from '../modals/WhyBlockedModal';
 
 export interface PipelineStage {
   id: string;
@@ -1257,7 +1256,7 @@ export default function PipelinesWorkspace() {
         </Card>
       </div>
 
-      {/* WHY BLOCKED Side Drawer */}
+      {/* WHY BLOCKED Centered Modal */}
       {blockedPanelStage && (
         <div
           onClick={() => setBlockedPanelStage(null)}
@@ -1268,108 +1267,99 @@ export default function PipelinesWorkspace() {
             backdropFilter: 'blur(6px)',
             zIndex: 99999,
             display: 'flex',
-            justifyContent: 'flex-end',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
           }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            ref={(node) => {
-              if (node) node.scrollTop = 0;
-            }}
             style={{
-              width: 540,
-              maxWidth: '92vw',
-              height: '100vh',
+              width: '100%',
+              maxWidth: 580,
+              maxHeight: '85vh',
               background: 'var(--sf-bg-card)',
-              borderLeft: '1px solid var(--sf-border)',
-              boxShadow: '-10px 0 40px rgba(0,0,0,0.4)',
-              padding: '24px 28px',
+              border: '1px solid var(--sf-border)',
+              borderRadius: 16,
+              boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
               display: 'flex',
               flexDirection: 'column',
-              gap: 18,
-              overflowY: 'auto',
+              overflow: 'hidden',
             }}
           >
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--sf-border)', paddingBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--sf-border)', padding: '16px 22px', background: 'var(--sf-bg-surface)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <ShieldX size={22} color="#dc2626" />
-                <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ShieldX size={18} color="#dc2626" />
+                </div>
+                <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>
                   Why Blocked: {blockedPanelStage.name}
                 </h2>
               </div>
               <button
                 onClick={() => setBlockedPanelStage(null)}
-                style={{ background: 'none', border: 'none', color: 'var(--sf-ink-low)', cursor: 'pointer', padding: 4 }}
+                style={{ width: 32, height: 32, borderRadius: 8, background: 'transparent', border: 'none', color: 'var(--sf-ink-low)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Close"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
-            {/* Red Alert Banner */}
-            <div style={{ padding: 14, borderRadius: 10, background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: 13, fontWeight: 700, lineHeight: 1.4 }}>
-              {blockedPanelStage.blockReason || `Policy Engine enforced BLOCK gate on ${blockedPanelStage.name}.`}
-            </div>
+            {/* Scrollable content */}
+            <div style={{ overflowY: 'auto', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Red Alert Banner */}
+              <div style={{ padding: 14, borderRadius: 10, background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: 13, fontWeight: 700, lineHeight: 1.4 }}>
+                {blockedPanelStage.blockReason || `Policy Engine enforced BLOCK gate on ${blockedPanelStage.name}.`}
+              </div>
 
-            {/* Specific Findings Breakdown Card */}
-            {blockedPanelStage.id === 'trivy' && blockedPanelStage.details?.vulnerabilities && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--sf-bg-surface)', padding: 14, borderRadius: 10, border: '1px solid var(--sf-border)' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Container CVE Breakdown ({blockedPanelStage.details.vulnerabilities.length} Detected)
+              {/* Specific Findings Breakdown Card */}
+              {blockedPanelStage.id === 'trivy' && blockedPanelStage.details?.vulnerabilities && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--sf-bg-surface)', padding: 14, borderRadius: 10, border: '1px solid var(--sf-border)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Container CVE Breakdown ({blockedPanelStage.details.vulnerabilities.length} Detected)
+                  </div>
+                  {blockedPanelStage.details.vulnerabilities.slice(0, 6).map((v: any, idx: number) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '8px 10px', borderRadius: 6, background: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--sf-ink)', fontFamily: 'var(--sf-font-mono)' }}>
+                        {v.VulnerabilityID || 'CVE-2024-2189'} ({v.PkgName || 'openssl'})
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 4, background: '#fee2e2', color: '#b91c1c' }}>
+                        {v.Severity || 'CRITICAL'}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                {blockedPanelStage.details.vulnerabilities.slice(0, 4).map((v: any, idx: number) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '6px 8px', borderRadius: 6, background: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)' }}>
-                    <span style={{ fontWeight: 700, color: 'var(--sf-ink)', fontFamily: 'var(--sf-font-mono)' }}>
-                      {v.VulnerabilityID || 'CVE-2024-2189'} ({v.PkgName || 'openssl'})
-                    </span>
-                    <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 4, background: '#fee2e2', color: '#b91c1c' }}>
-                      {v.Severity || 'CRITICAL'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* AI Explanation & Fix Card */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>Security Impact & Context</div>
-              <div style={{ fontSize: 12, color: 'var(--sf-ink-mid)', lineHeight: 1.5, background: 'var(--sf-bg-surface)', padding: 14, borderRadius: 10, border: '1px solid var(--sf-border)' }}>
-                {blockedPanelStage.aiExplanation || 'Remediation required to satisfy policy.yaml rules.'}
-              </div>
-
-              {blockedPanelStage.suggestedFix && (
-                <>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d', marginTop: 4 }}>Recommended Remediation</div>
-                  <div style={{ fontSize: 12, color: '#15803d', lineHeight: 1.5, background: '#dcfce7', border: '1px solid #bbf7d0', padding: 14, borderRadius: 10 }}>
-                    {blockedPanelStage.suggestedFix}
-                  </div>
-                </>
               )}
+
+              {/* AI Explanation & Fix Card */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sf-ink)' }}>Security Impact & Context</div>
+                <div style={{ fontSize: 12, color: 'var(--sf-ink-mid)', lineHeight: 1.5, background: 'var(--sf-bg-surface)', padding: 14, borderRadius: 10, border: '1px solid var(--sf-border)' }}>
+                  {blockedPanelStage.aiExplanation || 'Remediation required to satisfy policy.yaml rules.'}
+                </div>
+
+                {blockedPanelStage.suggestedFix && (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d', marginTop: 4 }}>Recommended Remediation</div>
+                    <div style={{ fontSize: 12, color: '#15803d', lineHeight: 1.5, background: '#dcfce7', border: '1px solid #bbf7d0', padding: 14, borderRadius: 10 }}>
+                      {blockedPanelStage.suggestedFix}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
 
-            {/* Disabled Void AI Action */}
-            <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: '1px solid var(--sf-border)' }}>
+            {/* Footer */}
+            <div style={{ padding: '14px 22px', borderTop: '1px solid var(--sf-border)', background: 'var(--sf-bg-surface)', display: 'flex', justifyContent: 'flex-end' }}>
               <button
-                disabled
-                title="Void AI coming soon"
+                onClick={() => setBlockedPanelStage(null)}
                 style={{
-                  width: '100%',
-                  padding: '10px 16px',
-                  borderRadius: 8,
-                  background: 'var(--sf-accent)',
-                  color: '#ffffff',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  border: 'none',
-                  opacity: 0.5,
-                  cursor: 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
+                  padding: '8px 18px', borderRadius: 8, border: '1px solid var(--sf-border)',
+                  background: 'var(--sf-bg-card)', color: 'var(--sf-ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 }}
               >
-                <Zap size={16} /> Discuss in Void AI (Coming Soon)
+                Close
               </button>
             </div>
           </div>

@@ -14,6 +14,9 @@ interface UIState {
   isNotificationOpen: boolean;
   setNotificationOpen: (open: boolean) => void;
   toggleNotification: () => void;
+  mobileSidebarOpen: boolean;
+  setMobileSidebarOpen: (open: boolean) => void;
+  toggleMobileSidebar: () => void;
   persona: Persona;
   setPersona: (persona: Persona) => void;
   wsConnected: boolean;
@@ -48,6 +51,9 @@ export const useUIStore = create<UIState>((set) => ({
   isNotificationOpen: false,
   setNotificationOpen: (open) => set({ isNotificationOpen: open }),
   toggleNotification: () => set((state) => ({ isNotificationOpen: !state.isNotificationOpen })),
+  mobileSidebarOpen: false,
+  setMobileSidebarOpen: (open: boolean) => set({ mobileSidebarOpen: open }),
+  toggleMobileSidebar: () => set((state) => ({ mobileSidebarOpen: !state.mobileSidebarOpen })),
   persona: 'secops',
   setPersona: (persona) => set({ persona }),
   wsConnected: false,
