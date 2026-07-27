@@ -4,6 +4,7 @@ SecureFlow — DevSecOps Backend API & Telemetry Service
 FastAPI service handling scan ingestion, policy enforcement,
 distributed DAST task queueing via Celery/Redis, WebSocket streaming
 to dashboard, and AI remediation routing.
+# Verified Idempotent DAST Orchestration Engine
 """
 
 import os
