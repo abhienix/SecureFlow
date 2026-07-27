@@ -5,9 +5,12 @@ import {
 // Re-export from contexts for backward compatibility
 export { THEMES } from "./contexts/ThemeContext";
 
-export const BACKEND = "https://secureflow-backend-1083585992526.us-central1.run.app";
+const apiUrl = process.env.REACT_APP_API_URL || "https://secureflow-backend-1083585992526.us-central1.run.app";
+if (!apiUrl || !apiUrl.trim()) {
+  throw new Error("Configuration Error: REACT_APP_API_URL environment variable is required and must be explicitly set.");
+}
+export const BACKEND = apiUrl;
 
-// Phase 3b test: Frontend-only change for diff verification
 export const PIPELINE_STAGES = [
   { key: "checkout",        label: "Checkout",          Icon: GitBranch },
   { key: "code_scan",       label: "Code Scan",         Icon: Terminal  },
