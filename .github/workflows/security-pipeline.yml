@@ -237,33 +237,7 @@ jobs:
             exit 1
           fi
 
-      # ── Step 5: Notify code scan progress ──────────────────────────────────
-      - name: Notify Code Scan Progress
-        if: always() && steps.gitleaks_install.outcome == 'success' && steps.pipeline_start.outputs.run_id != ''
-        env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
-          BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
-          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
-          GITLEAKS_RESULT: ${{ steps.gitleaks.outcome }}
-          SEMGREP_RESULT: ${{ steps.semgrep.outcome }}
-        run: |
-          if [ "$GITLEAKS_RESULT" = "failure" ] || [ "$SEMGREP_RESULT" = "failure" ]; then
-            STEP_RESULT="BLOCK"
-            DETAIL="gitleaks=$GITLEAKS_RESULT semgrep=$SEMGREP_RESULT"
-          else
-            STEP_RESULT="PASS"
-            DETAIL="no secrets or bad patterns found"
-          fi
-
-          PAYLOAD=$(jq -n \
-            --arg result "$STEP_RESULT" \
-            --arg detail "$DETAIL" \
-            '{ pipeline_steps: { code_scan: { result: $result, detail: $detail } } }')
-
-          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
-            -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD" || true
+      # ── Step 5: (removed — policy gate & deploy steps report code_scan result) ─
 
       # ── Step 6: Block on code scan failure ──────────────────────────────────
       - name: Block on Code Scan Failure
@@ -606,7 +580,7 @@ jobs:
           steps.changes.outputs.image_changed == 'true' &&
           steps.docker_build.outcome == 'success' &&
           steps.docker_push.outcome == 'success'
-        uses: aquasecurity/trivy-action@master # nosemgrep
+        uses: aquasecurity/trivy-action@0.28.0 # nosemgrep
         with:
           image-ref: us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
           format: json

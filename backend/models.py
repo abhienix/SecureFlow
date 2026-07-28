@@ -1,7 +1,8 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Text
+from sqlalchemy import Column, Integer, String, DateTime, JSON, Text, Index
 from sqlalchemy.orm import declarative_base
+from sqlalchemy import text
 
 Base = declarative_base()
 
@@ -10,6 +11,17 @@ class ScanResult(Base):
     """One row per security scan. This is the table the dashboard reads from."""
 
     __tablename__ = "scan_results"
+
+    __table_args__ = (
+        # Partial unique index: prevents duplicate active rows for the same
+        # commit+repo+branch while allowing superseded rows to coexist.
+        Index(
+            "ix_scan_unique_active",
+            "commit_sha", "repo_name", "branch",
+            unique=True,
+            postgresql_where=text("status != 'superseded'"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     commit_sha = Column(String, index=True)
