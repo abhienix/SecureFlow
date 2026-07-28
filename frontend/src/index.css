@@ -42,6 +42,7 @@ body {
   --sf-bg-surface: #111827;
   --sf-bg-elevated: #1e293b;
   --sf-bg-hover: #1e293b;
+  --sf-table-row-hover: #1e293b;
 
   /* Borders */
   --sf-border: #1e293b;
@@ -150,6 +151,7 @@ body {
   --sf-bg-surface: #f8fafc;
   --sf-bg-elevated: #e2e8f0;
   --sf-bg-hover: #e2e8f0;
+  --sf-table-row-hover: #f1f5f9;
   --sf-border: #cbd5e1;
   --sf-border-mid: #94a3b8;
   --sf-border-strong: #64748b;
@@ -849,4 +851,29 @@ a:hover {
   padding: 2px 8px;
   border-radius: 10px;
   letter-spacing: 0.01em;
+}
+
+/* Page headings and descriptions */
+h1 {
+  font-size: 24px !important;
+  font-weight: 700 !important;
+  color: #0F172A !important;
+}
+[data-theme="dark"] h1, .dark h1 {
+  color: #F8FAFC !important;
+}
+h1 + p {
+  font-size: 14px !important;
+  color: #64748B !important;
+}
+
+/* Table Row Hover transitions */
+tr {
+  transition: background-color 150ms ease !important;
+}
+tr:hover {
+  background-color: var(--sf-table-row-hover, #F1F5F9);
+}
+.dark tr:hover {
+  background-color: #1e293b;
 }

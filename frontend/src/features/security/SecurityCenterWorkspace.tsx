@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, ShieldAlert, CheckCircle, ExternalLink, Filter, HelpCircle } from 'lucide-react';
+import { Shield, ShieldAlert, ShieldCheck, CheckCircle, ExternalLink, Filter, HelpCircle } from 'lucide-react';
 import DataTable, { Column } from '../../components/ui/DataTable';
 import Badge from '../../components/ui/Badge';
 import DrawerPanel from '../../components/ui/DrawerPanel';
@@ -14,10 +14,11 @@ export default function SecurityCenterWorkspace() {
   const [selectedFinding, setSelectedFinding] = useState<any | null>(null);
 
   // Fetch Findings
-  const { data: findingsData, isLoading: findingsLoading } = useQuery({
+  const { data: findingsData, isLoading: findingsLoading, isError: findingsError, refetch } = useQuery({
     queryKey: ['security', 'findings', filters],
     queryFn: async () => {
       const res = await client.get('/security/findings', { params: filters });
+      console.log('Security Findings Raw API Response:', res.data);
       return res.data;
     },
   });
@@ -234,7 +235,11 @@ export default function SecurityCenterWorkspace() {
         columns={columns}
         data={findings}
         isLoading={findingsLoading}
-        emptyMessage="No findings recorded matching the active filters."
+        isError={findingsError}
+        onRetry={refetch}
+        emptyIcon={ShieldCheck}
+        emptyHeading="No findings detected"
+        emptyBody="Security scan results will appear here after a pipeline scan completes."
       />
 
       {/* Details Side Drawer */}

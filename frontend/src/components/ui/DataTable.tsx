@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronUp, ChevronDown, Inbox } from 'lucide-react';
+import { ChevronUp, ChevronDown, Inbox, AlertTriangle } from 'lucide-react';
 import Button from './Button';
 
 export interface Column<T> {
@@ -16,8 +16,13 @@ interface DataTableProps<T> {
   data: T[];
   compact?: boolean;
   isLoading?: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
   emptyMessage?: string;
   emptyCTA?: React.ReactNode;
+  emptyIcon?: React.ComponentType<any>;
+  emptyHeading?: string;
+  emptyBody?: string;
   selectable?: boolean;
   onSelectionChange?: (selectedRows: T[]) => void;
   rowsPerPage?: number;
@@ -28,8 +33,13 @@ export function DataTable<T extends Record<string, any>>({
   data,
   compact = false,
   isLoading = false,
+  isError = false,
+  onRetry,
   emptyMessage = 'No records found',
   emptyCTA,
+  emptyIcon: EmptyIcon,
+  emptyHeading,
+  emptyBody,
   selectable = false,
   onSelectionChange,
   rowsPerPage: initialRowsPerPage = 10,
@@ -222,6 +232,37 @@ export function DataTable<T extends Record<string, any>>({
                   ))}
                 </tr>
               ))
+            ) : isError ? (
+              // Error state
+              <tr>
+                <td
+                  colSpan={columns.length + (selectable ? 1 : 0)}
+                  style={{
+                    padding: '48px 16px',
+                    textAlign: 'center',
+                    borderBottom: '1px solid var(--sf-border)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '12px',
+                    }}
+                  >
+                    <AlertTriangle size={40} color="#EF4444" style={{ marginBottom: '8px' }} />
+                    <h3 style={{ color: 'var(--sf-ink)', fontSize: '16px', fontWeight: 600, margin: 0 }}>
+                      Failed to load data
+                    </h3>
+                    {onRetry && (
+                      <Button variant="secondary" size="sm" onClick={onRetry} style={{ marginTop: '8px' }}>
+                        Retry
+                      </Button>
+                    )}
+                  </div>
+                </td>
+              </tr>
             ) : paginatedData.length === 0 ? (
               // Empty state
               <tr>
@@ -241,9 +282,16 @@ export function DataTable<T extends Record<string, any>>({
                       gap: '12px',
                     }}
                   >
-                    <Inbox size={48} style={{ color: 'var(--sf-text-muted)', opacity: 0.5 }} />
-                    <p style={{ color: 'var(--sf-text-secondary)', fontSize: '14px', margin: 0 }}>
-                      {emptyMessage}
+                    {EmptyIcon ? (
+                      <EmptyIcon size={64} style={{ color: 'var(--sf-ink-low)', opacity: 0.5 }} />
+                    ) : (
+                      <Inbox size={64} style={{ color: 'var(--sf-ink-low)', opacity: 0.5 }} />
+                    )}
+                    <h3 style={{ color: 'var(--sf-ink)', fontSize: '16px', fontWeight: 600, margin: 0 }}>
+                      {emptyHeading || 'No records found'}
+                    </h3>
+                    <p style={{ color: 'var(--sf-ink-low)', fontSize: '14px', margin: '0 0 8px 0', maxWidth: '400px' }}>
+                      {emptyBody || emptyMessage}
                     </p>
                     {emptyCTA}
                   </div>

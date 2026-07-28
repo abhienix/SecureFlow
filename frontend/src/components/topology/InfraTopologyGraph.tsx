@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { GitBranch, Play, Cloud, Database, Server, Activity, Monitor, LayoutTemplate } from 'lucide-react';
 
 export interface TopologyNode {
   id: string;
@@ -20,15 +21,17 @@ interface InfraTopologyGraphProps {
 export function InfraTopologyGraph({ nodes, onNodeClick }: InfraTopologyGraphProps) {
   const [hoveredNode, setHoveredNode] = useState<TopologyNode | null>(null);
 
-  // Position lookup map for SVG coordinates
+  // Position lookup map for SVG coordinates (800 x 320 viewbox)
   const positions: Record<string, { x: number; y: number }> = {
-    github: { x: 80, y: 150 },
-    actions: { x: 220, y: 150 },
-    cloud_run: { x: 380, y: 150 },
-    redis: { x: 540, y: 80 },
-    worker: { x: 700, y: 80 },
-    prometheus: { x: 380, y: 260 },
-    postgres: { x: 540, y: 220 },
+    github: { x: 80, y: 70 },
+    actions: { x: 250, y: 70 },
+    cloud_run: { x: 420, y: 70 },
+    redis: { x: 590, y: 70 },
+    worker: { x: 720, y: 150 },
+    fastapi: { x: 550, y: 160 },
+    postgres: { x: 380, y: 160 },
+    prometheus: { x: 210, y: 160 },
+    grafana: { x: 380, y: 250 },
   };
 
   const getStatusColor = (status: string) => {
@@ -44,34 +47,63 @@ export function InfraTopologyGraph({ nodes, onNodeClick }: InfraTopologyGraphPro
     }
   };
 
-  const getGlowId = (nodeId: string, status: string) => `glow-${nodeId}-${status}`;
-
-  const renderGlowFilter = (nodeId: string, status: string) => {
-    const color = getStatusColor(status);
-    return (
-      <filter id={getGlowId(nodeId, status)} x="-50%" y="-50%" width="200%" height="200%" key={nodeId}>
-        <feGaussianBlur stdDeviation="6" result="blur" />
-        <feComponentTransfer in="blur" result="glow">
-          <feFuncA type="linear" slope="0.6" />
-        </feComponentTransfer>
-        <feMerge>
-          <feMergeNode in="glow" />
-          <feMergeNode in="SourceGraphic" />
-        </feMerge>
-      </filter>
-    );
+  const getNodeIcon = (id: string) => {
+    switch (id) {
+      case 'github':
+        return GitBranch;
+      case 'actions':
+        return Play;
+      case 'cloud_run':
+        return Cloud;
+      case 'redis':
+        return Database;
+      case 'worker':
+        return Server;
+      case 'fastapi':
+        return Activity;
+      case 'prometheus':
+        return Monitor;
+      case 'grafana':
+        return LayoutTemplate;
+      case 'postgres':
+        return Database;
+      default:
+        return Server;
+    }
   };
 
-  // Edges mapping Section 4.7
+  // Edges mapping according to Part 3 spec
   const edges = [
     { source: 'github', target: 'actions', animated: true },
     { source: 'actions', target: 'cloud_run', animated: true },
     { source: 'cloud_run', target: 'redis', animated: true },
     { source: 'redis', target: 'worker', animated: true },
-    { source: 'cloud_run', target: 'postgres', animated: true },
-    { source: 'prometheus', target: 'cloud_run', animated: false },
-    { source: 'prometheus', target: 'postgres', animated: false },
+    { source: 'worker', target: 'fastapi', animated: true },
+    { source: 'fastapi', target: 'postgres', animated: true },
+    { source: 'prometheus', target: 'fastapi', animated: false },
+    { source: 'prometheus', target: 'grafana', animated: false },
+    { source: 'grafana', target: 'postgres', animated: false },
   ];
+
+  // Trigonometric calculation to stop arrow exactly at border of 140x56 node
+  const getLineCoordinates = (sourceId: string, targetId: string) => {
+    const start = positions[sourceId];
+    const end = positions[targetId];
+    if (!start || !end) return { x1: 0, y1: 0, x2: 0, y2: 0 };
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const angle = Math.atan2(dy, dx);
+
+    // Node half-dimensions: horizontal=70px, vertical=28px
+    // Offset targets slightly more (78px horizontal, 34px vertical) to leave gap for SVG arrow marker
+    const x1 = start.x + Math.cos(angle) * 70;
+    const y1 = start.y + Math.sin(angle) * 28;
+    const x2 = end.x - Math.cos(angle) * 78;
+    const y2 = end.y - Math.sin(angle) * 34;
+
+    return { x1, y1, x2, y2 };
+  };
 
   return (
     <div
@@ -106,34 +138,32 @@ export function InfraTopologyGraph({ nodes, onNodeClick }: InfraTopologyGraphPro
           style={{ overflow: 'visible', background: 'transparent' }}
         >
           <defs>
-            {nodes.map((node) => renderGlowFilter(node.id, node.status))}
             {/* SVG marker for connection arrows */}
             <marker
               id="arrow"
               viewBox="0 0 10 10"
-              refX="28"
+              refX="6"
               refY="5"
               markerWidth="6"
               markerHeight="6"
               orient="auto-start-reverse"
             >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--sf-border)" />
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="var(--sf-border)" />
             </marker>
           </defs>
 
-          {/* Render Connections */}
+          {/* Render Connections behind nodes */}
           {edges.map((edge, idx) => {
-            const start = positions[edge.source];
-            const end = positions[edge.target];
-            if (!start || !end) return null;
+            const coords = getLineCoordinates(edge.source, edge.target);
+            if (coords.x1 === 0) return null;
 
             return (
               <line
                 key={idx}
-                x1={start.x}
-                y1={start.y}
-                x2={end.x}
-                y2={end.y}
+                x1={coords.x1}
+                y1={coords.y1}
+                x2={coords.x2}
+                y2={coords.y2}
                 stroke={edge.animated ? 'var(--sf-accent)' : 'var(--sf-border)'}
                 strokeWidth={2}
                 strokeDasharray={edge.animated ? '5,5' : 'none'}
@@ -153,56 +183,56 @@ export function InfraTopologyGraph({ nodes, onNodeClick }: InfraTopologyGraphPro
             const isHovered = hoveredNode?.id === node.id;
             const nodeColor = getStatusColor(node.status);
             const isDown = node.status === 'down';
+            const Icon = getNodeIcon(node.id);
 
             return (
-              <g
-                key={node.id}
-                onClick={() => onNodeClick?.(node)}
-                onMouseEnter={() => setContextHover(node)}
-                onMouseLeave={() => setContextHover(null)}
-                style={{ cursor: 'pointer' }}
-              >
-                {/* Status Indicator Glow */}
-                <circle
-                  cx={pos.x}
-                  cy={pos.y}
-                  r={isHovered ? 26 : 22}
-                  fill="var(--sf-bg-surface)"
-                  stroke={nodeColor}
-                  strokeWidth={2}
-                  style={{
-                    filter: `url(#${getGlowId(node.id, node.status)})`,
-                    transition: 'all 200ms ease',
-                    animation: isDown ? 'pulse-glow 2s ease-in-out infinite' : 'none',
-                  }}
-                />
-
-                {/* Node center symbol */}
-                <circle cx={pos.x} cy={pos.y} r={6} fill={nodeColor} />
-
-                {/* Node Label */}
-                <text
-                  x={pos.x}
-                  y={pos.y + 38}
-                  textAnchor="middle"
-                  fill="var(--sf-text-primary)"
-                  fontSize={12}
-                  fontWeight={600}
+              <g key={node.id}>
+                <foreignObject
+                  x={pos.x - 70}
+                  y={pos.y - 28}
+                  width="140"
+                  height="56"
+                  onMouseEnter={() => setHoveredNode(node)}
+                  onMouseLeave={() => setHoveredNode(null)}
+                  onClick={() => onNodeClick?.(node)}
+                  style={{ overflow: 'visible' }}
                 >
-                  {node.name}
-                </text>
-
-                {/* Node status label */}
-                <text
-                  x={pos.x}
-                  y={pos.y + 50}
-                  textAnchor="middle"
-                  fill="var(--sf-text-muted)"
-                  fontSize={10}
-                  fontWeight={500}
-                >
-                  {node.status.toUpperCase()}
-                </text>
+                  <div
+                    style={{
+                      width: '140px',
+                      height: '56px',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '0 12px',
+                      gap: '8px',
+                      backgroundColor: node.status === 'healthy' ? 'rgba(16, 185, 129, 0.06)' : 'var(--sf-bg-surface)',
+                      border: `2px solid ${nodeColor}`,
+                      boxShadow: isHovered ? '0 4px 12px rgba(79, 70, 229, 0.15)' : 'none',
+                      transition: 'all 200ms ease',
+                      animation: isDown ? 'pulse-border-red 1.5s infinite' : 'none',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <span style={{ color: nodeColor, display: 'flex', alignItems: 'center' }}>
+                      <Icon size={18} />
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color: 'var(--sf-text-primary)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {node.name}
+                    </span>
+                  </div>
+                </foreignObject>
               </g>
             );
           })}
@@ -214,7 +244,7 @@ export function InfraTopologyGraph({ nodes, onNodeClick }: InfraTopologyGraphPro
             style={{
               position: 'absolute',
               left: `${(positions[hoveredNode.id].x / 800) * 100}%`,
-              top: `${(positions[hoveredNode.id].y / 320) * 100 - 35}%`,
+              top: `${(positions[hoveredNode.id].y / 320) * 100 - 32}%`,
               transform: 'translate(-50%, -100%)',
               backgroundColor: 'var(--sf-bg-surface)',
               border: '1px solid var(--sf-border)',
@@ -223,19 +253,19 @@ export function InfraTopologyGraph({ nodes, onNodeClick }: InfraTopologyGraphPro
               boxShadow: 'var(--sf-shadow-lg)',
               zIndex: 10,
               pointerEvents: 'none',
-              minWidth: '150px',
+              minWidth: '160px',
               fontSize: '11px',
-              lineHeight: '1.5',
+              lineHeight: '1.6',
             }}
           >
             <div style={{ fontWeight: 700, color: 'var(--sf-text-primary)', marginBottom: '4px' }}>
               {hoveredNode.name}
             </div>
-            <div style={{ color: getStatusColor(hoveredNode.status), fontWeight: 600 }}>
-              Status: {hoveredNode.status.toUpperCase()}
+            <div style={{ color: getStatusColor(hoveredNode.status), fontWeight: 700, textTransform: 'uppercase', fontSize: '10px' }}>
+              Status: {hoveredNode.status}
             </div>
             {hoveredNode.metrics && (
-              <div style={{ marginTop: '6px', borderTop: '1px solid var(--sf-border)', paddingTop: '4px' }}>
+              <div style={{ marginTop: '6px', borderTop: '1px solid var(--sf-border)', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 {hoveredNode.metrics.cpu !== undefined && (
                   <div>CPU: {hoveredNode.metrics.cpu}%</div>
                 )}
@@ -257,12 +287,22 @@ export function InfraTopologyGraph({ nodes, onNodeClick }: InfraTopologyGraphPro
             stroke-dashoffset: -1000;
           }
         }
+        @keyframes pulse-border-red {
+          0% {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+            border-color: rgba(239, 68, 68, 0.8);
+          }
+          70% {
+            box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+            border-color: rgba(239, 68, 68, 1);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            border-color: rgba(239, 68, 68, 0.8);
+          }
+        }
       `}</style>
     </div>
   );
-
-  function setContextHover(node: TopologyNode | null) {
-    setHoveredNode(node);
-  }
 }
 export default InfraTopologyGraph;

@@ -8,7 +8,11 @@ export const copilotApi = {
   ) => {
     const BACKEND_URL =
       process.env.REACT_APP_API_URL ||
-      'http://localhost:8000';
+      (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+        ? 'http://localhost:8000'
+        : typeof window !== 'undefined'
+        ? window.location.origin.replace('frontend', 'backend')
+        : 'https://secureflow-backend-1083585992526.us-central1.run.app');
 
     fetch(`${BACKEND_URL}/api/v1/copilot/chat`, {
       method: 'POST',

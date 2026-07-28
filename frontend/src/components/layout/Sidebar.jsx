@@ -114,19 +114,19 @@ export default function Sidebar({ C }) {
                 <NavLink
                   key={item.path}
                   to={item.path}
+                  className="sf-sidebar-nav-link"
                   style={{
-                    display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "space-between",
-                    padding: collapsed ? "10px" : "7px 10px", borderRadius: 8, textDecoration: "none",
-                    background: isActive ? C.accentSoft : "transparent",
-                    color: isActive ? C.ink : C.inkMid,
-                    fontSize: 13, fontWeight: isActive ? 600 : 500, cursor: "pointer",
-                    transition: "all 150ms ease", position: "relative",
-                    borderLeft: isActive ? `2px solid ${C.accent}` : "2px solid transparent",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: collapsed ? "center" : "space-between",
+                    padding: collapsed ? "10px" : "7px 10px",
+                    borderRadius: 8,
+                    position: "relative",
                   }}
                   title={collapsed ? item.label : undefined}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Icon size={16} color={isActive ? C.accent : C.inkLow} />
+                    <Icon size={16} color={isActive ? "#4F46E5" : C.inkLow} />
                     {!collapsed && <span>{item.label}</span>}
                   </div>
 
@@ -159,6 +159,31 @@ export default function Sidebar({ C }) {
           </div>
         ))}
       </nav>
+
+      <style>{`
+        .sf-sidebar-nav-link {
+          display: flex;
+          align-items: center;
+          text-decoration: none;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: background-color 100ms ease, color 100ms ease;
+          border-left: 4px solid transparent;
+          color: ${C.inkMid};
+          background-color: transparent;
+        }
+        .sf-sidebar-nav-link:hover {
+          background-color: #F8FAFC;
+          color: ${C.ink};
+        }
+        .sf-sidebar-nav-link.active {
+          background-color: #EEF2FF !important;
+          color: #4F46E5 !important;
+          border-left: 4px solid #4F46E5 !important;
+          font-weight: 700;
+        }
+      `}</style>
 
       {/* Bottom Controls */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>

@@ -2619,10 +2619,12 @@ async def get_v1_topology(db: AsyncSession = Depends(get_db)):
       "nodes": [
         {"id": "github", "name": "GitHub Repository", "status": "healthy", "type": "github", "metrics": {"cpu": 0, "memory": 0, "latency": 0}},
         {"id": "actions", "name": "GitHub Actions CI", "status": "healthy", "type": "ci", "metrics": {"cpu": 0, "memory": 0, "latency": 0}},
-        {"id": "cloud_run", "name": "Cloud Run (Staging & Prod)", "status": "healthy", "type": "compute", "metrics": {"cpu": 42, "memory": 68, "latency": 15}},
-        {"id": "redis", "name": "Celery Redis Broker", "status": "healthy", "type": "broker", "metrics": {"cpu": 12, "memory": 18, "latency": 1}},
-        {"id": "worker", "name": "Celery DAST Worker VM", "status": "healthy", "type": "worker", "metrics": {"cpu": 25, "memory": 48, "latency": 5}},
+        {"id": "cloud_run", "name": "Cloud Run Instance", "status": "healthy", "type": "compute", "metrics": {"cpu": 32, "memory": 48, "latency": 12}},
+        {"id": "redis", "name": "Redis Broker", "status": "healthy", "type": "broker", "metrics": {"cpu": 12, "memory": 18, "latency": 1}},
+        {"id": "worker", "name": "Celery Worker", "status": "healthy", "type": "worker", "metrics": {"cpu": 25, "memory": 48, "latency": 5}},
+        {"id": "fastapi", "name": "FastAPI Backend", "status": "healthy", "type": "backend", "metrics": {"cpu": 15, "memory": 35, "latency": 15}},
         {"id": "prometheus", "name": "Prometheus Server", "status": "healthy", "type": "monitor", "metrics": {"cpu": 8, "memory": 32, "latency": 2}},
+        {"id": "grafana", "name": "Grafana Dashboards", "status": "healthy", "type": "dashboard", "metrics": {"cpu": 10, "memory": 40, "latency": 8}},
         {"id": "postgres", "name": "PostgreSQL DB", "status": "healthy", "type": "database", "metrics": {"cpu": 18, "memory": 55, "latency": 1}}
       ],
       "edges": [
@@ -2630,9 +2632,11 @@ async def get_v1_topology(db: AsyncSession = Depends(get_db)):
         {"source": "actions", "target": "cloud_run", "animated": true},
         {"source": "cloud_run", "target": "redis", "animated": true},
         {"source": "redis", "target": "worker", "animated": true},
-        {"source": "cloud_run", "target": "postgres", "animated": true},
-        {"source": "prometheus", "target": "cloud_run", "animated": false},
-        {"source": "prometheus", "target": "postgres", "animated": false}
+        {"source": "worker", "target": "fastapi", "animated": true},
+        {"source": "fastapi", "target": "postgres", "animated": true},
+        {"source": "prometheus", "target": "fastapi", "animated": false},
+        {"source": "prometheus", "target": "grafana", "animated": false},
+        {"source": "grafana", "target": "postgres", "animated": false}
       ]
     }
 
@@ -2697,6 +2701,12 @@ async def get_v1_notifications(db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Notification).order_by(Notification.created_at.desc()).limit(100))
     notifications = res.scalars().all()
     return notifications
+
+@v1_router.get("/events")
+async def get_v1_events(db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(Event).order_by(Event.created_at.desc()).limit(5))
+    events = res.scalars().all()
+    return events
 
 # 9. Copilot SSE Chat
 @v1_router.post("/copilot/chat")
