@@ -1,38 +1,47 @@
 import React from 'react';
-import { cn } from '../../lib/cn';
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
-type Size = 'sm' | 'md' | 'lg';
-
-export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: Variant;
-  size?: Size;
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  size?: 'sm' | 'md' | 'lg';
+  children: React.ReactNode;
 }
 
-const variantClass: Record<Variant, string> = {
-  primary: 'sf-v2-btn--primary',
-  secondary: 'sf-v2-btn--secondary',
-  ghost: 'sf-v2-btn--ghost',
-  danger: 'sf-v2-btn--danger',
-};
+export function Button({ variant = 'primary', size = 'md', children, className = '', ...props }: ButtonProps) {
+  const getVariantClass = () => {
+    switch (variant) {
+      case 'primary':
+        return 'sf-v2-btn--primary';
+      case 'secondary':
+        return 'sf-v2-btn--secondary';
+      case 'ghost':
+        return 'sf-v2-btn--ghost';
+      case 'danger':
+        return 'sf-v2-btn--danger';
+      default:
+        return '';
+    }
+  };
 
-const sizeClass: Record<Size, string> = {
-  sm: 'sf-v2-btn--sm',
-  md: 'sf-v2-btn--md',
-  lg: 'sf-v2-btn--lg',
-};
+  const getSizeClass = () => {
+    switch (size) {
+      case 'sm':
+        return 'sf-v2-btn--sm';
+      case 'md':
+        return 'sf-v2-btn--md';
+      case 'lg':
+        return 'sf-v2-btn--lg';
+      default:
+        return '';
+    }
+  };
 
-export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', className, children, ...props }, ref) => (
+  return (
     <button
-      ref={ref}
-      className={cn('sf-v2-btn', variantClass[variant], sizeClass[size], className)}
+      className={`sf-v2-btn ${getVariantClass()} ${getSizeClass()} ${className}`}
       {...props}
     >
       {children}
     </button>
-  )
-);
-
-Button.displayName = 'Button';
+  );
+}
 export default Button;

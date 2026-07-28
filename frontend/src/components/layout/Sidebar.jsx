@@ -5,7 +5,7 @@ import { useScans, useFindings } from "../../hooks/useApi";
 import { useUIStore } from "../../stores/uiStore";
 import {
   ShieldCheck, GitPullRequest, ShieldAlert, FileText,
-  Settings, Sun, Moon, Monitor, PanelLeftClose, PanelLeft, Radar
+  Settings, Sun, Moon, Monitor, PanelLeftClose, PanelLeft, Radar, Bell
 } from "lucide-react";
 
 const NAV_SECTIONS = [
@@ -13,14 +13,18 @@ const NAV_SECTIONS = [
     section: "MAIN",
     items: [
       { path: "/overview", label: "Overview", Icon: Radar },
+      { path: "/repositories", label: "Repositories", Icon: GitPullRequest },
       { path: "/pipelines", label: "Pipelines", Icon: GitPullRequest, countKey: "scansCount" },
       { path: "/security-center", label: "Security Center", Icon: ShieldAlert, countKey: "openFindingsCount", color: "#ef4444" },
+      { path: "/deployments", label: "Deployments", Icon: ShieldCheck },
+      { path: "/observability", label: "Observability", Icon: Radar },
       { path: "/policies", label: "Policies", Icon: FileText },
     ],
   },
   {
     section: "SYSTEM",
     items: [
+      { path: "/notifications", label: "Notifications", Icon: Bell },
       { path: "/settings", label: "Settings", Icon: Settings },
     ],
   },

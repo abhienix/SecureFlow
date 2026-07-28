@@ -15,12 +15,18 @@ import CommandPalette from "./components/layout/CommandPalette";
 import NotificationDrawer from "./components/layout/NotificationDrawer";
 import GlobalAICopilot from "./components/GlobalAICopilot";
 
-// Primary Enterprise Workspaces (5 Workspaces)
-const OverviewWorkspace = lazy(() => import("./components/pages/OverviewWorkspace"));
-const PipelinesWorkspace = lazy(() => import("./components/pages/PipelinesWorkspace"));
-const SecurityCenterWorkspace = lazy(() => import("./components/pages/SecurityCenterWorkspace"));
-const PolicyWorkspace = lazy(() => import("./components/pages/PolicyWorkspace"));
-const SettingsWorkspace = lazy(() => import("./components/pages/SettingsWorkspace"));
+// Primary Enterprise Workspaces & Pages
+const OverviewWorkspace = lazy(() => import("./features/overview/OverviewWorkspace"));
+const RepositoriesPage = lazy(() => import("./features/repositories/RepositoriesPage"));
+const RepositoryDetailPage = lazy(() => import("./features/repositories/RepositoryDetailPage"));
+const PipelinesPage = lazy(() => import("./features/pipelines/PipelinesPage"));
+const PipelineDetailPage = lazy(() => import("./features/pipelines/PipelineDetailPage"));
+const SecurityCenterWorkspace = lazy(() => import("./features/security/SecurityCenterWorkspace"));
+const DeploymentsPage = lazy(() => import("./features/deployments/DeploymentsPage"));
+const ObservabilityPage = lazy(() => import("./features/observability/ObservabilityPage"));
+const PolicyWorkspace = lazy(() => import("./features/policies/PolicyWorkspace"));
+const SettingsWorkspace = lazy(() => import("./features/settings/SettingsWorkspace"));
+const NotificationsPage = lazy(() => import("./features/notifications/NotificationsPage"));
 
 function PageError({ C }) {
   return (
@@ -100,19 +106,22 @@ function AppShell() {
             <Routes>
               <Route path="/" element={<Navigate to="/overview" replace />} />
               <Route path="/overview" element={<ErrorBoundary><OverviewWorkspace /></ErrorBoundary>} />
-              <Route path="/pipelines" element={<ErrorBoundary><PipelinesWorkspace /></ErrorBoundary>} />
+              <Route path="/repositories" element={<ErrorBoundary><RepositoriesPage /></ErrorBoundary>} />
+              <Route path="/repositories/:id" element={<ErrorBoundary><RepositoryDetailPage /></ErrorBoundary>} />
+              <Route path="/pipelines" element={<ErrorBoundary><PipelinesPage /></ErrorBoundary>} />
+              <Route path="/pipelines/:id" element={<ErrorBoundary><PipelineDetailPage /></ErrorBoundary>} />
               <Route path="/security-center" element={<ErrorBoundary><SecurityCenterWorkspace /></ErrorBoundary>} />
+              <Route path="/deployments" element={<ErrorBoundary><DeploymentsPage /></ErrorBoundary>} />
+              <Route path="/observability" element={<ErrorBoundary><ObservabilityPage /></ErrorBoundary>} />
               <Route path="/policies" element={<ErrorBoundary><PolicyWorkspace /></ErrorBoundary>} />
               <Route path="/settings" element={<ErrorBoundary><SettingsWorkspace /></ErrorBoundary>} />
+              <Route path="/notifications" element={<ErrorBoundary><NotificationsPage /></ErrorBoundary>} />
 
               {/* Legacy Route Redirects */}
               <Route path="/mission-control" element={<Navigate to="/overview" replace />} />
               <Route path="/dashboard" element={<Navigate to="/overview" replace />} />
               <Route path="/findings" element={<Navigate to="/security-center" replace />} />
               <Route path="/reports" element={<Navigate to="/security-center" replace />} />
-              <Route path="/deployments" element={<Navigate to="/pipelines" replace />} />
-              <Route path="/repositories" element={<Navigate to="/overview" replace />} />
-              <Route path="/observability" element={<Navigate to="/overview" replace />} />
               <Route path="/copilot" element={<Navigate to="/overview" replace />} />
               <Route path="*" element={<PageError C={C} />} />
             </Routes>

@@ -1,53 +1,65 @@
 import React from 'react';
-import { cn } from '../../lib/cn';
 
-type BadgeVariant =
-  | 'critical'
-  | 'high'
-  | 'medium'
-  | 'low'
-  | 'passed'
-  | 'blocked'
-  | 'failed'
-  | 'running'
-  | 'info'
-  | 'neutral';
-
-export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  variant?: BadgeVariant;
+interface BadgeProps {
+  variant?: 'success' | 'failed' | 'running' | 'warning' | 'queued' | 'cancelled' | 'neutral' | 'critical' | 'high' | 'medium' | 'low' | 'passed' | 'blocked';
+  children: React.ReactNode;
+  dot?: boolean;
 }
 
-const variantClass: Record<BadgeVariant, string> = {
-  critical: 'sf-v2-badge--critical',
-  high: 'sf-v2-badge--high',
-  medium: 'sf-v2-badge--medium',
-  low: 'sf-v2-badge--low',
-  passed: 'sf-v2-badge--passed',
-  blocked: 'sf-v2-badge--blocked',
-  failed: 'sf-v2-badge--critical',
-  running: 'sf-v2-badge--high',
-  info: 'sf-v2-badge--medium',
-  neutral: 'sf-v2-badge--neutral',
-};
+export function Badge({ variant = 'neutral', children, dot = false }: BadgeProps) {
+  const getBadgeClass = () => {
+    switch (variant) {
+      case 'critical':
+        return 'sf-v2-badge--critical';
+      case 'high':
+        return 'sf-v2-badge--high';
+      case 'medium':
+        return 'sf-v2-badge--medium';
+      case 'low':
+        return 'sf-v2-badge--low';
+      case 'success':
+      case 'passed':
+        return 'sf-v2-badge--passed';
+      case 'failed':
+      case 'blocked':
+        return 'sf-v2-badge--blocked';
+      default:
+        return 'sf-v2-badge--neutral';
+    }
+  };
 
-/** Maps a severity string from the API to a badge variant */
-export function severityToVariant(severity: string): BadgeVariant {
-  const s = (severity || '').toUpperCase();
-  if (s === 'CRITICAL') return 'critical';
-  if (s === 'HIGH') return 'high';
-  if (s === 'MEDIUM') return 'medium';
-  if (s === 'LOW') return 'low';
-  if (s === 'CLEAN' || s === 'ALLOW' || s === 'PASS' || s === 'PASSED') return 'passed';
-  if (s === 'BLOCK' || s === 'BLOCKED' || s === 'FAIL') return 'blocked';
-  return 'neutral';
-}
+  const getStyle = () => {
+    // Basic overrides in case CSS custom vars are not loaded
+    const style: React.CSSProperties = {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '4px',
+      padding: '3px 8px',
+      borderRadius: '6px',
+      fontSize: '11px',
+      fontWeight: 600,
+      letterSpacing: '0.2px',
+      textTransform: 'uppercase',
+    };
+    return style;
+  };
 
-export function Badge({ variant = 'neutral', className, children, ...props }: BadgeProps) {
   return (
-    <span className={cn('sf-v2-badge', variantClass[variant], className)} {...props}>
+    <span className={`sf-v2-badge ${getBadgeClass()}`} style={getStyle()}>
+      {dot && (
+        <span
+          style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            backgroundColor: 'currentColor',
+            display: 'inline-block',
+          }}
+        />
+      )}
+      <span className="sr-only">status: </span>
       {children}
     </span>
   );
 }
-
 export default Badge;

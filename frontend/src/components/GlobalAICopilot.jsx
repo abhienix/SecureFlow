@@ -14,86 +14,124 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
   const { activeVoidContext, setVoidContext } = useUIStore();
   const [messages, setMessages] = useState([
     {
-      id: 1,
+      id: "init",
       sender: "ai",
-      text: "Hello! I am **Void** — SecureFlow's Autonomous DevSecOps Core AI. I have complete real-time RAG context over your pipeline runs, policy.yaml rules, Gitleaks secrets, Semgrep SAST findings, Trivy container CVEs, and OWASP ZAP DAST probes. How can I assist you?",
+      content: "Hello! I am **Void** — SecureFlow's Autonomous DevSecOps Core AI. I have complete real-time RAG context over your pipeline runs, policy.yaml rules, Gitleaks secrets, Semgrep SAST findings, Trivy container CVEs, and OWASP ZAP DAST probes. How can I assist you?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
-
+ 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-
+ 
   useEffect(() => {
     if (isOpen) scrollToBottom();
   }, [messages, isOpen]);
-
+ 
   if (!isOpen) return null;
-
+ 
   const currentRouteName = location.pathname.split("/")[1] || "overview";
   const activeScan = scans[0] || {};
-
+ 
   const handleSend = async (customPrompt) => {
     const queryText = customPrompt || input;
     if (!queryText.trim() || isLoading) return;
-
+ 
     const userMsg = {
-      id: Date.now(),
+      id: Date.now().toString(),
       sender: "user",
-      text: queryText,
+      content: queryText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
-
+ 
     setMessages(prev => [...prev, userMsg]);
     if (!customPrompt) setInput("");
     setIsLoading(true);
-
-    try {
-      const payloadContext = {
-        route: location.pathname,
-        repo: activeScan.repo_name || "abhienix/SecureFlow",
-        commit: activeScan.commit_sha || "HEAD",
-        active_findings_count: findings.length,
-        ...(activeVoidContext || {}),
-      };
-
-      const data = await api.getCopilotAnswer(queryText, activeScan.id, payloadContext);
-      const aiReply = data.answer;
-
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          sender: "ai",
-          text: aiReply,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        }
-      ]);
-    } catch (e) {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          sender: "ai",
-          text: "⚠️ **Copilot Connection Warning**: Failed to reach local LLM reasoning service. Ensure backend API is operational.",
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        }
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
+ 
+    const payloadContext = {
+      route: location.pathname,
+      repo: activeScan.repo_name || "abhienix/SecureFlow",
+      commit: activeScan.commit_sha || "HEAD",
+      active_findings_count: findings.length,
+      ...(activeVoidContext || {}),
+    };
+ 
+    const aiMessageId = (Date.now() + 1).toString();
+    setMessages(prev => [
+      ...prev,
+      {
+        id: aiMessageId,
+        sender: "ai",
+        content: "",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }
+    ]);
+ 
+    let fullAnswer = "";
+    
+    // Import API client dynamically to avoid circular dependencies or loading errors
+    import("../api/copilot")
+      .then(({ copilotApi }) => {
+        copilotApi.streamChat(
+          [
+            ...messages.map((m) => ({
+              role: m.sender === "user" ? "user" : "assistant",
+              content: m.content || m.text || "",
+            })),
+            { role: "user", content: queryText },
+          ],
+          payloadContext,
+          (token) => {
+            setIsLoading(false);
+            fullAnswer += token;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === aiMessageId ? { ...m, content: fullAnswer } : m))
+            );
+          },
+          () => {
+            setIsLoading(false);
+          },
+          (err) => {
+            setIsLoading(false);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === aiMessageId
+                  ? {
+                      ...m,
+                      content:
+                        "⚠️ **Copilot Connection Warning**: Failed to reach local LLM reasoning service. Ensure backend API is operational.",
+                    }
+                  : m
+              )
+            );
+          }
+        );
+      })
+      .catch(() => {
+        setIsLoading(false);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMessageId
+              ? {
+                  ...m,
+                  content: "⚠️ **Load Failure**: Failed to initialize copilot api client.",
+                }
+              : m
+          )
+        );
+      });
   };
-
+ 
   const QUICK_PROMPTS = [
     { label: "Root Cause Analysis", prompt: "Explain the root cause of recent pipeline failures and vulnerabilities." },
     { label: "Generate Remediation Patch", prompt: "Provide a secure code fix for open Semgrep and Gitleaks findings." },
     { label: "DAST Attack Graph", prompt: "Map the attack path identified by OWASP ZAP scanner." },
   ];
-
+ 
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9990, pointerEvents: "none"
@@ -106,7 +144,7 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
           backdropFilter: "blur(2px)", pointerEvents: "auto",
         }}
       />
-
+ 
       {/* Drawer */}
       <div style={{
         position: "absolute", top: 0, right: 0, bottom: 0, width: 500, maxWidth: "94vw",
@@ -117,7 +155,7 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
         {/* Header */}
         <div style={{
           padding: "16px 20px", borderBottom: `1px solid ${C.border}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          display: "flex", alignItems: "center", justifyBehavior: "space-between", justifyContent: "space-between",
           background: C.bgSurface,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -131,7 +169,7 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
               </span>
             </div>
           </div>
-
+ 
           <button onClick={onClose} style={{
             background: "none", border: "none", color: C.inkLow, cursor: "pointer",
             padding: 4, borderRadius: 6, display: "flex", alignItems: "center",
@@ -139,11 +177,11 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
             <X size={18} />
           </button>
         </div>
-
+ 
         {/* Active Context Banner */}
         <div style={{
           padding: "8px 16px", background: C.accentSoft, borderBottom: `1px solid ${C.accentBorder}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 11, color: C.accent, fontWeight: 600
+          display: "flex", alignItems: "center", justifyBehavior: "space-between", justifyContent: "space-between", gap: 10, fontSize: 11, color: C.accent, fontWeight: 600
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             <Terminal size={13} />
@@ -162,7 +200,7 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
             </button>
           )}
         </div>
-
+ 
         {/* Messages Body */}
         <div style={{ flex: 1, padding: 16, overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column", gap: 14 }}>
           {messages.map(msg => (
@@ -174,12 +212,12 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
               {msg.sender === "ai" && (
                 <div style={{
                   width: 28, height: 28, borderRadius: 6, background: C.accentSoft,
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0
+                  display: "flex", alignItems: "center", justifyBehavior: "space-between", justifyContent: "center", flexShrink: 0
                 }}>
                   <Bot size={14} color={C.accent} />
                 </div>
               )}
-
+ 
               <div style={{
                 padding: "10px 14px", borderRadius: 12, fontSize: 13, lineHeight: 1.5,
                 background: msg.sender === "user" ? C.accent : C.bgSurface,
@@ -188,7 +226,7 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
                 minWidth: 0, maxWidth: "100%", wordBreak: "break-word", overflowWrap: "anywhere",
                 boxSizing: "border-box"
               }}>
-                {msg.sender === "user" ? msg.text : <FormattedCopilotMessage text={msg.text} C={C} />}
+                {msg.sender === "user" ? (msg.content || msg.text) : <FormattedCopilotMessage text={msg.content || msg.text} C={C} />}
                 <div style={{
                   fontSize: 10, opacity: 0.6, marginTop: 4, textAlign: "right"
                 }}>
