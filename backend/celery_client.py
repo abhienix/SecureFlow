@@ -172,7 +172,6 @@ def publish_dast_task(
             "success": True,
             "task_id": task_id,
             "error": None,
-            "simulated": False
         }
 
     except Exception as e:

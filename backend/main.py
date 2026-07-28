@@ -34,6 +34,7 @@ from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from models import Base, ScanResult
+from redis_pubsub import RedisPubSubManager, REDIS_BROADCAST_CHANNEL
 from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label, load_policy_file
 from ai_analysis import analyze_scan, analyze_code_scan_failure, answer_copilot_question
 from celery_client import (
@@ -104,6 +105,9 @@ AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_
 class ConnectionManager:
     def __init__(self):
         self.active: Set[WebSocket] = set()
+        # Dedup set prevents double-broadcast when Redis echoes our own message
+        self._seen_ids: set = set()
+        self._seen_lock = asyncio.Lock()
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
@@ -114,7 +118,18 @@ class ConnectionManager:
         self.active.discard(ws)
 
     async def broadcast(self, data: dict):
-        """Broadcast to all connected clients, remove dead sockets"""
+        """Broadcast locally + cross-instance via Redis pub/sub."""
+        import uuid
+        msg_id = data.get("_msg_id") or uuid.uuid4().hex
+        data["_msg_id"] = msg_id
+
+        await self._broadcast_local(data, msg_id)
+
+        if redis_pubsub_manager._connected:
+            await redis_pubsub_manager.publish(json.dumps(data))
+
+    async def _broadcast_local(self, data: dict, msg_id: str | None = None):
+        """Send to local clients only (no Redis publish)."""
         message = json.dumps(data)
         dead = set()
         for ws in self.active:
@@ -126,8 +141,26 @@ class ConnectionManager:
         if dead:
             logger.info(f"[ws] BROADCAST instance={_INSTANCE_ID} sent={len(dead) + len(self.active)} dead={len(dead)} remaining={len(self.active)}")
 
+    async def on_redis_message(self, raw: str):
+        """Callback for Redis pub/sub messages — broadcast only to local clients."""
+        data = json.loads(raw)
+        msg_id = data.get("_msg_id")
+        if msg_id:
+            async with self._seen_lock:
+                if msg_id in self._seen_ids:
+                    return  # Already handled (our own publish echoed back)
+                self._seen_ids.add(msg_id)
+                if len(self._seen_ids) > 1000:
+                    self._seen_ids.clear()
+        await self._broadcast_local(data, msg_id)
+
 
 manager = ConnectionManager()
+
+# ── Redis pub/sub for cross-instance WebSocket broadcast ────────────────
+# Uses the same Redis URL as Celery broker. Falls back to single-instance
+# mode (in-memory only) when Redis is unavailable or redis-py is not installed.
+redis_pubsub_manager = RedisPubSubManager(REDIS_URL)
 
 # ── Instance identity for multi-instance diagnostics ─────────────────────
 # Cloud Run populates K_REVISION and K_SERVICE; hostname is a fallback.
@@ -145,14 +178,6 @@ logger.info(f"[instance] INSTANCE_ID={_INSTANCE_ID}")
 # ---------------------------------------------------------------------------
 
 from contextlib import asynccontextmanager
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Log startup configuration for Celery Broker URL and Database URL
-    b_url = get_broker_url()
-    masked_db = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
-    logger.info(f"[startup] CELERY_BROKER_URL={_mask_redis_url(b_url)} | QUEUE={DAST_QUEUE}")
-    logger.info(f"[startup] DATABASE_URL=postgresql://*****@{masked_db}")
 
 async def _init_db_tables():
     async with engine.begin() as conn:
@@ -182,6 +207,35 @@ async def _init_db_tables():
             except Exception as e:
                 logger.info(f"[startup migration] column already exists or notice: {e}")
 
+        # Detect duplicate active rows that would violate the upcoming
+        # partial unique index on (commit_sha, repo_name, branch).
+        # The PostgreSQL migration will fail if duplicates exist — the
+        # operator must clean them up first via manual SQL or a one-off
+        # migration job.
+        if not is_sqlite:
+            dup_sql = text("""
+                SELECT commit_sha, repo_name, branch, COUNT(*) AS cnt
+                FROM scan_results
+                WHERE status != 'superseded'
+                GROUP BY commit_sha, repo_name, branch
+                HAVING COUNT(*) > 1
+                LIMIT 20
+            """)
+            try:
+                dup_result = await conn.execute(dup_sql)
+                dup_rows = dup_result.fetchall()
+                if dup_rows:
+                    logger.warning(
+                        "[startup migration] %d rows have duplicate active (commit_sha, repo_name, branch) "
+                        "combinations. The partial unique index will FAIL to apply in PostgreSQL. "
+                        "Run a one-time dedup migration to resolve before the next deploy. "
+                        "Sample rows: %s",
+                        len(dup_rows),
+                        [dict(r._mapping) for r in dup_rows[:5]],
+                    )
+            except Exception as e:
+                logger.info(f"[startup migration] duplicate check skipped: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -199,16 +253,22 @@ async def lifespan(app: FastAPI):
     except Exception as ex:
         logger.warning(f"[startup migration] notice during database init: {ex}")
 
+    # ── Redis pub/sub ────────────────────────────────────────────────────
+    await redis_pubsub_manager.connect()
+    redis_pubsub_manager.start_listener(manager.on_redis_message)
+
     watchdog_task = asyncio.create_task(stale_run_watchdog())
     yield
     watchdog_task.cancel()
+    await redis_pubsub_manager.disconnect()
 
 
 app = FastAPI(title="SecureFlow — AI-Powered DevSecOps & Distributed DAST Gateway", version="2.0.0", lifespan=lifespan)
 
+CORS_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ORIGIN_REGEX", r".*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r".*",
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -352,21 +412,33 @@ def health():
 # WebSocket endpoint
 # ---------------------------------------------------------------------------
 
+WEBSOCKET_PING_INTERVAL = int(os.getenv("WEBSOCKET_PING_INTERVAL", "30"))
+MAX_MISSED_PINGS = int(os.getenv("WS_MAX_MISSED_PINGS", "3"))
+
 @app.websocket("/ws/scans")
 async def websocket_scans(ws: WebSocket):
     await manager.connect(ws)
+    missed_pongs = 0
     try:
         while True:
             try:
-                await asyncio.wait_for(ws.receive_text(), timeout=30.0)
+                await asyncio.wait_for(ws.receive_text(), timeout=WEBSOCKET_PING_INTERVAL)
+                missed_pongs = 0
             except asyncio.TimeoutError:
+                if missed_pongs >= MAX_MISSED_PINGS:
+                    logger.info(
+                        f"[ws] DISCONNECT (missed {MAX_MISSED_PINGS} pongs) instance={_INSTANCE_ID}"
+                    )
+                    break
+                missed_pongs += 1
                 await ws.send_text(json.dumps({"type": "ping"}))
     except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
         manager.disconnect(ws)
         logger.info(f"[ws] DISCONNECT instance={_INSTANCE_ID}")
-    except Exception:
-        manager.disconnect(ws)
-        logger.info(f"[ws] DISCONNECT (error) instance={_INSTANCE_ID}")
 
 
 # ---------------------------------------------------------------------------
@@ -505,38 +577,19 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         pub_res = await asyncio.to_thread(publish_dast_task, scan.id, resolved_target, req_deploy_url)
         logger.info(
             f"[start_scan_run] DISPATCH RESULT — scan_id={scan.id}, "
-            f"success={pub_res.get('success')}, simulated={pub_res.get('simulated')}, "
+            f"success={pub_res.get('success')}, "
             f"task_id={pub_res.get('task_id')}, error={pub_res.get('error')}"
         )
         
         steps = dict(scan.pipeline_steps or {})
         if pub_res.get("success"):
-            if pub_res.get("simulated"):
-                scan.dast_status = "completed"
-                scan.queued_at = datetime.utcnow()
-                scan.dast_started_at = datetime.utcnow()
-                scan.dast_completed_at = datetime.utcnow()
-                scan.scan_duration = 3
-                scan.zap_findings = {
-                    "site": [{"@name": resolved_target}],
-                    "alerts": [
-                        {"alert": "X-Content-Type-Options Header Missing", "risk": "Low", "pluginId": "10021", "url": resolved_target},
-                        {"alert": "Strict-Transport-Security (HSTS) Header", "risk": "Medium", "pluginId": "10035", "url": resolved_target}
-                    ]
-                }
-                scan.zap_summary = {"high": 0, "medium": 1, "low": 1, "info": 2}
-                steps["zap"] = {
-                    "result": "PASS",
-                    "detail": f"OWASP ZAP DAST completed against {resolved_target} (0 critical findings)"
-                }
-            else:
-                scan.dast_status = "queued"
-                scan.queued_at = datetime.utcnow()
-                scan.queue_error = None
-                steps["zap"] = {
-                    "result": "QUEUED",
-                    "detail": f"DAST Task {pub_res.get('task_id')} queued for target {resolved_target}"
-                }
+            scan.dast_status = "queued"
+            scan.queued_at = datetime.utcnow()
+            scan.queue_error = None
+            steps["zap"] = {
+                "result": "QUEUED",
+                "detail": f"DAST Task {pub_res.get('task_id')} queued for target {resolved_target}"
+            }
         else:
             err_msg = pub_res.get("error") or "Failed to publish task to Redis"
             if pub_res.get("error") == "DAST_DISABLED":
