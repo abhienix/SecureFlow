@@ -591,6 +591,19 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
         if data["dast_status"] == "completed":
             from datetime import datetime as _dt
             scan.dast_completed_at = _dt.utcnow()
+            # Infer zap.result from dast_status transition when the worker
+            # sets completed without explicitly updating the zap step.
+            zap_current = (scan.pipeline_steps or {}).get("zap", {}).get("result", "")
+            if zap_current in ("PENDING", "QUEUED"):
+                zap_steps = dict(scan.pipeline_steps or {})
+                zap_steps["zap"] = {"result": "PASS", "detail": "DAST scan completed (inferred from dast_status)"}
+                scan.pipeline_steps = zap_steps
+        elif data["dast_status"] in ("failed", "queue_failed"):
+            zap_current = (scan.pipeline_steps or {}).get("zap", {}).get("result", "")
+            if zap_current in ("PENDING", "QUEUED"):
+                zap_steps = dict(scan.pipeline_steps or {})
+                zap_steps["zap"] = {"result": "FAILED", "detail": f"DAST scan failed (inferred from dast_status={data['dast_status']})"}
+                scan.pipeline_steps = zap_steps
 
     # Save ZAP findings telemetry and update merged findings dict
     if "zap_findings" in data:
