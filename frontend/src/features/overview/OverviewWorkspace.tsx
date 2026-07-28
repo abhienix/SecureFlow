@@ -63,13 +63,53 @@ export default function OverviewWorkspace() {
     },
   });
 
+  // Fetch Events for live feed
+  const { data: events } = useQuery<any[]>({
+    queryKey: ['events', 'feed'],
+    queryFn: async () => {
+      const res = await client.get('/events');
+      return res.data;
+    },
+    refetchInterval: 30000,
+  });
+
   const repos = repoData?.repositories || [];
   const runningPipelines = (pipelineData || []).filter((p: any) => p.status === 'running');
   
-  // Calculate security health score: start at 100, subtract penalty for findings
+  // Calculate security health score
   const criticalCount = secSummary?.critical || 0;
   const highCount = secSummary?.high || 0;
   const healthScore = Math.max(0, 100 - (criticalCount * 15 + highCount * 5));
+
+  // Custom Active Pipelines rendering
+  const renderActivePipelinesVal = () => {
+    const count = runningPipelines.length;
+    if (count === 0) {
+      return <span style={{ color: 'var(--sf-text-secondary)' }}>0</span>;
+    }
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#6366F1' }}>
+        {count}
+        <span className="overview-pulse-dot" style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#6366F1' }} />
+      </span>
+    );
+  };
+
+  // Custom Infrastructure State rendering
+  const renderInfraStateVal = () => {
+    const status = sysHealth?.status?.toLowerCase() || 'healthy';
+    if (status === 'healthy' || status === 'ok') {
+      return <span style={{ color: '#10B981', fontWeight: 800 }}>OK</span>;
+    } else if (status === 'degraded') {
+      return <span style={{ color: '#F59E0B', fontWeight: 800 }}>DEGRADED</span>;
+    } else {
+      return (
+        <span className="overview-pulse-text-red" style={{ color: '#EF4444', fontWeight: 800 }}>
+          DOWN
+        </span>
+      );
+    }
+  };
 
   const columns: Column<RepositoryData>[] = [
     {
@@ -171,6 +211,7 @@ export default function OverviewWorkspace() {
           unit="repos"
           icon={<GitBranch size={16} />}
           isLoading={reposLoading}
+          color="blue"
         />
         <MetricCard
           title="Security Health"
@@ -180,21 +221,117 @@ export default function OverviewWorkspace() {
           icon={<Shield size={16} />}
           isLoading={secLoading}
           isError={healthScore < 80}
+          color="green"
         />
         <MetricCard
           title="Active Pipelines"
-          value={runningPipelines.length}
+          value={renderActivePipelinesVal()}
           unit="running"
           icon={<Zap size={16} />}
           isLoading={pipeLoading}
+          color="indigo"
         />
         <MetricCard
           title="Infrastructure State"
-          value={sysHealth?.status === 'healthy' ? 'OK' : 'DEGRADED'}
+          value={renderInfraStateVal()}
           icon={<Cloud size={16} />}
           isError={sysHealth?.status === 'degraded'}
+          color="teal"
         />
       </div>
+
+      {/* Compact Horizontal Events Strip */}
+      {events && events.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            overflowX: 'auto',
+            padding: '12px 16px',
+            backgroundColor: 'var(--sf-bg-surface)',
+            border: '1px solid var(--sf-border)',
+            borderRadius: '8px',
+            width: '100%',
+            boxSizing: 'border-box',
+          }}
+        >
+          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--sf-text-secondary)', whiteSpace: 'nowrap', marginRight: '4px' }}>
+            Live Feed:
+          </div>
+          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', width: '100%' }}>
+            {events.map((event) => {
+              const isPipeline = event.type === 'pipeline';
+              const isSecurity = event.type === 'security';
+              const isDeploy = event.type === 'deploy' || event.type === 'deployment';
+
+              let bg = 'var(--sf-bg-elevated)';
+              let border = 'var(--sf-border)';
+              let text = 'var(--sf-text-primary)';
+              let Icon = Zap;
+
+              if (isPipeline) {
+                bg = '#E0E7FF';
+                text = '#3730A3';
+                border = 'rgba(79, 70, 229, 0.2)';
+                Icon = Zap;
+              } else if (isSecurity) {
+                bg = '#FEE2E2';
+                text = '#991B1B';
+                border = 'rgba(239, 68, 68, 0.2)';
+                Icon = Shield;
+              } else if (isDeploy) {
+                bg = '#D1FAE5';
+                text = '#065F46';
+                border = 'rgba(16, 185, 129, 0.2)';
+                Icon = Cloud;
+              }
+
+              const timeStr = new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+              return (
+                <div
+                  key={event.id}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    borderRadius: '9999px',
+                    backgroundColor: bg,
+                    color: text,
+                    border: `1px solid ${border}`,
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Icon size={12} />
+                  <span>{event.message}</span>
+                  <span style={{ opacity: 0.6, fontSize: '10px', fontWeight: 500 }}>({timeStr})</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        .overview-pulse-dot {
+          animation: pulse-dot-anim 1.5s infinite ease-in-out;
+        }
+        .overview-pulse-text-red {
+          animation: pulse-text-anim 1.5s infinite ease-in-out;
+        }
+        @keyframes pulse-dot-anim {
+          0%, 100% { transform: scale(0.9); opacity: 0.6; }
+          50% { transform: scale(1.2); opacity: 1; }
+        }
+        @keyframes pulse-text-anim {
+          0%, 100% { opacity: 0.7; }
+          50% { opacity: 1; }
+        }
+      `}</style>
 
       {/* Repositories List Panel */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

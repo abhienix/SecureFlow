@@ -4,7 +4,7 @@ import { TrendingUp, TrendingDown, ArrowRight } from 'lucide-react';
 
 interface MetricCardProps {
   title: string;
-  value: string | number;
+  value: React.ReactNode;
   unit?: string;
   change?: number; // percentage change
   sparklineData?: number[]; // last 60 points
@@ -12,6 +12,7 @@ interface MetricCardProps {
   isLoading?: boolean;
   isError?: boolean;
   onClick?: () => void;
+  color?: 'green' | 'indigo' | 'blue' | 'teal' | 'red' | 'amber' | string;
 }
 
 export function MetricCard({
@@ -24,12 +25,28 @@ export function MetricCard({
   isLoading = false,
   isError = false,
   onClick,
+  color,
 }: MetricCardProps) {
   // Format mock data if empty
   const chartData = React.useMemo(() => {
     const data = sparklineData.length > 0 ? sparklineData : Array.from({ length: 60 }, () => 20 + Math.random() * 40);
     return data.map((v, i) => ({ index: i, value: v }));
   }, [sparklineData]);
+
+  const resolvedColor = React.useMemo(() => {
+    if (color) {
+      switch (color) {
+        case 'green': return '#10B981';
+        case 'indigo': return '#6366F1';
+        case 'blue': return '#3B82F6';
+        case 'teal': return '#14B8A6';
+        case 'red': return '#EF4444';
+        case 'amber': return '#F59E0B';
+        default: return color;
+      }
+    }
+    return change !== undefined && change >= 0 ? '#10B981' : '#EF4444';
+  }, [color, change]);
 
   if (isLoading) {
     return (
@@ -46,6 +63,7 @@ export function MetricCard({
   }
 
   const isPositive = change !== undefined && change >= 0;
+  const gradientId = `gradient-${title.replace(/\s+/g, '-')}`;
 
   return (
     <div
@@ -143,15 +161,15 @@ export function MetricCard({
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 0, bottom: 0, left: 0, right: 0 }}>
             <defs>
-              <linearGradient id={`gradient-${title}`} x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop
                   offset="0%"
-                  stopColor={isPositive ? 'var(--sf-success)' : 'var(--sf-danger)'}
-                  stopOpacity={0.2}
+                  stopColor={resolvedColor}
+                  stopOpacity={0.1}
                 />
                 <stop
                   offset="100%"
-                  stopColor={isPositive ? 'var(--sf-success)' : 'var(--sf-danger)'}
+                  stopColor={resolvedColor}
                   stopOpacity={0}
                 />
               </linearGradient>
@@ -159,9 +177,12 @@ export function MetricCard({
             <Area
               type="monotone"
               dataKey="value"
-              stroke={isPositive ? 'var(--sf-success)' : 'var(--sf-danger)'}
+              stroke={resolvedColor}
               strokeWidth={1.5}
-              fill={`url(#gradient-${title})`}
+              fill={`url(#${gradientId})`}
+              isAnimationActive={true}
+              animationDuration={600}
+              animationEasing="ease-out"
             />
           </AreaChart>
         </ResponsiveContainer>

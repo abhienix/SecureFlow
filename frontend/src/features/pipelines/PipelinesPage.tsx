@@ -23,10 +23,11 @@ interface PipelineRun {
 export default function PipelinesPage() {
   const navigate = useNavigate();
 
-  const { data, isLoading } = useQuery<PipelineRun[]>({
+  const { data, isLoading, isError, refetch } = useQuery<PipelineRun[]>({
     queryKey: ['pipelines'],
     queryFn: async () => {
       const res = await client.get('/pipelines');
+      console.log('Pipelines Raw API Response:', res.data);
       return res.data;
     },
   });
@@ -117,7 +118,11 @@ export default function PipelinesPage() {
         columns={columns}
         data={data || []}
         isLoading={isLoading}
-        emptyMessage="No pipeline runs executed."
+        isError={isError}
+        onRetry={refetch}
+        emptyIcon={GitBranch}
+        emptyHeading="No pipeline runs yet"
+        emptyBody="Pipeline runs will appear here after your first GitHub Actions workflow."
       />
     </div>
   );

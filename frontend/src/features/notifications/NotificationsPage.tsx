@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, ShieldAlert, CheckCircle, Info, Calendar } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Bell, ShieldAlert, CheckCircle, Info, Calendar, AlertTriangle, ExternalLink } from 'lucide-react';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import { client } from '../../api/client';
@@ -20,10 +20,11 @@ export default function NotificationsPage() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<'all' | 'pipeline' | 'security' | 'deploy'>('all');
 
-  const { data: notifications, isLoading } = useQuery<Notification[]>({
+  const { data: notifications, isLoading, isError, refetch } = useQuery<Notification[]>({
     queryKey: ['notifications'],
     queryFn: async () => {
       const res = await client.get('/notifications');
+      console.log('Notifications Raw API Response:', res.data);
       return res.data;
     },
   });
@@ -92,7 +93,48 @@ export default function NotificationsPage() {
       {/* Notifications list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {isLoading ? (
-          <div className="skeleton" style={{ height: '200px', borderRadius: '12px' }} />
+          Array.from({ length: 5 }).map((_, idx) => (
+            <div
+              key={idx}
+              style={{
+                display: 'flex',
+                gap: '16px',
+                backgroundColor: 'var(--sf-bg-card)',
+                border: '1px solid var(--sf-border)',
+                borderRadius: '8px',
+                padding: '16px',
+              }}
+            >
+              <div className="skeleton" style={{ width: '20px', height: '20px', borderRadius: '50%' }} />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className="skeleton" style={{ width: '40%', height: '14px', borderRadius: '4px' }} />
+                <div className="skeleton" style={{ width: '80%', height: '12px', borderRadius: '4px' }} />
+                <div className="skeleton" style={{ width: '20%', height: '10px', borderRadius: '4px' }} />
+              </div>
+            </div>
+          ))
+        ) : isError ? (
+          <div
+            style={{
+              padding: '48px',
+              textAlign: 'center',
+              backgroundColor: 'var(--sf-bg-card)',
+              border: '1px solid var(--sf-border)',
+              borderRadius: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '12px',
+            }}
+          >
+            <AlertTriangle size={40} color="#EF4444" style={{ marginBottom: '8px' }} />
+            <h3 style={{ color: 'var(--sf-ink)', fontSize: '16px', fontWeight: 600, margin: 0 }}>
+              Failed to load data
+            </h3>
+            <Button variant="secondary" size="sm" onClick={() => refetch()} style={{ marginTop: '8px' }}>
+              Retry
+            </Button>
+          </div>
         ) : filtered.length === 0 ? (
           <div
             style={{
@@ -101,10 +143,19 @@ export default function NotificationsPage() {
               backgroundColor: 'var(--sf-bg-card)',
               border: '1px solid var(--sf-border)',
               borderRadius: '12px',
-              color: 'var(--sf-text-secondary)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '12px',
             }}
           >
-            No notifications found.
+            <Bell size={64} style={{ color: 'var(--sf-ink-low)', opacity: 0.5 }} />
+            <h3 style={{ color: 'var(--sf-ink)', fontSize: '16px', fontWeight: 600, margin: 0 }}>
+              All clear
+            </h3>
+            <p style={{ color: 'var(--sf-ink-low)', fontSize: '14px', margin: 0, maxWidth: '400px' }}>
+              System alerts, policy blocks, and pipeline events will appear here.
+            </p>
           </div>
         ) : (
           filtered.map((item) => (
@@ -124,21 +175,41 @@ export default function NotificationsPage() {
               <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
                 <div style={{ marginTop: '2px' }}>{getSeverityIcon(item.severity)}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--sf-text-primary)' }}>
-                    {item.title}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--sf-text-primary)' }}>
+                      {item.title}
+                    </span>
+                    <Badge variant={item.category === 'pipeline' ? 'running' : item.category === 'deploy' ? 'success' : item.category === 'security' ? 'failed' : 'neutral'}>
+                      {item.category}
+                    </Badge>
                   </div>
-                  <div style={{ fontSize: '13px', color: 'var(--sf-text-secondary)' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--sf-text-secondary)', marginTop: '2px' }}>
                     {item.message}
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--sf-text-muted)', display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                    <Calendar size={12} /> {new Date(item.created_at).toLocaleString()}
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '6px', fontSize: '11px', color: 'var(--sf-text-muted)' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Calendar size={12} /> {new Date(item.created_at).toLocaleString()}
+                    </span>
+                    {item.link && (
+                      <a
+                        href={item.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '2px',
+                          color: 'var(--sf-accent)',
+                          textDecoration: 'none',
+                          fontWeight: 600,
+                        }}
+                      >
+                        View Source <ExternalLink size={10} />
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
-
-              <Badge variant={item.category === 'pipeline' ? 'running' : item.category === 'deploy' ? 'success' : 'neutral'}>
-                {item.category}
-              </Badge>
             </div>
           ))
         )}

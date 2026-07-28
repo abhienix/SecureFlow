@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ShieldAlert, Server, Activity, Database, AlertCircle } from 'lucide-react';
+import { ShieldAlert, Server, Activity, Database, AlertCircle, X } from 'lucide-react';
 import { InfraTopologyGraph, TopologyNode } from '../../components/topology/InfraTopologyGraph';
 import MetricCard from '../../components/charts/MetricCard';
 import { DrawerPanel } from '../../components/ui/DrawerPanel';
@@ -8,6 +8,21 @@ import { client } from '../../api/client';
 
 export default function ObservabilityPage() {
   const [selectedNode, setSelectedNode] = useState<TopologyNode | null>(null);
+
+  // Local storage state for dismissed Alertmanager alerts
+  const [dismissedAlerts, setDismissedAlerts] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('sf_dismissed_alerts') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const dismissAlert = (name: string) => {
+    const next = [...dismissedAlerts, name];
+    setDismissedAlerts(next);
+    localStorage.setItem('sf_dismissed_alerts', JSON.stringify(next));
+  };
 
   // Fetch alerts
   const { data: alerts } = useQuery<any[]>({
@@ -76,10 +91,17 @@ export default function ObservabilityPage() {
     }
   };
 
-  const cpuVal = getMetricVal(cpuMetric, 32.5);
-  const memVal = getMetricVal(memMetric, 71.8);
-  const latencyVal = getMetricVal(latencyMetric, 15.4);
-  const requestRateVal = getMetricVal(requestRateMetric, 24.0);
+  const cpuVal = Number(getMetricVal(cpuMetric, 32.5));
+  const memVal = Number(getMetricVal(memMetric, 71.8));
+  const latencyVal = Number(getMetricVal(latencyMetric, 15.4));
+  const requestRateVal = Number(getMetricVal(requestRateMetric, 24.0));
+
+  // Determine Sparkline Colors by specs
+  const cpuColor = cpuVal > 80 ? 'red' : cpuVal >= 50 ? 'amber' : 'green';
+  const memColor = memVal > 85 ? 'red' : memVal >= 60 ? 'amber' : 'green';
+  const latencyColor = latencyVal > 500 ? 'red' : latencyVal >= 100 ? 'amber' : 'green';
+
+  const activeAlerts = (alerts || []).filter((alert) => !dismissedAlerts.includes(alert.name));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -93,13 +115,13 @@ export default function ObservabilityPage() {
       </div>
 
       {/* Active Alerts List */}
-      {alerts && alerts.length > 0 && (
+      {activeAlerts.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <h2 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sf-danger)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Active Alertmanager Warnings
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {alerts.map((alert, i) => (
+            {activeAlerts.map((alert, i) => (
               <div
                 key={i}
                 style={{
@@ -124,14 +146,30 @@ export default function ObservabilityPage() {
                   </div>
                 </div>
 
-                <a
-                  href={alert.runbook_link}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ color: 'var(--sf-accent)', fontWeight: 600, textDecoration: 'none' }}
-                >
-                  Runbook Link
-                </a>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <a
+                    href={alert.runbook_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: 'var(--sf-accent)', fontWeight: 600, textDecoration: 'none' }}
+                  >
+                    Runbook Link
+                  </a>
+                  <button
+                    onClick={() => dismissAlert(alert.name)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--sf-text-secondary)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '4px',
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -140,10 +178,10 @@ export default function ObservabilityPage() {
 
       {/* Sparkline Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-        <MetricCard title="Container CPU" value={cpuVal} unit="%" icon={<Server size={16} />} />
-        <MetricCard title="Container Memory" value={memVal} unit="%" icon={<Activity size={16} />} />
-        <MetricCard title="P99 HTTP Latency" value={latencyVal} unit="ms" icon={<Database size={16} />} />
-        <MetricCard title="HTTP Request Rate" value={requestRateVal} unit="req/sec" icon={<Server size={16} />} />
+        <MetricCard title="Container CPU" value={cpuVal} unit="%" icon={<Server size={16} />} color={cpuColor} />
+        <MetricCard title="Container Memory" value={memVal} unit="%" icon={<Activity size={16} />} color={memColor} />
+        <MetricCard title="P99 HTTP Latency" value={latencyVal} unit="ms" icon={<Database size={16} />} color={latencyColor} />
+        <MetricCard title="HTTP Request Rate" value={requestRateVal} unit="req/sec" icon={<Server size={16} />} color="blue" />
       </div>
 
       {/* Interactive Topology canvas */}

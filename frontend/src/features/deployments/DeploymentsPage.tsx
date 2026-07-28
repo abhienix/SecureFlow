@@ -23,10 +23,11 @@ export default function DeploymentsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
 
-  const { data, isLoading } = useQuery<{ deployments: Deployment[] }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ deployments: Deployment[] }>({
     queryKey: ['deployments'],
     queryFn: async () => {
       const res = await client.get('/deployments');
+      console.log('Deployments Raw API Response:', res.data);
       return res.data;
     },
   });
@@ -98,7 +99,7 @@ export default function DeploymentsPage() {
     {
       header: 'Status',
       accessor: (row) => (
-        <Badge variant={row.status === 'active' ? 'success' : row.status === 'blocked' ? 'failed' : 'neutral'}>
+        <Badge variant={row.status === 'active' ? 'success' : row.status === 'failed' ? 'failed' : 'neutral'}>
           {row.status}
         </Badge>
       ),
@@ -206,7 +207,11 @@ export default function DeploymentsPage() {
         columns={columns}
         data={data?.deployments || []}
         isLoading={isLoading}
-        emptyMessage="No historical deployments recorded."
+        isError={isError}
+        onRetry={refetch}
+        emptyIcon={Cloud}
+        emptyHeading="No deployments found"
+        emptyBody="Cloud Run revision history will appear once deployments are configured."
       />
     </div>
   );

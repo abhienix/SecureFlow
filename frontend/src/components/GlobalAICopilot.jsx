@@ -147,10 +147,10 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
  
       {/* Drawer */}
       <div style={{
-        position: "absolute", top: 0, right: 0, bottom: 0, width: 500, maxWidth: "94vw",
+        position: "absolute", top: 0, right: 0, bottom: 0, width: 320, maxWidth: "94vw",
         background: C.bgCard, borderLeft: `1px solid ${C.border}`,
         boxShadow: "-8px 0 32px rgba(0,0,0,0.3)", pointerEvents: "auto",
-        display: "flex", flexDirection: "column", animation: "slideIn 200ms ease-out",
+        display: "flex", flexDirection: "column", animation: "slideIn 300ms ease",
       }}>
         {/* Header */}
         <div style={{

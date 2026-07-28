@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, Plus, Edit2, Trash2, Check, X } from 'lucide-react';
+import { Shield, Plus, Edit2, Trash2, Check, X, FileCheck } from 'lucide-react';
 import DataTable, { Column } from '../../components/ui/DataTable';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -24,10 +24,11 @@ export default function PolicyWorkspace() {
   const [enforcement, setEnforcement] = useState('block');
 
   // Fetch Policies
-  const { data: policies, isLoading } = useQuery<PolicyRule[]>({
+  const { data: policies, isLoading, isError, refetch } = useQuery<PolicyRule[]>({
     queryKey: ['policies'],
     queryFn: async () => {
       const res = await client.get('/policies');
+      console.log('Policies Raw API Response:', res.data);
       return res.data;
     },
   });
@@ -233,7 +234,16 @@ export default function PolicyWorkspace() {
         columns={columns}
         data={policies || []}
         isLoading={isLoading}
-        emptyMessage="No policy rules configured."
+        isError={isError}
+        onRetry={refetch}
+        emptyIcon={FileCheck}
+        emptyHeading="No policy rules configured"
+        emptyBody="Create your first policy gate to enforce security and quality standards."
+        emptyCTA={
+          <Button onClick={() => setIsEditing(true)}>
+            <Plus size={16} style={{ marginRight: '6px' }} /> Create Policy Rule
+          </Button>
+        }
       />
     </div>
   );

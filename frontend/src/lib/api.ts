@@ -5,7 +5,11 @@
 
 const BACKEND_URL =
   process.env.REACT_APP_API_URL ||
-  'https://secureflow-backend-1083585992526.us-central1.run.app';
+  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:8000'
+    : typeof window !== 'undefined'
+    ? window.location.origin.replace('frontend', 'backend')
+    : 'https://secureflow-backend-1083585992526.us-central1.run.app');
 
 export const API_BASE = BACKEND_URL;
 export const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/scans';
