@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Text, Index
+from sqlalchemy import Column, Integer, String, DateTime, JSON, Text, Index, Float, Boolean
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import text
 
@@ -69,3 +69,140 @@ class ScanResult(Base):
     zap_report_path = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+import uuid
+
+def generate_uuid():
+    return str(uuid.uuid4())
+
+class Repository(Base):
+    __tablename__ = "repositories"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, index=True, unique=True)
+    repo_name = Column(String)
+    owner = Column(String)
+    default_branch = Column(String, default="main")
+    status = Column(String, default="active")
+    url = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    run_number = Column(Integer, index=True)
+    repo_id = Column(String, index=True)
+    commit_sha = Column(String, index=True)
+    commit_message = Column(Text, nullable=True)
+    branch = Column(String)
+    status = Column(String, default="pending")  # success, running, failed, cancelled, pending
+    action_taken = Column(String, default="ALLOW") # ALLOW or BLOCK
+    started_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    duration = Column(Integer, nullable=True)  # in seconds
+
+class PipelineStage(Base):
+    __tablename__ = "pipeline_stages"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    run_id = Column(String, index=True)
+    name = Column(String)
+    status = Column(String, default="pending")  # passed, running, failed, skipped, pending
+    duration = Column(String, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+
+class PipelineStep(Base):
+    __tablename__ = "pipeline_steps"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    stage_id = Column(String, index=True)
+    name = Column(String)
+    status = Column(String, default="pending")  # passed, running, failed, skipped, pending
+    duration = Column(String, nullable=True)
+    exit_code = Column(Integer, nullable=True)
+    logs = Column(Text, nullable=True)
+
+class SecurityFinding(Base):
+    __tablename__ = "security_findings"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    repo_id = Column(String, index=True)
+    pipeline_run_id = Column(String, index=True)
+    scanner = Column(String, index=True)  # trivy, semgrep, bandit, zap
+    category = Column(String)
+    title = Column(String)
+    severity = Column(String, index=True)  # CRITICAL, HIGH, MEDIUM, LOW, INFO
+    file = Column(String)
+    line = Column(Integer, default=1)
+    cve_cwe = Column(String, nullable=True)
+    owasp = Column(String, nullable=True)
+    status = Column(String, default="open")  # open, acknowledged, resolved
+    created_at = Column(DateTime, default=datetime.utcnow)
+    ai_explanation = Column(Text, nullable=True)
+    ai_fix = Column(Text, nullable=True)
+
+class ScanRun(Base):
+    __tablename__ = "scan_runs"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    pipeline_run_id = Column(String, index=True)
+    scanner = Column(String)
+    status = Column(String)
+    duration = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Deployment(Base):
+    __tablename__ = "deployments"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    revision_name = Column(String, index=True)
+    service = Column(String)
+    environment = Column(String, default="production")
+    url = Column(String, nullable=True)
+    status = Column(String, default="active")  # active, rolled_back, degraded
+    commit_sha = Column(String, index=True)
+    pipeline_run_id = Column(String, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    duration = Column(Integer, nullable=True)
+
+class Policy(Base):
+    __tablename__ = "policies"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String)
+    type = Column(String)
+    rule_summary = Column(String)
+    status = Column(String, default="active")  # active, paused
+    enforcement_mode = Column(String, default="block")  # warn, block, report-only
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class PolicyViolation(Base):
+    __tablename__ = "policy_violations"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    policy_id = Column(String, index=True)
+    pipeline_run_id = Column(String, index=True)
+    violation_details = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, index=True, default="default_user")
+    type = Column(String)  # pipeline.failed, scan.critical, etc.
+    severity = Column(String)  # warning, critical, info
+    message = Column(Text)
+    link = Column(String, nullable=True)
+    read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Event(Base):
+    __tablename__ = "events"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    type = Column(String)  # pipeline.started, scan.completed, etc.
+    message = Column(Text)
+    source_link = Column(String, nullable=True)
+    severity = Column(String, default="info")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class MetricSnapshot(Base):
+    __tablename__ = "metric_snapshots"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    service = Column(String, index=True)
+    metric = Column(String, index=True)
+    value = Column(Float)
+    ts = Column(DateTime, default=datetime.utcnow, index=True)

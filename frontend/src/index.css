@@ -131,6 +131,17 @@ body {
   /* Transitions */
   --sf-transition: 150ms ease;
   --sf-transition-slow: 250ms ease;
+
+  /* Standardized layout tokens */
+  --bg-base: var(--sf-bg);
+  --bg-surface: var(--sf-bg-surface);
+  --bg-elevated: var(--sf-bg-elevated);
+  --border: var(--sf-border);
+  --accent: var(--sf-accent);
+  --success: var(--sf-green);
+  --warning: var(--sf-amber);
+  --danger: var(--sf-red);
+  --info: var(--sf-blue);
 }
 
 [data-theme="light"] {
