@@ -36,3 +36,4 @@ a2d3b0bd4e9e5bf400956441f90af625ec812402:frontend/src/components/pages/SettingsW
 54558e5745c60a81e27b95b0f04ad2555606bf74:backend/ai_analysis.py:generic-api-key:302
 9781c68b937882e8a91b5afd9939db4ef9d2655d:demo_security_test.py:stripe-access-token:14
 195145b9d922dba6428b4284f080fd2bb2318199:demo_gitleaks.py:github-pat:2
+b189565fe796687122d2be34ba984d4f5151aa1d:backend/main.py:stripe-access-token:306

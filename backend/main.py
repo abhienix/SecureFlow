@@ -303,7 +303,7 @@ async def seed_new_tables_from_scan_results(db_session: AsyncSession = None):
                                 "Description": "Stripe Access Token",
                                 "StartLine": 14,
                                 "File": "demo_security_test.py",
-                                "Secret": "sk_test_1234567890abcdef"
+                                "Secret": "sk_test_mock_holder"
                             }
                         ]
                     },
