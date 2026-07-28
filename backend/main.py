@@ -241,8 +241,16 @@ async def _init_db_tables():
                 logger.info(f"[startup migration] duplicate check skipped: {e}")
 
 
-async def seed_new_tables_from_scan_results():
-    async with AsyncSessionLocal() as db:
+@asynccontextmanager
+async def _get_db_session(db_session: AsyncSession = None):
+    if db_session:
+        yield db_session
+    else:
+        async with AsyncSessionLocal() as session:
+            yield session
+
+async def seed_new_tables_from_scan_results(db_session: AsyncSession = None):
+    async with _get_db_session(db_session) as db:
         # Check if already seeded
         repo_check = await db.execute(select(Repository))
         if repo_check.scalars().first():
@@ -252,6 +260,118 @@ async def seed_new_tables_from_scan_results():
         logger.info("[startup seed] Seeding new tables from scan_results...")
         scan_res = await db.execute(select(ScanResult).order_by(ScanResult.created_at.asc()))
         scans = scan_res.scalars().all()
+
+        if not scans:
+            logger.info("[startup seed] No scan results in DB. Creating default mock scan records...")
+            from datetime import datetime, timedelta
+            now = datetime.utcnow()
+            default_scans = [
+                ScanResult(
+                    id=1,
+                    commit_sha="a1b2c3d4e5f67890",
+                    commit_message="feat: add custom alert notification manager [deploy]",
+                    repo_name="abhienix/SecureFlow",
+                    branch="main",
+                    scan_type="full-pipeline",
+                    severity="LOW",
+                    findings={},
+                    ai_explanation="Build compiled and scanned cleanly with zero blocking vulnerabilities.",
+                    ai_fix="No actions required.",
+                    risk_score=95,
+                    action_taken="ALLOW",
+                    pipeline_steps={"checkout": {"result": "PASS", "detail": "code checked out"}},
+                    status="complete",
+                    started_at=now - timedelta(days=2),
+                    created_at=now - timedelta(days=2),
+                    target_url="https://secureflow-backend-staging.run.app",
+                    deployment_url="https://secureflow-frontend-staging.run.app",
+                    dast_status="completed",
+                    scan_duration=48
+                ),
+                ScanResult(
+                    id=2,
+                    commit_sha="9781c68b937882e8a91b5afd9939db4ef9d2655d",
+                    commit_message="test: add draft stripe test implementation [deploy]",
+                    repo_name="abhienix/SecureFlow",
+                    branch="secureflow-v1",
+                    scan_type="full-pipeline",
+                    severity="CRITICAL",
+                    findings={
+                        "gitleaks": [
+                            {
+                                "RuleID": "stripe-access-token",
+                                "Description": "Stripe Access Token",
+                                "StartLine": 14,
+                                "File": "demo_security_test.py",
+                                "Secret": "sk_test_1234567890abcdef"
+                            }
+                        ]
+                    },
+                    ai_explanation="Gitleaks detected plain-text Stripe secret inside repository history.",
+                    ai_fix="Rotate exposed credential immediately and remove from Git history.",
+                    risk_score=20,
+                    action_taken="BLOCK",
+                    pipeline_steps={"checkout": {"result": "PASS", "detail": "code checked out"}},
+                    status="complete",
+                    started_at=now - timedelta(days=1),
+                    created_at=now - timedelta(days=1),
+                    target_url="https://secureflow-backend-staging.run.app",
+                    deployment_url="",
+                    dast_status="not_queued",
+                    scan_duration=12
+                ),
+                ScanResult(
+                    id=3,
+                    commit_sha="e29d9edc38484920b229",
+                    commit_message="chore: update frontend docker packages [deploy]",
+                    repo_name="abhienix/SecureFlow",
+                    branch="main",
+                    scan_type="full-pipeline",
+                    severity="HIGH",
+                    findings={
+                        "semgrep": [
+                            {
+                                "check_id": "rules.python.security.sql-injection",
+                                "extra": {
+                                    "message": "SQL Injection vulnerability detected in raw SQL query execution.",
+                                    "severity": "ERROR"
+                                },
+                                "path": "backend/main.py",
+                                "start": { "line": 234 }
+                            }
+                        ],
+                        "Results": [
+                            {
+                                "Target": "frontend/Dockerfile",
+                                "Vulnerabilities": [
+                                    {
+                                        "VulnerabilityID": "CVE-2025-0012",
+                                        "PkgName": "libssl1.1",
+                                        "Severity": "HIGH",
+                                        "FixedVersion": "1.1.1t-r0"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    ai_explanation="Semgrep detected raw SQL string format formatting, creating SQL Injection risk. Trivy found critical outdated SSL package.",
+                    ai_fix="Use parameterized execute queries. Re-build Docker container using base alpine image.",
+                    risk_score=55,
+                    action_taken="ALLOW",
+                    pipeline_steps={"checkout": {"result": "PASS", "detail": "code checked out"}},
+                    status="complete",
+                    started_at=now - timedelta(hours=5),
+                    created_at=now - timedelta(hours=5),
+                    target_url="https://secureflow-backend-staging.run.app",
+                    deployment_url="https://secureflow-frontend-staging.run.app",
+                    dast_status="completed",
+                    scan_duration=52
+                )
+            ]
+            db.add_all(default_scans)
+            await db.commit()
+            scan_res = await db.execute(select(ScanResult).order_by(ScanResult.created_at.asc()))
+            scans = scan_res.scalars().all()
 
         repos_cache = {}
 
