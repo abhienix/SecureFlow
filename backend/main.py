@@ -12,6 +12,8 @@ import json
 import yaml
 import asyncio
 import logging
+import secrets
+import socket
 from datetime import datetime, timedelta
 from typing import Set, Optional
 
@@ -56,6 +58,24 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@10.128.
 STALE_RUN_TIMEOUT_MINUTES = int(os.getenv("STALE_RUN_TIMEOUT_MINUTES", "20"))
 WATCHDOG_INTERVAL_SECONDS = int(os.getenv("WATCHDOG_INTERVAL_SECONDS", "30"))
 
+# Shared API secret for GitHub Actions → Backend authentication.
+# Set BACKEND_API_SECRET as a GitHub Actions secret and as a Cloud Run env var.
+# If empty/unset, authentication is skipped (local development mode).
+BACKEND_API_SECRET = os.getenv("BACKEND_API_SECRET", "")
+
+# Guard: if we're running on Cloud Run or ENVIRONMENT=production and the API
+# secret is missing, this is almost certainly a deployment mistake — everyone
+# who can reach the backend URL can forge scan results. Log a critical warning
+# so the operator notices immediately rather than discovering it silently later.
+_is_production = bool(os.getenv("K_SERVICE") or os.getenv("K_REVISION") or os.getenv("ENVIRONMENT", "").lower() == "production")
+if _is_production and not BACKEND_API_SECRET:
+    logger.critical(
+        "[SECURITY] BACKEND_API_SECRET is not set but the service appears to be running "
+        "in production (K_SERVICE/K_REVISION/ENVIRONMENT detected). "
+        "Authentication on all POST/PATCH endpoints is DISABLED. "
+        "Set the BACKEND_API_SECRET environment variable immediately."
+    )
+
 # Dynamically convert to postgresql+asyncpg for asyncio postgres driver
 ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://") if DATABASE_URL.startswith("postgresql://") else DATABASE_URL
 
@@ -88,6 +108,7 @@ class ConnectionManager:
     async def connect(self, ws: WebSocket):
         await ws.accept()
         self.active.add(ws)
+        logger.info(f"[ws] CONNECT  instance={_INSTANCE_ID} active={len(self.active)}")
 
     def disconnect(self, ws: WebSocket):
         self.active.discard(ws)
@@ -102,9 +123,22 @@ class ConnectionManager:
             except Exception:
                 dead.add(ws)
         self.active -= dead
+        if dead:
+            logger.info(f"[ws] BROADCAST instance={_INSTANCE_ID} sent={len(dead) + len(self.active)} dead={len(dead)} remaining={len(self.active)}")
 
 
 manager = ConnectionManager()
+
+# ── Instance identity for multi-instance diagnostics ─────────────────────
+# Cloud Run populates K_REVISION and K_SERVICE; hostname is a fallback.
+# Logged on every WS connect and broadcast so we can confirm whether more
+# than one instance is serving traffic (which breaks in-memory WS fan-out).
+_INSTANCE_ID = "_".join(filter(None, [
+    os.getenv("K_SERVICE", ""),
+    os.getenv("K_REVISION", ""),
+    socket.gethostname(),
+])) or "local-dev"
+logger.info(f"[instance] INSTANCE_ID={_INSTANCE_ID}")
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -200,6 +234,16 @@ async def get_db():
             raise
         finally:
             await db.close()
+
+
+async def verify_api_secret(request: Request):
+    """Reject unauthenticated requests when BACKEND_API_SECRET is configured."""
+    if not BACKEND_API_SECRET:
+        return
+    auth = request.headers.get("Authorization", "")
+    token = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else ""
+    if not token or not secrets.compare_digest(token, BACKEND_API_SECRET):
+        raise HTTPException(status_code=403, detail="Forbidden: invalid or missing API secret")
 
 
 def utc_iso(dt: datetime | None) -> str | None:
@@ -319,15 +363,17 @@ async def websocket_scans(ws: WebSocket):
                 await ws.send_text(json.dumps({"type": "ping"}))
     except WebSocketDisconnect:
         manager.disconnect(ws)
+        logger.info(f"[ws] DISCONNECT instance={_INSTANCE_ID}")
     except Exception:
         manager.disconnect(ws)
+        logger.info(f"[ws] DISCONNECT (error) instance={_INSTANCE_ID}")
 
 
 # ---------------------------------------------------------------------------
 # Pipeline lifecycle & DAST Orchestration endpoints
 # ---------------------------------------------------------------------------
 
-@app.post("/api/scan-results/start")
+@app.post("/api/scan-results/start", dependencies=[Depends(verify_api_secret)])
 async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
     """
     Primary CI/CD pipeline start and DAST task orchestration trigger.
@@ -525,7 +571,7 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
     }
 
 
-@app.patch("/api/scan-results/{run_id}/progress")
+@app.patch("/api/scan-results/{run_id}/progress", dependencies=[Depends(verify_api_secret)])
 async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ScanResult).filter(ScanResult.id == run_id))
     scan = result.scalars().first()
@@ -604,7 +650,7 @@ async def cleanup_stale_runs(db: AsyncSession = Depends(get_db), older_than_minu
 # Main scan ingestion & findings merging endpoint (Trivy, Gitleaks, Semgrep, ZAP)
 # ---------------------------------------------------------------------------
 
-@app.post("/api/scan-results")
+@app.post("/api/scan-results", dependencies=[Depends(verify_api_secret)])
 async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
     scan_type = data.get("scan_type", "trivy")
     repo_name = data.get("repo_name", "unknown")
@@ -914,7 +960,7 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
 # Feedback endpoint
 # ---------------------------------------------------------------------------
 
-@app.post("/api/scan-results/{scan_id}/feedback")
+@app.post("/api/scan-results/{scan_id}/feedback", dependencies=[Depends(verify_api_secret)])
 async def submit_feedback(scan_id: int, feedback: dict, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ScanResult).filter(ScanResult.id == scan_id))
     scan = result.scalars().first()
@@ -925,7 +971,7 @@ async def submit_feedback(scan_id: int, feedback: dict, db: AsyncSession = Depen
     return {"status": "feedback saved", "scan_id": scan_id}
 
 
-@app.post("/api/policy/update")
+@app.post("/api/policy/update", dependencies=[Depends(verify_api_secret)])
 def update_policy(data: dict):
     admin_key = (data.get("admin_key") or "").strip()
     if admin_key not in ["ADMIN-POLICY-KEY-2026", "SEC-ADMIN-2026"]:
@@ -968,7 +1014,7 @@ def slack_status():
     }
 
 
-@app.post("/api/slack/test")
+@app.post("/api/slack/test", dependencies=[Depends(verify_api_secret)])
 def test_slack_alert():
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
     test_payload = {
@@ -1053,7 +1099,7 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
 # AI Copilot — re-analyze a single scan
 # ---------------------------------------------------------------------------
 
-@app.post("/api/scan-results/{scan_id}/reanalyze")
+@app.post("/api/scan-results/{scan_id}/reanalyze", dependencies=[Depends(verify_api_secret)])
 async def reanalyze_scan(scan_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ScanResult).filter(ScanResult.id == scan_id))
     scan = result.scalars().first()
@@ -1520,7 +1566,7 @@ async def get_system_health(db: AsyncSession = Depends(get_db)):
             "redis": {"name": "Redis Cache", "status": "Healthy" if redis_ok else "Offline", "latency_ms": 0.5},
             "celery": {"name": "Celery Workers", "status": "Healthy", "active_workers": 4},
             "github": {"name": "GitHub Actions", "status": "Healthy", "rate_limit_remaining": 4980},
-            "slack": {"name": "Slack Notifier", "status": "Healthy", "webhook_configured": bool(SLACK_WEBHOOK_URL)},
+            "slack": {"name": "Slack Notifier", "status": "Healthy", "webhook_configured": bool(os.getenv("SLACK_WEBHOOK_URL"))},
             "void_ai": {"name": "Void AI Engine", "status": "Healthy", "model": "Grok DevSecOps Core"},
         },
         "pipeline_stages": [
