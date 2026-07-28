@@ -190,6 +190,9 @@ jobs:
           if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_SHA" ]; then
             LOG_OPTS="-n 1"
             echo "First push or unknown before-SHA — scanning latest commit only"
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            LOG_OPTS="-n 1"
+            echo "BEFORE_SHA ($BEFORE_SHA) not found (force-push) — scanning latest commit only"
           else
             LOG_OPTS="${BEFORE_SHA}..${AFTER_SHA}"
             echo "Scanning commits in push: $LOG_OPTS"
@@ -357,13 +360,13 @@ jobs:
           FORCE_FRONTEND: ${{ github.event.inputs.deploy_frontend }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_SHA" ]; then
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_SHA" ] || ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
             if git rev-parse HEAD~1 >/dev/null 2>&1; then
               CHANGED=$(git diff --name-only HEAD~1 HEAD)
             else
               CHANGED=$(git show --name-only --pretty="" HEAD)
             fi
-            echo "First push or unknown before-SHA — using latest commit diff"
+            echo "First push, unknown, or force-pushed before-SHA — using latest commit diff"
           else
             CHANGED=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA")
             echo "Push diff: $BEFORE_SHA..$AFTER_SHA"
