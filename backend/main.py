@@ -30,7 +30,7 @@ try:
     from prometheus_fastapi_instrumentator import Instrumentator
 except ImportError:
     Instrumentator = None
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, text, delete
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from models import (
@@ -630,6 +630,251 @@ async def sync_single_scan_result_to_new_tables(scan_id: int, db: AsyncSession):
         db.add(run)
         await db.commit()
         await db.refresh(run)
+    else:
+        run.status = s.status or "complete"
+        run.action_taken = s.action_taken or "ALLOW"
+        run.started_at = s.started_at or s.created_at
+        run.duration = s.scan_duration or 45
+        run.commit_message = s.commit_message
+        await db.commit()
+
+    # Idempotent deletion of existing child records for this run
+    await db.execute(delete(PipelineStage).filter(PipelineStage.run_id == run_id))
+    await db.execute(delete(PipelineStep).filter(PipelineStep.id.like(f"step-{s.id}-%")))
+    await db.execute(delete(SecurityFinding).filter(SecurityFinding.pipeline_run_id == run_id))
+    await db.execute(delete(Deployment).filter(Deployment.pipeline_run_id == run_id))
+    await db.commit()
+
+    # Monotonic stage sequence — each stage must pass before the next can run
+    STAGE_ORDER = ["checkout", "code_scan", "docker", "trivy", "policy", "deploy_staging", "zap", "zap_gate", "deploy_prod"]
+    stage_definitions = [
+        ("checkout", "Checkout"),
+        ("code_scan", "Code Scan"),
+        ("docker", "Docker Build"),
+        ("trivy", "Trivy CVE"),
+        ("policy", "Policy Gate"),
+        ("deploy_staging", "Deploy Staging"),
+        ("zap", "OWASP ZAP"),
+        ("zap_gate", "ZAP Gate"),
+        ("deploy_prod", "Deploy Prod")
+    ]
+
+    steps_data = s.pipeline_steps or {}
+    failed_upstream = False
+
+    for idx, (stage_key, stage_name) in enumerate(stage_definitions):
+        # Monotonic check: ensure current stage index reflects pipeline progression
+        current_stage_idx = STAGE_ORDER.index(stage_key) if stage_key in STAGE_ORDER else idx
+
+        step_val = steps_data.get(stage_key) or {}
+        raw_result = (step_val.get("result") or "").upper()
+
+        # If a prior stage has a result, this stage is already past in timeline
+        prior_stage_key = STAGE_ORDER[current_stage_idx - 1] if current_stage_idx > 0 else None
+        prior_raw = None
+        if prior_stage_key:
+            prior_raw = (steps_data.get(prior_stage_key, {}).get("result") or "").upper()
+
+        # Enforce monotonic ordering: skip stages before the current pipeline position
+        if prior_stage_key and not raw_result and prior_raw in ("", "PENDING"):
+            raw_result = "PENDING"
+
+        if failed_upstream and not raw_result:
+            raw_result = "SKIPPED"
+
+        status = "pending"
+        duration = "0s"
+        detail = "Pending step"
+        exit_code = 0
+
+        if raw_result in ("PASS", "ALLOW", "SCANNED"):
+            status = "passed"
+            duration = "4.5s" if stage_key != "docker" else "15.4s"
+            detail = step_val.get("detail") or f"{stage_name} completed successfully."
+        elif raw_result in ("FAILED", "BLOCK"):
+            status = "failed"
+            duration = "2.3s"
+            detail = step_val.get("detail") or f"{stage_name} blocked or failed."
+            exit_code = 1
+            failed_upstream = True
+        elif raw_result in ("RUNNING", "QUEUED"):
+            status = "running"
+            duration = "0.5s"
+            detail = step_val.get("detail") or f"{stage_name} currently executing."
+        elif raw_result == "SKIPPED":
+            status = "skipped"
+            duration = "0s"
+            detail = "Step skipped."
+        else:
+            if s.status in ("complete", "failed") or s.action_taken == "BLOCK":
+                status = "skipped"
+                detail = "Step skipped."
+            else:
+                if idx == 0:
+                    status = "passed"
+                    detail = "Checkout completed."
+                else:
+                    status = "pending"
+                    detail = "Awaiting execution."
+
+        if stage_key == "zap":
+            if s.dast_status == "completed":
+                status = "passed"
+                duration = f"{s.scan_duration or 30}s"
+                detail = f"OWASP ZAP DAST scan completed in {duration}"
+            elif s.dast_status in ("failed", "queue_failed"):
+                status = "failed"
+                duration = f"{s.scan_duration or 10}s"
+                detail = s.queue_error or "ZAP DAST scan failed."
+                exit_code = 1
+                failed_upstream = True
+            elif s.dast_status in ("queued", "running"):
+                status = "running"
+                detail = "DAST scan actively running."
+
+        if stage_key == "deploy_prod" and s.action_taken == "BLOCK":
+            status = "skipped"
+            detail = "Production deployment blocked by security policies."
+
+        stage_id = f"stage-{s.id}-{stage_key}"
+        stage_obj = PipelineStage(
+            id=stage_id,
+            run_id=run.id,
+            name=stage_name,
+            status=status,
+            duration=duration,
+            started_at=s.created_at,
+            ended_at=s.created_at
+        )
+        db.add(stage_obj)
+
+        step_id = f"step-{s.id}-{stage_key}"
+        step_obj = PipelineStep(
+            id=step_id,
+            stage_id=stage_id,
+            name=stage_name,
+            status=status,
+            duration=duration,
+            exit_code=exit_code,
+            logs=f"=== STAGE: {stage_name} ===\nStatus: {status}\nDuration: {duration}\nLogs:\n{detail}\n"
+        )
+        db.add(step_obj)
+
+    # Ingest Gitleaks, Semgrep, Trivy, and ZAP security findings
+    f = s.findings or {}
+    for gl in f.get("gitleaks", []):
+        finding = SecurityFinding(
+            repo_id=repo.id,
+            pipeline_run_id=run.id,
+            scanner="gitleaks",
+            category="Secret / Credential Exposure",
+            title=f"Exposed Secret: {gl.get('Description') or gl.get('RuleID') or 'API Key'}",
+            severity="CRITICAL" if "secret" in str(gl).lower() else "HIGH",
+            file=gl.get("File") or gl.get("file") or "codebase",
+            line=gl.get("StartLine") or gl.get("startLine") or 1,
+            cve_cwe="CWE-798 (Hardcoded Credentials)",
+            owasp="A07:2021-Identification and Authentication Failures",
+            status="open",
+            created_at=s.created_at,
+            ai_explanation=s.ai_explanation or "Gitleaks detected plain-text secret inside repository history.",
+            ai_fix=s.ai_fix or "Rotate exposed credential immediately and remove from Git history."
+        )
+        db.add(finding)
+
+    for sg in f.get("semgrep", []):
+        finding = SecurityFinding(
+            repo_id=repo.id,
+            pipeline_run_id=run.id,
+            scanner="semgrep",
+            category="SAST Flaw",
+            title=sg.get("extra", {}).get("message") or sg.get("check_id") or "Code vulnerability",
+            severity=(sg.get("extra", {}).get("severity") or "HIGH").upper(),
+            file=sg.get("path") or "src/",
+            line=(sg.get("start") or {}).get("line") or 1,
+            cve_cwe=f"CWE-{sg.get('check_id', '89')}",
+            owasp="A03:2021-Injection",
+            status="open",
+            created_at=s.created_at,
+            ai_explanation=s.ai_explanation or "Semgrep detected insecure pattern in source code.",
+            ai_fix=s.ai_fix or "Enforce sanitized input parameters and parameterized queries."
+        )
+        db.add(finding)
+
+    for res in f.get("Results", []):
+        for vul in res.get("Vulnerabilities", []):
+            finding = SecurityFinding(
+                repo_id=repo.id,
+                pipeline_run_id=run.id,
+                scanner="trivy",
+                category="Container CVE",
+                title=f"{vul.get('VulnerabilityID')} in {vul.get('PkgName')}",
+                severity=(vul.get("Severity") or "MEDIUM").upper(),
+                file=res.get("Target") or "Dockerfile",
+                line=1,
+                cve_cwe=vul.get("VulnerabilityID") or "CVE-2026-0001",
+                owasp="A06:2021-Vulnerable and Outdated Components",
+                status="open",
+                created_at=s.created_at,
+                ai_explanation=s.ai_explanation or f"Trivy detected vulnerable package {vul.get('PkgName')}.",
+                ai_fix=f"Upgrade {vul.get('PkgName')} to version {vul.get('FixedVersion') or 'latest'}."
+            )
+            db.add(finding)
+
+    zap_alerts = (f.get("zap") or {}).get("alerts") or (s.zap_findings or {}).get("alerts") or []
+    for za in zap_alerts if isinstance(zap_alerts, list) else []:
+        finding = SecurityFinding(
+            repo_id=repo.id,
+            pipeline_run_id=run.id,
+            scanner="zap",
+            category="DAST Dynamic Alert",
+            title=za.get("alert") or "OWASP ZAP Dynamic Finding",
+            severity=(za.get("risk") or "MEDIUM").upper(),
+            file=za.get("url") or s.target_url or "staging",
+            line=1,
+            cve_cwe=f"CWE-{za.get('pluginId', '693')}",
+            owasp="A05:2021-Security Misconfiguration",
+            status="open",
+            created_at=s.created_at,
+            ai_explanation="OWASP ZAP detected security header misconfiguration or active endpoint flaw.",
+            ai_fix="Add missing security headers and enforce strict CORS / CSP policies."
+        )
+        db.add(finding)
+
+    if s.deployment_url or (s.pipeline_steps or {}).get("deploy_prod"):
+        deployment = Deployment(
+            id=f"dep-{s.id}",
+            revision_name=f"secureflow-backend-{(s.commit_sha or 'v1')[:7]}",
+            service="secureflow-backend",
+            environment="production",
+            url=s.deployment_url or s.target_url or "https://secureflow-production.run.app",
+            status="active" if s.action_taken == "ALLOW" else "blocked",
+            commit_sha=s.commit_sha,
+            pipeline_run_id=run.id,
+            created_at=s.created_at,
+            duration=s.scan_duration or 45
+        )
+        db.add(deployment)
+
+    # Create Events for the activity feed
+    event_start = Event(
+        id=f"evt-start-{s.id}",
+        type="pipeline.started",
+        message=f"Pipeline run #{s.id} started for {repo_name} (branch: {s.branch})",
+        source_link=f"/pipelines/{run.id}",
+        severity="info",
+        created_at=s.started_at or s.created_at
+    )
+    db.add(event_start)
+
+    event_end = Event(
+        id=f"evt-end-{s.id}",
+        type="pipeline.failed" if s.action_taken == "BLOCK" else "deploy.success",
+        message=f"Pipeline run #{s.id} completed: {s.action_taken}",
+        source_link=f"/pipelines/{run.id}",
+        severity="warning" if s.action_taken == "BLOCK" else "info",
+        created_at=s.created_at
+    )
+    db.add(event_end)
 
     await db.commit()
 
@@ -1022,6 +1267,43 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
     }
 
 
+def enforce_monotonic_stages(pipeline_steps: dict, current_stage_key: str, outcome: str = "PASS") -> dict:
+    stage_sequence = ["checkout", "code_scan", "docker", "trivy", "policy", "deploy_staging", "zap", "zap_gate", "deploy_prod"]
+    if current_stage_key not in stage_sequence:
+        return pipeline_steps
+
+    idx = stage_sequence.index(current_stage_key)
+    res = dict(pipeline_steps)
+    
+    # 1. Enforce that all stages before idx are resolved (e.g. PASS/passed) if they are currently PENDING or missing
+    for i in range(idx):
+        prev_key = stage_sequence[i]
+        prev_val = res.get(prev_key) or {}
+        prev_result = (prev_val.get("result") or "").upper()
+        if prev_result not in ("PASS", "ALLOW", "SCANNED", "FAILED", "BLOCK", "SKIPPED"):
+            res[prev_key] = {
+                "result": "PASS",
+                "detail": f"Inferred PASS transition (completed prior to {current_stage_key})"
+            }
+
+    # 2. Update current stage
+    res[current_stage_key] = {
+        "result": outcome.upper(),
+        "detail": f"Stage {current_stage_key} resolved as {outcome.upper()}"
+    }
+
+    # 3. If current stage is a failure or block, force all subsequent stages to SKIPPED
+    if outcome.upper() in ("FAILED", "BLOCK"):
+        for i in range(idx + 1, len(stage_sequence)):
+            next_key = stage_sequence[i]
+            res[next_key] = {
+                "result": "SKIPPED",
+                "detail": f"Skipped due to upstream failure in {current_stage_key}"
+            }
+            
+    return res
+
+
 @app.patch("/api/scan-results/{run_id}/progress", dependencies=[Depends(verify_api_secret)])
 async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ScanResult).filter(ScanResult.id == run_id))
@@ -1030,7 +1312,9 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
         raise HTTPException(status_code=404, detail="Run not found")
 
     existing_steps = dict(scan.pipeline_steps or {})
-    existing_steps.update(data.get("pipeline_steps", {}))
+    input_steps = data.get("pipeline_steps", {})
+    for sk, sv in input_steps.items():
+        existing_steps = enforce_monotonic_stages(existing_steps, sk, sv.get("result", "PASS"))
     scan.pipeline_steps = existing_steps
 
     if "status" in data:
@@ -1046,14 +1330,12 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
             # sets completed without explicitly updating the zap step.
             zap_current = (scan.pipeline_steps or {}).get("zap", {}).get("result", "")
             if zap_current in ("PENDING", "QUEUED"):
-                zap_steps = dict(scan.pipeline_steps or {})
-                zap_steps["zap"] = {"result": "PASS", "detail": "DAST scan completed (inferred from dast_status)"}
+                zap_steps = enforce_monotonic_stages(dict(scan.pipeline_steps or {}), "zap", "PASS")
                 scan.pipeline_steps = zap_steps
         elif data["dast_status"] in ("failed", "queue_failed"):
             zap_current = (scan.pipeline_steps or {}).get("zap", {}).get("result", "")
             if zap_current in ("PENDING", "QUEUED"):
-                zap_steps = dict(scan.pipeline_steps or {})
-                zap_steps["zap"] = {"result": "FAILED", "detail": f"DAST scan failed (inferred from dast_status={data['dast_status']})"}
+                zap_steps = enforce_monotonic_stages(dict(scan.pipeline_steps or {}), "zap", "FAILED")
                 scan.pipeline_steps = zap_steps
 
     # Save ZAP findings telemetry and update merged findings dict
@@ -1068,11 +1350,17 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
         
     await db.commit()
     await db.refresh(scan)
+    
+    # Propagate update dynamically to normalized tables
+    try:
+        await sync_single_scan_result_to_new_tables(scan.id, db)
+    except Exception as ex:
+        logger.warning(f"[progress sync] failed to sync tables: {ex}")
 
     await manager.broadcast({
         "type": "scan_progress",
         "run_id": run_id,
-        "pipeline_steps": existing_steps,
+        "pipeline_steps": scan.pipeline_steps,
         "status": scan.status,
     })
 
@@ -1673,36 +1961,117 @@ async def get_scan_results(db: AsyncSession = Depends(get_db), limit: int = SCAN
     return {"total": total, "limit": limit, "scans": scans}
 
 
+async def calculate_security_score(db: AsyncSession) -> int:
+    # Query open findings by severity
+    res_crit = await db.execute(select(func.count(SecurityFinding.id)).filter(SecurityFinding.severity == "CRITICAL", SecurityFinding.status == "open"))
+    critical = res_crit.scalar() or 0
+    
+    res_high = await db.execute(select(func.count(SecurityFinding.id)).filter(SecurityFinding.severity == "HIGH", SecurityFinding.status == "open"))
+    high = res_high.scalar() or 0
+    
+    res_med = await db.execute(select(func.count(SecurityFinding.id)).filter(SecurityFinding.severity == "MEDIUM", SecurityFinding.status == "open"))
+    medium = res_med.scalar() or 0
+    
+    res_low = await db.execute(select(func.count(SecurityFinding.id)).filter(SecurityFinding.severity == "LOW", SecurityFinding.status == "open"))
+    low = res_low.scalar() or 0
+    
+    res_sec = await db.execute(select(func.count(SecurityFinding.id)).filter(SecurityFinding.scanner == "gitleaks", SecurityFinding.status == "open"))
+    secrets = res_sec.scalar() or 0
+
+    res_viol = await db.execute(select(func.count(PolicyViolation.id)))
+    violations = res_viol.scalar() or 0
+
+    # Calculate pipeline success rate
+    res_total_runs = await db.execute(select(func.count(PipelineRun.id)))
+    total_runs = res_total_runs.scalar() or 0
+
+    res_success_runs = await db.execute(select(func.count(PipelineRun.id)).filter(PipelineRun.status.in_(["success", "complete", "passed"])))
+    success_runs = res_success_runs.scalar() or 0
+
+    success_rate = (success_runs / total_runs) if total_runs > 0 else 1.0
+    pipeline_penalty = (1.0 - success_rate) * 20.0
+
+    # Weighted penalties
+    findings_penalty = (critical * 10.0) + (high * 5.0) + (medium * 2.0) + (low * 0.5) + (secrets * 15.0)
+    violations_penalty = violations * 15.0
+
+    score = 100.0 - findings_penalty - violations_penalty - pipeline_penalty
+    return int(max(0, min(100, score)))
+
+
 @app.get("/api/observability/metrics")
 @app.get("/api/observability/overview")
 async def get_observability_metrics(db: AsyncSession = Depends(get_db)):
-    res_total = await db.execute(select(func.count()).select_from(ScanResult))
-    total_scans = res_total.scalar() or 0
+    res_repos = await db.execute(select(func.count(Repository.id)))
+    total_repos = res_repos.scalar() or 0
 
-    res_queued = await db.execute(select(func.count()).select_from(ScanResult).filter(ScanResult.dast_status == "queued"))
-    res_running = await db.execute(select(func.count()).select_from(ScanResult).filter(ScanResult.dast_status == "running"))
-    res_completed = await db.execute(select(func.count()).select_from(ScanResult).filter(ScanResult.dast_status == "completed"))
-    res_failed = await db.execute(select(func.count()).select_from(ScanResult).filter(ScanResult.dast_status.in_(["failed", "queue_failed"])))
-    res_avg_dur = await db.execute(select(func.avg(ScanResult.scan_duration)).filter(ScanResult.scan_duration != None))
+    health_score = await calculate_security_score(db)
 
+    res_active = await db.execute(select(func.count(PipelineRun.id)).filter(PipelineRun.status.in_(["running", "pending"])))
+    active_pipelines = res_active.scalar() or 0
+
+    res_total_deps = await db.execute(select(func.count(Deployment.id)))
+    total_deps = res_total_deps.scalar() or 0
+    res_active_deps = await db.execute(select(func.count(Deployment.id)).filter(Deployment.status == "active"))
+    active_deps = res_active_deps.scalar() or 0
+    deploy_success_rate = (active_deps / total_deps * 100.0) if total_deps > 0 else 100.0
+
+    res_avg_dur = await db.execute(select(func.avg(PipelineRun.duration)).filter(PipelineRun.status.in_(["success", "complete", "failed"])))
+    mean_duration = round(float(res_avg_dur.scalar() or 45.0), 1)
+
+    res_crit = await db.execute(select(func.count(SecurityFinding.id)).filter(SecurityFinding.severity == "CRITICAL", SecurityFinding.status == "open"))
+    critical = res_crit.scalar() or 0
+    res_high = await db.execute(select(func.count(SecurityFinding.id)).filter(SecurityFinding.severity == "HIGH", SecurityFinding.status == "open"))
+    high = res_high.scalar() or 0
+    res_med = await db.execute(select(func.count(SecurityFinding.id)).filter(SecurityFinding.severity == "MEDIUM", SecurityFinding.status == "open"))
+    medium = res_med.scalar() or 0
+    res_low = await db.execute(select(func.count(SecurityFinding.id)).filter(SecurityFinding.severity == "LOW", SecurityFinding.status == "open"))
+    low = res_low.scalar() or 0
+    total_findings = critical + high + medium + low
+
+    db_ok = True
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
+        
+    redis_ok = redis_pubsub_manager._connected if redis_pubsub_manager else False
+    infra_status = "healthy" if (db_ok and redis_ok) else "degraded"
+
+    res_queued = await db.execute(select(func.count(ScanResult.id)).filter(ScanResult.dast_status == "queued"))
+    res_running = await db.execute(select(func.count(ScanResult.id)).filter(ScanResult.dast_status == "running"))
+    res_completed = await db.execute(select(func.count(ScanResult.id)).filter(ScanResult.dast_status == "completed"))
+    res_failed = await db.execute(select(func.count(ScanResult.id)).filter(ScanResult.dast_status.in_(["failed", "queue_failed"])))
+    
     dast_queued = res_queued.scalar() or 0
     dast_running = res_running.scalar() or 0
     dast_completed = res_completed.scalar() or 0
     dast_failed = res_failed.scalar() or 0
-    avg_dur = round(float(res_avg_dur.scalar() or 0.0), 2)
 
     return {
-        "total_scans": total_scans,
+        "total_repositories": total_repos,
+        "security_score": health_score,
+        "active_pipelines": active_pipelines,
+        "deployment_success_rate": round(deploy_success_rate, 1),
+        "mean_pipeline_duration_seconds": mean_duration,
+        "open_findings": {
+            "critical": critical,
+            "high": high,
+            "medium": medium,
+            "low": low,
+            "total": total_findings
+        },
+        "infrastructure_status": infra_status,
         "dast_pipeline": {
             "enabled": DAST_ENABLED,
-            "broker_host": REDIS_URL.split("@")[-1],
+            "broker_host": REDIS_URL.split("@")[-1] if "@" in REDIS_URL else REDIS_URL,
             "worker_queue": WORKER_QUEUE,
             "default_target_url": DEFAULT_TARGET_URL,
             "queued_jobs": dast_queued,
             "running_jobs": dast_running,
             "completed_jobs": dast_completed,
             "failed_jobs": dast_failed,
-            "avg_duration_seconds": avg_dur,
+            "avg_duration_seconds": mean_duration,
         }
     }
 
@@ -2130,6 +2499,77 @@ async def global_search(q: str = "", db: AsyncSession = Depends(get_db)):
                 })
 
     return {"query": q, "results": results[:15]}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Security Health Engine
+# ═══════════════════════════════════════════════════════════════════
+
+async def calculate_security_score(repo_id: str = None, db: AsyncSession = None) -> int:
+    """Multi-factor security health score 0-100."""
+    if db is None:
+        async with AsyncSessionLocal() as session:
+            return await _calc_score(session, repo_id)
+    return await _calc_score(db, repo_id)
+
+async def _calc_score(db: AsyncSession, repo_id: str = None) -> int:
+    deductions = 0.0
+
+    # 1. Open findings by severity
+    query = select(SecurityFinding)
+    if repo_id:
+        query = query.filter(SecurityFinding.repo_id == repo_id)
+    res = await db.execute(query)
+    findings = res.scalars().all()
+    for f in findings:
+        sev = (f.severity or "INFO").upper()
+        if sev == "CRITICAL":
+            deductions += 10.0
+        elif sev == "HIGH":
+            deductions += 5.0
+        elif sev == "MEDIUM":
+            deductions += 2.0
+        elif sev == "LOW":
+            deductions += 0.5
+
+    # 2. Secret findings carry extra weight
+    secret_count = sum(1 for f in findings if f.scanner == "gitleaks" and f.status == "open")
+    deductions += secret_count * 15.0
+
+    # 3. Policy violations
+    policy_violations = 0
+    pipeline_res = await db.execute(select(PipelineRun).filter(PipelineRun.action_taken == "BLOCK"))
+    blocked_runs = pipeline_res.scalars().all()
+    policy_violations = len(blocked_runs)
+    deductions += policy_violations * 15.0
+
+    # 4. Pipeline success rate impact
+    total_runs_res = await db.execute(select(func.count()).select_from(PipelineRun))
+    total_runs = total_runs_res.scalar() or 0
+    if total_runs > 0:
+        success_runs_res = await db.execute(
+            select(func.count()).select_from(PipelineRun).filter(PipelineRun.action_taken == "ALLOW")
+        )
+        success_runs = success_runs_res.scalar() or 0
+        success_rate = success_runs / total_runs
+        if success_rate < 0.5:
+            deductions += 20.0
+        elif success_rate < 0.8:
+            deductions += 10.0
+
+    # 5. Infrastructure health check
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(REDIS_URL, socket_timeout=1)
+        redis_ok = await r.ping()
+        await r.close()
+        if not redis_ok:
+            deductions += 5.0
+    except Exception:
+        deductions += 5.0
+
+    score = max(0, min(100, 100.0 - deductions))
+    return int(score)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2793,9 +3233,83 @@ async def get_v1_notifications(db: AsyncSession = Depends(get_db)):
     notifications = res.scalars().all()
     return notifications
 
+@v1_router.get("/observability/overview")
+async def get_v1_observability_overview(db: AsyncSession = Depends(get_db)):
+    # Total repositories
+    repo_res = await db.execute(select(func.count()).select_from(Repository))
+    total_repos = repo_res.scalar() or 0
+
+    # Total pipeline runs
+    pipe_res = await db.execute(select(func.count()).select_from(PipelineRun))
+    total_pipelines = pipe_res.scalar() or 0
+
+    # Active pipelines (running or pending)
+    active_res = await db.execute(
+        select(func.count()).select_from(PipelineRun).filter(PipelineRun.status.in_(["running", "pending"]))
+    )
+    active_pipelines = active_res.scalar() or 0
+
+    # Pipeline success rate
+    success_res = await db.execute(
+        select(func.count()).select_from(PipelineRun).filter(PipelineRun.action_taken == "ALLOW")
+    )
+    success_count = success_res.scalar() or 0
+    deployment_success_rate = round((success_count / max(total_pipelines, 1)) * 100, 1)
+
+    # Mean pipeline duration
+    dur_res = await db.execute(select(func.avg(PipelineRun.duration)).filter(PipelineRun.duration != None))
+    mean_dur = dur_res.scalar()
+    mean_pipeline_duration_seconds = round(float(mean_dur), 1) if mean_dur else 0.0
+
+    # Open findings
+    finding_res = await db.execute(select(func.count()).select_from(SecurityFinding))
+    total_findings = finding_res.scalar() or 0
+
+    open_res = await db.execute(
+        select(func.count()).select_from(SecurityFinding).filter(SecurityFinding.status == "open")
+    )
+    open_findings = open_res.scalar() or 0
+
+    # Security score
+    security_score = await calculate_security_score(db=db)
+
+    # Infrastructure status
+    db_ok = True
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
+
+    infrastructure_status = "healthy" if db_ok else "degraded"
+
+    # Repository health (% of repos with score > 80)
+    repo_health_pct = 0.0
+    if total_repos > 0:
+        all_repos_res = await db.execute(select(Repository))
+        all_repos = all_repos_res.scalars().all()
+        healthy_count = 0
+        for repo in all_repos:
+            repo_score = await calculate_security_score(repo_id=repo.id, db=db)
+            if repo_score > 80:
+                healthy_count += 1
+        repo_health_pct = round((healthy_count / total_repos) * 100, 1)
+
+    return {
+        "total_repositories": total_repos,
+        "total_pipelines": total_pipelines,
+        "active_pipelines": active_pipelines,
+        "security_score": security_score,
+        "deployment_success_rate": deployment_success_rate,
+        "mean_pipeline_duration_seconds": mean_pipeline_duration_seconds,
+        "total_findings": total_findings,
+        "open_findings": open_findings,
+        "repository_health_pct": repo_health_pct,
+        "infrastructure_status": infrastructure_status
+    }
+
 @v1_router.get("/events")
 async def get_v1_events(db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(Event).order_by(Event.created_at.desc()).limit(5))
+    res = await db.execute(select(Event).order_by(Event.created_at.desc()).limit(50))
     events = res.scalars().all()
     return events
 

@@ -565,6 +565,65 @@ Do not answer questions about data not listed above.
             </div>
           )}
           <div ref={messagesEndRef} />
+
+          {/* Suggested Action Buttons */}
+          <div style={{
+            display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: `1px solid #1E293B`,
+            padding: '10px 16px', justifyContent: 'center',
+            backgroundColor: '#0F172A'
+          }}>
+            <button
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('sf_navigate', { detail: '/pipelines' }));
+                setCopilotOpen(false);
+              }}
+              title="View Logs"
+              style={{
+                padding: '6px 12px', borderRadius: 6, border: `1px solid #334155`,
+                background: '#1E293B', color: '#94A3B8', fontSize: 11, fontWeight: 600,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366F1'; e.currentTarget.style.color = '#E2E8F0'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94A3B8'; }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3h18v18H3z"/><path d="M9 9h6v6H9z"/></svg>
+              View Logs
+            </button>
+            <button
+              onClick={() => {
+                setCopilotOpen(false);
+                window.dispatchEvent(new CustomEvent('sf_navigate', { detail: '/policies' }));
+              }}
+              title="Fix Policy"
+              style={{
+                padding: '6px 12px', borderRadius: 6, border: `1px solid #334155`,
+                background: '#1E293B', color: '#94A3B8', fontSize: 11, fontWeight: 600,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.color = '#FBBF24'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94A3B8'; }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Fix Policy
+            </button>
+            <button
+              onClick={() => {
+                setCopilotOpen(false);
+                window.dispatchEvent(new CustomEvent('sf_navigate', { detail: '/repositories' }));
+              }}
+              title="Re-run Pipeline"
+              style={{
+                padding: '6px 12px', borderRadius: 6, border: `1px solid #334155`,
+                background: '#1E293B', color: '#94A3B8', fontSize: 11, fontWeight: 600,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#10B981'; e.currentTarget.style.color = '#34D399'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94A3B8'; }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+              Re-run Pipeline
+            </button>
+          </div>
         </div>
 
         {/* Suggested Action Chips */}

@@ -73,9 +73,16 @@ function AppShell() {
         toggleCmdPalette();
       }
     };
+    const navHandler = (e) => {
+      navigate(e.detail);
+    };
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [toggleCmdPalette]);
+    window.addEventListener("sf_navigate", navHandler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("sf_navigate", navHandler);
+    };
+  }, [toggleCmdPalette, navigate]);
 
   return (
     <div style={{
