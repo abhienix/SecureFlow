@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Clock, GitBranch, Shield, Zap, Terminal,
   CheckCircle, XCircle, AlertTriangle, Ban, HelpCircle, Loader2,
@@ -9,6 +9,8 @@ import {
 import { DrawerPanel } from '../../components/ui/DrawerPanel';
 import { LogViewer } from '../../components/ui/LogViewer';
 import Badge from '../../components/ui/Badge';
+import { useUIStore } from '../../stores/uiStore';
+import { useVoidStore } from '../../stores/voidStore';
 import { client } from '../../api/client';
 
 // Status constants matching backend pipeline_engine.py
@@ -44,8 +46,47 @@ const STAGE_ORDER = [
 export default function PipelineDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [selectedStage, setSelectedStage] = useState<any | null>(null);
   const [expandedBlocked, setExpandedBlocked] = useState<string | null>(null);
+  const [liveStages, setLiveStages] = useState<any[] | null>(null);
+  const [liveRun, setLiveRun] = useState<any | null>(null);
+  const wsConnected = useUIStore((s) => s.wsConnected);
+  const lastWsUpdate = useRef<number>(0);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const data = (e as CustomEvent).detail;
+      if (data?.type !== 'pipeline.stage_update') return;
+      const eventRunId = data.run_id?.replace('run-', '') || String(data.scan_id || '');
+      if (eventRunId !== id) return;
+      lastWsUpdate.current = Date.now();
+
+      setLiveStages((prev: any) => {
+        const stages = prev ?? [];
+        const idx = stages.findIndex((s: any) => s.stage_key === data.stage_key);
+        const update = {
+          stage_key: data.stage_key,
+          status: data.status,
+          detail: data.detail || '',
+          exit_code: data.exit_code,
+        };
+        if (idx >= 0) {
+          const next = [...stages];
+          next[idx] = { ...next[idx], ...update };
+          return next;
+        }
+        return [...stages, update];
+      });
+
+      setLiveRun((prev: any) => {
+        if (!prev) return prev;
+        return { ...prev, status: data.status === 'RUNNING' ? 'RUNNING' : prev.status };
+      });
+    };
+    window.addEventListener('sf_ws_event', handler);
+    return () => window.removeEventListener('sf_ws_event', handler);
+  }, [id]);
 
   const { data: run, isLoading } = useQuery({
     queryKey: ['pipelines', 'detail', id],
@@ -53,7 +94,11 @@ export default function PipelineDetailPage() {
       const res = await client.get(`/pipelines/${id}`);
       return res.data;
     },
-    refetchInterval: (query: any) => (query.state.data?.status === STATUS.RUNNING ? 3000 : false),
+    refetchInterval: () => {
+      const sinceWs = Date.now() - lastWsUpdate.current;
+      if (wsConnected && sinceWs < 5000) return false;
+      return 5000;
+    },
   });
 
   const { data: logsData, isLoading: logsLoading } = useQuery({
@@ -66,19 +111,40 @@ export default function PipelineDetailPage() {
   });
 
   const stagesSorted = useMemo(() => {
-    if (!run?.stages) return [];
-    return [...run.stages].sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0));
-  }, [run?.stages]);
+    const base = run?.stages ? [...run.stages] : [];
+    if (!liveStages) return base.sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0));
+    const merged = base.map((s: any) => {
+      const live = liveStages.find((l: any) => l.stage_key === s.stage_key);
+      return live ? { ...s, ...live } : s;
+    });
+    for (const l of liveStages) {
+      if (!merged.find((m: any) => m.stage_key === l.stage_key)) {
+        merged.push({ ...l, name: l.stage_key });
+      }
+    }
+    return merged.sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0));
+  }, [run?.stages, liveStages]);
 
+  const effectiveRun = liveRun || run;
   const blockedStage = useMemo(() => {
     return stagesSorted.find((s: any) => s.status === STATUS.BLOCKED || s.status === STATUS.FAILED);
   }, [stagesSorted]);
 
-  if (isLoading) {
+  // Auto-trigger Void AI analysis when a stage fails or is blocked
+  const autoAnalyzePipeline = useVoidStore((s) => s.autoAnalyzePipeline);
+  const prevFailedStage = useRef<string | null>(null);
+  useEffect(() => {
+    if (blockedStage && blockedStage.stage_key !== prevFailedStage.current) {
+      prevFailedStage.current = blockedStage.stage_key;
+      autoAnalyzePipeline(id || '', blockedStage.name || blockedStage.stage_key);
+    }
+  }, [blockedStage, id, autoAnalyzePipeline]);
+
+  if (isLoading && !effectiveRun) {
     return <div className="skeleton" style={{ height: '400px', borderRadius: '12px' }} />;
   }
 
-  if (!run) {
+  if (!run && !liveRun) {
     return (
       <div style={{ textAlign: 'center', padding: '48px' }}>
         <h2 style={{ color: 'var(--sf-danger)' }}>Pipeline run not found</h2>
@@ -98,15 +164,15 @@ export default function PipelineDetailPage() {
         </button>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--sf-ink)', margin: 0 }}>
-            Pipeline Run #{run.run_number}
+            Pipeline Run #{effectiveRun.run_number}
           </h1>
           <p style={{ color: 'var(--sf-text-muted)', margin: '2px 0 0 0', fontSize: '13px' }}>
-            {run.repo_name} | {run.branch} | {run.commit_sha?.substring(0, 8)}
+            {effectiveRun.repo_name} | {effectiveRun.branch} | {effectiveRun.commit_sha?.substring(0, 8)}
           </p>
         </div>
         <div style={{ marginLeft: 'auto' }}>
-          <Badge variant={run.action_taken === 'BLOCK' ? 'failed' : run.status === STATUS.RUNNING ? 'warning' : 'success'}>
-            {run.action_taken === 'BLOCK' ? 'BLOCKED' : run.status}
+          <Badge variant={effectiveRun.action_taken === 'BLOCK' ? 'failed' : effectiveRun.status === STATUS.RUNNING ? 'warning' : 'success'}>
+            {effectiveRun.action_taken === 'BLOCK' ? 'BLOCKED' : effectiveRun.status}
           </Badge>
         </div>
       </div>
@@ -234,23 +300,23 @@ export default function PipelineDetailPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '12px', padding: '20px' }}>
         <div>
           <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Commit</div>
-          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sf-text-primary)', marginTop: '4px', fontFamily: 'var(--sf-font-mono)' }}>{run.commit_sha?.substring(0, 8) || 'HEAD'}</div>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sf-text-primary)', marginTop: '4px', fontFamily: 'var(--sf-font-mono)' }}>{effectiveRun.commit_sha?.substring(0, 8) || 'HEAD'}</div>
         </div>
         <div>
           <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Message</div>
-          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--sf-text-primary)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.commit_message || 'Manual scan trigger'}</div>
+          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--sf-text-primary)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{effectiveRun.commit_message || 'Manual scan trigger'}</div>
         </div>
         <div>
           <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Policy</div>
-          <div style={{ marginTop: '4px' }}><Badge variant={run.action_taken === 'BLOCK' ? 'failed' : 'success'}>{run.action_taken || 'ALLOW'}</Badge></div>
+          <div style={{ marginTop: '4px' }}><Badge variant={effectiveRun.action_taken === 'BLOCK' ? 'failed' : 'success'}>{effectiveRun.action_taken || 'ALLOW'}</Badge></div>
         </div>
         <div>
           <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Duration</div>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sf-text-primary)', marginTop: '4px' }}>{run.duration || 45}s</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sf-text-primary)', marginTop: '4px' }}>{effectiveRun.duration || 45}s</div>
         </div>
         <div>
           <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Branch</div>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sf-text-primary)', marginTop: '4px' }}>{run.branch}</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sf-text-primary)', marginTop: '4px' }}>{effectiveRun.branch}</div>
         </div>
       </div>
 

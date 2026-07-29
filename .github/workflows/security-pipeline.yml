@@ -86,6 +86,11 @@ jobs:
               -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
               -H "Content-Type: application/json" \
               -d '{ "pipeline_steps": { "checkout": { "result": "PASS", "detail": "code checked out" } } }' || true
+            # Immediately mark code_scan as RUNNING — real-time visibility
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
+              -H "Content-Type: application/json" \
+              -d '{ "pipeline_steps": { "code_scan": { "result": "RUNNING", "detail": "scanning code with Gitleaks + Semgrep..." } } }' || true
           fi
 
       # ── Step 2: Install Gitleaks ────────────────────────────────────────────
@@ -495,6 +500,20 @@ jobs:
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       # ── Step 10: Build and push backend image ───────────────────────────────
+      - name: Notify Docker Build Starting
+        if: >
+          steps.changes.outputs.image_changed == 'true' &&
+          steps.pipeline_start.outputs.run_id != ''
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
+          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
+        run: |
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
+            -H "Content-Type: application/json" \
+            -d '{ "pipeline_steps": { "docker": { "result": "RUNNING", "detail": "building backend Docker image..." } } }' || true
+
       - name: Build Backend Image
         id: docker_build
         if: steps.changes.outputs.image_changed == 'true'
@@ -588,6 +607,11 @@ jobs:
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \
             -d '{ "pipeline_steps": { "docker": { "result": "PASS", "detail": "image built and pushed" } } }' || true
+          # Immediately mark next stage as RUNNING — real-time visibility
+          curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
+            -H "Content-Type: application/json" \
+            -d '{ "pipeline_steps": { "trivy": { "result": "RUNNING", "detail": "scanning container for CVEs..." } } }' || true
 
       # ── Step 11: Trivy scan ─────────────────────────────────────────────────
       - name: Run Trivy CVE Scan
