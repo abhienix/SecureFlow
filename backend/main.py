@@ -221,38 +221,44 @@ from contextlib import asynccontextmanager
 async def _init_db_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        is_sqlite = "sqlite" in str(conn.engine.url)
-        
-        # Static literal SQL statements for SAST compliance (avoids dynamic f-strings in text())
-        migration_statements = [
-            text("ALTER TABLE scan_results ADD COLUMN dast_status VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_status VARCHAR"),
-            text("ALTER TABLE scan_results ADD COLUMN target_url VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS target_url VARCHAR"),
-            text("ALTER TABLE scan_results ADD COLUMN deployment_url VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS deployment_url VARCHAR"),
-            text("ALTER TABLE scan_results ADD COLUMN zap_findings JSON") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_findings JSON"),
-            text("ALTER TABLE scan_results ADD COLUMN zap_summary JSON") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_summary JSON"),
-            text("ALTER TABLE scan_results ADD COLUMN queued_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queued_at TIMESTAMP"),
-            text("ALTER TABLE scan_results ADD COLUMN dast_started_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_started_at TIMESTAMP"),
-            text("ALTER TABLE scan_results ADD COLUMN dast_completed_at TIMESTAMP") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS dast_completed_at TIMESTAMP"),
-            text("ALTER TABLE scan_results ADD COLUMN scan_duration INTEGER") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS scan_duration INTEGER"),
-            text("ALTER TABLE scan_results ADD COLUMN worker_name VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_name VARCHAR"),
-            text("ALTER TABLE scan_results ADD COLUMN worker_id VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_id VARCHAR"),
-            text("ALTER TABLE scan_results ADD COLUMN queue_error TEXT") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queue_error TEXT"),
-            text("ALTER TABLE scan_results ADD COLUMN zap_report_path VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_report_path VARCHAR"),
-            text("ALTER TABLE pipeline_stages ADD COLUMN stage_key VARCHAR") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS stage_key VARCHAR"),
-            text("ALTER TABLE pipeline_stages ADD COLUMN order_index INTEGER") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS order_index INTEGER"),
-            text("ALTER TABLE pipeline_stages ADD COLUMN exit_code INTEGER") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS exit_code INTEGER"),
-            text("ALTER TABLE pipeline_stages ADD COLUMN detail TEXT") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS detail TEXT"),
-            text("ALTER TABLE pipeline_stages ADD COLUMN retry_count INTEGER") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS retry_count INTEGER"),
-            text("ALTER TABLE events ADD COLUMN event_version INTEGER DEFAULT 1") if is_sqlite else text("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_version INTEGER DEFAULT 1"),
-            text("ALTER TABLE events ADD COLUMN dedup_key VARCHAR") if is_sqlite else text("ALTER TABLE events ADD COLUMN IF NOT EXISTS dedup_key VARCHAR"),
-            text("ALTER TABLE events ADD COLUMN source_link VARCHAR") if is_sqlite else text("ALTER TABLE events ADD COLUMN IF NOT EXISTS source_link VARCHAR"),
-        ]
 
-        for stmt in migration_statements:
-            try:
-                await conn.execute(stmt)
-            except Exception as e:
-                logger.info(f"[startup migration] column already exists or notice: {e}")
+    is_sqlite = "sqlite" in str(engine.url)
+
+    migration_statements = [
+        "ALTER TABLE scan_results ADD COLUMN dast_status VARCHAR",
+        "ALTER TABLE scan_results ADD COLUMN target_url VARCHAR",
+        "ALTER TABLE scan_results ADD COLUMN deployment_url VARCHAR",
+        "ALTER TABLE scan_results ADD COLUMN zap_findings JSON",
+        "ALTER TABLE scan_results ADD COLUMN zap_summary JSON",
+        "ALTER TABLE scan_results ADD COLUMN queued_at TIMESTAMP",
+        "ALTER TABLE scan_results ADD COLUMN dast_started_at TIMESTAMP",
+        "ALTER TABLE scan_results ADD COLUMN dast_completed_at TIMESTAMP",
+        "ALTER TABLE scan_results ADD COLUMN scan_duration INTEGER",
+        "ALTER TABLE scan_results ADD COLUMN worker_name VARCHAR",
+        "ALTER TABLE scan_results ADD COLUMN worker_id VARCHAR",
+        "ALTER TABLE scan_results ADD COLUMN queue_error TEXT",
+        "ALTER TABLE scan_results ADD COLUMN zap_report_path VARCHAR",
+        "ALTER TABLE pipeline_stages ADD COLUMN stage_key VARCHAR",
+        "ALTER TABLE pipeline_stages ADD COLUMN order_index INTEGER",
+        "ALTER TABLE pipeline_stages ADD COLUMN exit_code INTEGER",
+        "ALTER TABLE pipeline_stages ADD COLUMN detail TEXT",
+        "ALTER TABLE pipeline_stages ADD COLUMN retry_count INTEGER",
+        "ALTER TABLE events ADD COLUMN event_version INTEGER DEFAULT 1",
+        "ALTER TABLE events ADD COLUMN dedup_key VARCHAR",
+        "ALTER TABLE events ADD COLUMN source_link VARCHAR",
+    ]
+
+    for stmt_str in migration_statements:
+        if not is_sqlite:
+            stmt_sql = stmt_str.replace("ADD COLUMN ", "ADD COLUMN IF NOT EXISTS ")
+        else:
+            stmt_sql = stmt_str
+
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(stmt_sql))
+        except Exception as e:
+            logger.info(f"[startup migration] column already exists or notice: {e}")
 
         # Detect duplicate active rows that would violate the upcoming
         # partial unique index on (commit_sha, repo_name, branch).
