@@ -3,6 +3,7 @@ import {
   GitBranch, Shield, Box, ScanSearch, Lock, Server, Bug, ShieldCheck, Rocket,
   Check, X, ShieldAlert, Clock
 } from 'lucide-react';
+import { useTheme } from '../../contexts/ThemeContext';
 import { getNodeStyle } from './utils/statusMapping';
 
 interface PipelineNodeProps {
@@ -34,8 +35,37 @@ export function PipelineNode({
   onClick,
   forcedSkipped = false
 }: PipelineNodeProps) {
+  const { C } = useTheme();
   const baseStyle = getNodeStyle(forcedSkipped ? 'skipped' : result, stage);
   const IconComponent = StageIconMap[iconName] || Server;
+
+  const r = (forcedSkipped ? 'skipped' : result || 'PENDING').toUpperCase();
+
+  // Determine 3D spherical radial gradient fill and hover shadow colors
+  let gradientBackground = 'radial-gradient(circle at 30% 30%, #475569, #1E293B)';
+  let glowColor = 'rgba(71, 85, 105, 0.3)';
+
+  if (r === 'PASS' || r === 'ALLOW' || r === 'SCANNED') {
+    gradientBackground = 'radial-gradient(circle at 30% 30%, #34D399, #064E3B)';
+    glowColor = 'rgba(16, 185, 129, 0.5)';
+  } else if (r === 'BLOCK') {
+    if (stage === 'code_scan') {
+      gradientBackground = 'radial-gradient(circle at 30% 30%, #F87171, #7F1D1D)';
+      glowColor = 'rgba(239, 68, 68, 0.5)';
+    } else {
+      gradientBackground = 'radial-gradient(circle at 30% 30%, #FBBF24, #78350F)';
+      glowColor = 'rgba(245, 158, 11, 0.5)';
+    }
+  } else if (r === 'FAILED') {
+    gradientBackground = 'radial-gradient(circle at 30% 30%, #F87171, #7F1D1D)';
+    glowColor = 'rgba(239, 68, 68, 0.5)';
+  } else if (r === 'RUNNING') {
+    gradientBackground = 'radial-gradient(circle at 30% 30%, #818CF8, #1E1B4B)';
+    glowColor = 'rgba(99, 102, 241, 0.5)';
+  } else if (r === 'SKIPPED' || r === 'skipped') {
+    gradientBackground = 'radial-gradient(circle at 30% 30%, #4B5563, #111827)';
+    glowColor = 'transparent';
+  }
 
   // Render overlays
   const renderOverlay = () => {
@@ -109,6 +139,7 @@ export function PipelineNode({
   return (
     <div 
       onClick={onClick}
+      className="sf-node-container"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -127,14 +158,25 @@ export function PipelineNode({
           height: '52px',
           borderRadius: '50%',
           border: `3px solid ${baseStyle.border}`,
-          backgroundColor: baseStyle.fill,
+          background: gradientBackground,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           position: 'relative',
           boxSizing: 'border-box',
-          color: baseStyle.skipped ? '#6B7280' : '#E2E8F0',
-          transition: 'all 200ms ease'
+          color: baseStyle.skipped ? '#94A3B8' : '#ffffff',
+          boxShadow: `0 6px 12px -2px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2), 0 0 0 1px rgba(255,255,255,0.05)`,
+          transition: 'all 300ms cubic-bezier(0.4, 0, 0.2, 1)'
+        }}
+        onMouseEnter={(e) => {
+          if (!forcedSkipped && !baseStyle.skipped) {
+            e.currentTarget.style.transform = 'translateY(-6px) scale(1.1)';
+            e.currentTarget.style.boxShadow = `0 12px 20px -2px ${glowColor}, inset 0 2px 4px rgba(255,255,255,0.3)`;
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'none';
+          e.currentTarget.style.boxShadow = `0 6px 12px -2px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2), 0 0 0 1px rgba(255,255,255,0.05)`;
         }}
       >
         {/* Spinning border overlay for running */}
@@ -142,7 +184,7 @@ export function PipelineNode({
           <div style={{
             boxSizing: 'border-box',
             border: '3px solid transparent',
-            borderTopColor: '#6366F1',
+            borderTopColor: '#818CF8',
             borderRadius: '50%',
             width: '52px',
             height: '52px',
@@ -159,7 +201,7 @@ export function PipelineNode({
             position: 'absolute',
             width: '2px',
             height: '60px',
-            backgroundColor: '#6B7280',
+            backgroundColor: '#94A3B8',
             transform: 'rotate(-45deg)',
             top: '-4px',
             left: '50%'
@@ -172,8 +214,8 @@ export function PipelineNode({
 
       <span style={{
         fontSize: '11px',
-        fontWeight: 500,
-        color: '#94A3B8',
+        fontWeight: 600,
+        color: C.textSecondary,
         textAlign: 'center',
         lineHeight: '1.2',
         maxHeight: '26px',
@@ -182,7 +224,8 @@ export function PipelineNode({
         WebkitLineClamp: 2,
         WebkitBoxOrient: 'vertical',
         whiteSpace: 'normal',
-        wordBreak: 'break-word'
+        wordBreak: 'break-word',
+        transition: 'color 300ms ease'
       }}>
         {label}
       </span>
@@ -190,11 +233,11 @@ export function PipelineNode({
       <style>{`
         @keyframes sf-pulse-amber {
           0%, 100% { box-shadow: 0 0 0 0px rgba(245, 158, 11, 0.4); }
-          50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.1); }
+          50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.15); }
         }
         @keyframes sf-pulse-red {
           0%, 100% { box-shadow: 0 0 0 0px rgba(239, 68, 68, 0.4); }
-          50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.1); }
+          50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.15); }
         }
         @keyframes sf-spin {
           to { transform: rotate(360deg); }
@@ -209,3 +252,4 @@ export function PipelineNode({
     </div>
   );
 }
+export default PipelineNode;

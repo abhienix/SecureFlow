@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { X, Check, AlertCircle, Ban, RefreshCw, HelpCircle, Lock } from 'lucide-react';
+import { useTheme } from '../../contexts/ThemeContext';
 import { PipelineRun } from './types/pipeline.types';
 import { STAGE_META, getNodeStyle } from './utils/statusMapping';
 import PassDrawer from './drawers/PassDrawer';
@@ -30,6 +31,8 @@ export function PipelineDrawer({
   onNavigateToPolicies,
   forcedSkipped = false
 }: PipelineDrawerProps) {
+  const { C } = useTheme();
+
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -54,7 +57,7 @@ export function PipelineDrawer({
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10B981' }}>
           <Check size={18} strokeWidth={3} />
-          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: C.textPrimary }}>
             {meta.label} — Passed
           </h3>
         </div>
@@ -65,7 +68,7 @@ export function PipelineDrawer({
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#EF4444' }}>
             <AlertCircle size={18} />
-            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: C.textPrimary }}>
               Code Scan — Security Block
             </h3>
           </div>
@@ -75,7 +78,7 @@ export function PipelineDrawer({
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#EF4444' }}>
             <Ban size={18} />
-            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: C.textPrimary }}>
               ZAP Gate — Production Blocked
             </h3>
           </div>
@@ -84,7 +87,7 @@ export function PipelineDrawer({
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#F59E0B' }}>
           <Lock size={18} />
-          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: C.textPrimary }}>
             {meta.label} — Blocked
           </h3>
         </div>
@@ -94,7 +97,7 @@ export function PipelineDrawer({
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#EF4444' }}>
           <X size={18} strokeWidth={3} />
-          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: C.textPrimary }}>
             {meta.label} — Failed
           </h3>
         </div>
@@ -104,7 +107,7 @@ export function PipelineDrawer({
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6366F1' }}>
           <RefreshCw size={16} className="sf-spin" />
-          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: C.textPrimary }}>
             {meta.label} — Running
           </h3>
         </div>
@@ -114,16 +117,16 @@ export function PipelineDrawer({
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6B7280' }}>
           <Ban size={18} />
-          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: C.textPrimary }}>
             {meta.label} — Skipped
           </h3>
         </div>
       );
     }
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#94A3B8' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: C.textSecondary }}>
         <HelpCircle size={18} />
-        <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+        <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: C.textPrimary }}>
           {meta.label} — Pending
         </h3>
       </div>
@@ -229,9 +232,9 @@ export function PipelineDrawer({
         width: '400px',
         maxWidth: '92vw',
         height: '100%',
-        backgroundColor: '#111827',
-        borderLeft: '1px solid #1E293B',
-        boxShadow: '-8px 0 32px rgba(0,0,0,0.4)',
+        backgroundColor: C.bgCard,
+        borderLeft: `1px solid ${C.border}`,
+        boxShadow: C.shadowLg || '-8px 0 32px rgba(0,0,0,0.2)',
         display: 'flex',
         flexDirection: 'column',
         animation: 'sf-slide-in 250ms ease-out',
@@ -240,7 +243,7 @@ export function PipelineDrawer({
         {/* Header */}
         <div style={{
           padding: '20px',
-          borderBottom: '1px solid #1E293B',
+          borderBottom: `1px solid ${C.border}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between'
@@ -252,7 +255,7 @@ export function PipelineDrawer({
             style={{
               background: 'transparent',
               border: 'none',
-              color: '#94A3B8',
+              color: C.textSecondary,
               cursor: 'pointer',
               padding: '6px',
               borderRadius: '6px',
@@ -261,7 +264,7 @@ export function PipelineDrawer({
               justifyContent: 'center',
               transition: 'background-color 150ms'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1E293B'}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = C.bgSecondary}
             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
           >
             <X size={18} />

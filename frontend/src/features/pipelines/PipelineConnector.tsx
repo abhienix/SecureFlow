@@ -69,14 +69,21 @@ export function PipelineConnector({ sourceResult, forcedSkipped = false }: Pipel
           strokeWidth={2}
           strokeDasharray={dasharray}
           style={{
-            animation: animate ? 'sf-connector-dash 1s linear infinite' : 'none',
-            strokeDashoffset: animate ? 20 : 0
+            animation: animate 
+              ? 'sf-connector-dash 1s linear infinite' 
+              : (r === 'PASS' || r === 'ALLOW' ? 'sf-connector-pulse 2s alternate infinite' : 'none'),
+            strokeDashoffset: animate ? 20 : 0,
+            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))'
           }}
         />
       </svg>
       <style>{`
         @keyframes sf-connector-dash {
           to { stroke-dashoffset: 0; }
+        }
+        @keyframes sf-connector-pulse {
+          from { stroke-width: 2px; filter: drop-shadow(0 0 1px #10B981); opacity: 0.85; }
+          to { stroke-width: 2.5px; filter: drop-shadow(0 0 4px #10B981); opacity: 1; }
         }
       `}</style>
     </div>

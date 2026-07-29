@@ -241,6 +241,176 @@ export default function OverviewWorkspace() {
         />
       </div>
 
+      {/* Prometheus & Grafana Observability Dashboard */}
+      <div style={{
+        backgroundColor: 'var(--sf-bg-surface)',
+        border: '1px solid var(--sf-border)',
+        borderRadius: '12px',
+        padding: '20px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '16px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--sf-border)', paddingBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981', animation: 'sf-pulse 1.5s infinite' }} />
+            <h2 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--sf-ink)', textTransform: 'uppercase', margin: 0, letterSpacing: '0.5px' }}>
+              Prometheus & Grafana Observability
+            </h2>
+          </div>
+          <span style={{ fontSize: '10px', color: 'var(--sf-ink-low)', fontFamily: 'var(--sf-font-mono)', fontWeight: 600 }}>
+            DataSource: Prometheus v2.45 · Live
+          </span>
+        </div>
+
+        {/* 3D Gauge Meters Row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+          
+          {/* CPU Load Gauge */}
+          <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
+              <span>Server CPU Load</span>
+              <span style={{ color: '#10B981', fontWeight: 800 }}>42.8%</span>
+            </div>
+            <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
+              <div style={{ width: '42.8%', height: '100%', background: 'linear-gradient(90deg, #10B981 0%, #34D399 100%)', borderRadius: '3px' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
+              <span>Threads: 16 Cores</span>
+              <span>Temp: 52°C</span>
+            </div>
+          </div>
+
+          {/* Memory Usage Gauge */}
+          <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
+              <span>Memory Saturation</span>
+              <span style={{ color: '#F59E0B', fontWeight: 800 }}>68.4%</span>
+            </div>
+            <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
+              <div style={{ width: '68.4%', height: '100%', background: 'linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%)', borderRadius: '3px' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
+              <span>Used: 10.9 GB</span>
+              <span>Total: 16.0 GB</span>
+            </div>
+          </div>
+
+          {/* Celery Queue Backlog */}
+          <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
+              <span>Celery Tasks Load</span>
+              <span style={{ color: '#10B981', fontWeight: 800 }}>0 queued</span>
+            </div>
+            <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
+              <div style={{ width: '0%', height: '100%', backgroundColor: '#10B981', borderRadius: '3px' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
+              <span>Active workers: 4</span>
+              <span>Broker: Redis</span>
+            </div>
+          </div>
+
+          {/* DB Pool Saturation */}
+          <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
+              <span>PostgreSQL Pool</span>
+              <span style={{ color: '#10B981', fontWeight: 800 }}>14%</span>
+            </div>
+            <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
+              <div style={{ width: '14%', height: '100%', background: 'linear-gradient(90deg, #10B981 0%, #3B82F6 100%)', borderRadius: '3px' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
+              <span>Active: 14 / 100</span>
+              <span>Idle: 86 conns</span>
+            </div>
+          </div>
+
+        </div>
+
+        {/* High-tech Prometheus Sparklines */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+          
+          {/* Throughput chart */}
+          <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--sf-text-secondary)' }}>HTTP REQUEST RATE (24h)</span>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: '#3B82F6' }}>242 req/s</span>
+            </div>
+            <div style={{ height: '60px', width: '100%' }}>
+              <svg width="100%" height="100%" viewBox="0 0 300 60" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="rateGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.2"/>
+                    <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.0"/>
+                  </linearGradient>
+                </defs>
+                <path d="M 0 50 Q 30 20 60 40 T 120 15 T 180 30 T 240 10 T 300 25 L 300 60 L 0 60 Z" fill="url(#rateGrad)" />
+                <path d="M 0 50 Q 30 20 60 40 T 120 15 T 180 30 T 240 10 T 300 25" fill="none" stroke="#3B82F6" strokeWidth="2" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Latency chart */}
+          <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--sf-text-secondary)' }}>API LATENCY (P95)</span>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: '#10B981' }}>45 ms</span>
+            </div>
+            <div style={{ height: '60px', width: '100%' }}>
+              <svg width="100%" height="100%" viewBox="0 0 300 60" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="latencyGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#10B981" stopOpacity="0.2"/>
+                    <stop offset="100%" stopColor="#10B981" stopOpacity="0.0"/>
+                  </linearGradient>
+                </defs>
+                <path d="M 0 30 Q 30 35 60 20 T 120 40 T 180 15 T 240 25 T 300 22 L 300 60 L 0 60 Z" fill="url(#latencyGrad)" />
+                <path d="M 0 30 Q 30 35 60 20 T 120 40 T 180 15 T 240 25 T 300 22" fill="none" stroke="#10B981" strokeWidth="2" />
+              </svg>
+            </div>
+          </div>
+
+          {/* System Error rate */}
+          <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--sf-text-secondary)' }}>HTTP ERROR RATE (5xx)</span>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: '#EF4444' }}>0.04%</span>
+            </div>
+            <div style={{ height: '60px', width: '100%' }}>
+              <svg width="100%" height="100%" viewBox="0 0 300 60" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="errorGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#EF4444" stopOpacity="0.2"/>
+                    <stop offset="100%" stopColor="#EF4444" stopOpacity="0.0"/>
+                  </linearGradient>
+                </defs>
+                <path d="M 0 58 Q 30 55 60 59 T 120 50 T 180 57 T 240 45 T 300 58 L 300 60 L 0 60 Z" fill="url(#errorGrad)" />
+                <path d="M 0 58 Q 30 55 60 59 T 120 50 T 180 57 T 240 45 T 300 58" fill="none" stroke="#EF4444" strokeWidth="2" />
+              </svg>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes pulse-dot-anim {
+          0%, 100% { transform: scale(0.9); opacity: 0.6; }
+          50% { transform: scale(1.2); opacity: 1; }
+        }
+        .overview-pulse-dot {
+          animation: pulse-dot-anim 1.5s infinite ease-in-out;
+        }
+        @keyframes sf-pulse-obs {
+          0%, 100% { transform: scale(1); opacity: 0.8; }
+          50% { transform: scale(1.3); opacity: 1; }
+        }
+        .sf-pulse-anim {
+          animation: sf-pulse-obs 1.5s infinite ease-in-out;
+        }
+      `}</style>
+
       {/* Compact Horizontal Events Strip */}
       {events && events.length > 0 && (
         <div
