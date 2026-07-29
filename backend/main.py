@@ -1290,6 +1290,15 @@ def enforce_monotonic_stages(pipeline_steps: dict, current_stage_key: str, outco
     idx = stage_sequence.index(current_stage_key)
     res = dict(pipeline_steps)
     
+    # 0. Monotonic Guard: Reject regression if any downstream stage is already running/passed/failed
+    for j in range(idx + 1, len(stage_sequence)):
+        later_key = stage_sequence[j]
+        later_val = res.get(later_key) or {}
+        later_result = (later_val.get("result") or "").upper()
+        if later_result in ("RUNNING", "PASS", "ALLOW", "SCANNED", "FAILED", "BLOCK", "SKIPPED", "PASSED", "BLOCKED"):
+            if outcome.upper() in ("PENDING", "RUNNING", "QUEUED", "WAITING"):
+                return res
+    
     # 1. Enforce that all stages before idx are resolved (e.g. PASS/passed) if they are currently PENDING or missing
     for i in range(idx):
         prev_key = stage_sequence[i]
@@ -1384,7 +1393,7 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
     broadcast_events = []
     run_updated = False
 
-    for sk, sv in input_steps.items():
+    for sk, sv in existing_steps.items():
         if not isinstance(sv, dict):
             sv = {"result": str(sv)}
         stage_result = sv.get("result", "")
