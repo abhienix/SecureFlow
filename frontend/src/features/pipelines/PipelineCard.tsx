@@ -27,7 +27,7 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
   }, [run.created_at]);
 
   // Live duration ticker if run is running
-  const isRunning = run.status === 'running';
+  const isRunning = run.status === 'running' || run.status === 'RUNNING';
   useEffect(() => {
     if (!isRunning) {
       setLiveDuration(run.duration || 0);
