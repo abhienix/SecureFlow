@@ -243,6 +243,9 @@ async def _init_db_tables():
             text("ALTER TABLE pipeline_stages ADD COLUMN exit_code INTEGER") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS exit_code INTEGER"),
             text("ALTER TABLE pipeline_stages ADD COLUMN detail TEXT") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS detail TEXT"),
             text("ALTER TABLE pipeline_stages ADD COLUMN retry_count INTEGER") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS retry_count INTEGER"),
+            text("ALTER TABLE events ADD COLUMN event_version INTEGER DEFAULT 1") if is_sqlite else text("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_version INTEGER DEFAULT 1"),
+            text("ALTER TABLE events ADD COLUMN dedup_key VARCHAR") if is_sqlite else text("ALTER TABLE events ADD COLUMN IF NOT EXISTS dedup_key VARCHAR"),
+            text("ALTER TABLE events ADD COLUMN source_link VARCHAR") if is_sqlite else text("ALTER TABLE events ADD COLUMN IF NOT EXISTS source_link VARCHAR"),
         ]
 
         for stmt in migration_statements:
@@ -1486,19 +1489,22 @@ async def update_scan_progress(run_id: int, data: dict = None, db: AsyncSession 
         })
 
         # Create Event record for significant transitions
-        if stage_status in (StageStatus.PASSED.value, StageStatus.FAILED.value, StageStatus.BLOCKED.value):
-            evt_dedup = f"stage.{sk}:{scan.id}:{stage_status}"
-            evt_existing = await db.execute(select(Event).filter(Event.dedup_key == evt_dedup))
-            if not evt_existing.scalars().first():
-                evt_type = f"pipeline.stage.{stage_status.lower()}"
-                evt_msg = f"Stage '{STAGE_DEFINITIONS.get(sk, {}).get('label', sk)}' {stage_status.lower()} for run #{scan.id}"
-                db.add(Event(
-                    type=evt_type, message=evt_msg,
-                    source_link=f"/pipelines/{run_id_str}",
-                    severity="warning" if StageStatus.is_failure(stage_status) else "info",
-                    dedup_key=evt_dedup, event_version=1,
-                    created_at=now,
-                ))
+        try:
+            if stage_status in (StageStatus.PASSED.value, StageStatus.FAILED.value, StageStatus.BLOCKED.value):
+                evt_dedup = f"stage.{sk}:{scan.id}:{stage_status}"
+                evt_existing = await db.execute(select(Event).filter(Event.dedup_key == evt_dedup))
+                if not evt_existing.scalars().first():
+                    evt_type = f"pipeline.stage.{stage_status.lower()}"
+                    evt_msg = f"Stage '{STAGE_DEFINITIONS.get(sk, {}).get('label', sk)}' {stage_status.lower()} for run #{scan.id}"
+                    db.add(Event(
+                        type=evt_type, message=evt_msg,
+                        source_link=f"/pipelines/{run_id_str}",
+                        severity="warning" if StageStatus.is_failure(stage_status) else "info",
+                        dedup_key=evt_dedup, event_version=1,
+                        created_at=now,
+                    ))
+        except Exception as e:
+            logger.warning(f"[progress] Error creating event record: {e}")
 
     # Update PipelineRun overall status based on latest stage states
     if run_updated and run:
