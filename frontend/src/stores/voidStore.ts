@@ -38,7 +38,7 @@ export const useVoidStore = create<VoidStore>((set) => ({
   messages: [
     {
       role: 'assistant',
-      content: "Hello! I am **Void** — SecureFlow's Copilot for abhienix/SecureFlow. I have context on your pipeline runs, security findings, and infrastructure. How can I help?",
+      content: "Hello! How can I help you with SecureFlow security scans or pipelines today?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ],
@@ -82,7 +82,7 @@ export const useVoidStore = create<VoidStore>((set) => ({
     messages: [
       {
         role: 'assistant',
-        content: `Hello! I am **Void** — SecureFlow's Copilot for ${repoName}. I have context on your pipeline runs, security findings, and infrastructure. How can I help?`,
+        content: "Hello! How can I help you with SecureFlow security scans or pipelines today?",
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
     ],

@@ -91,12 +91,69 @@ export function useWebSocket() {
           const data = JSON.parse(event.data);
           if (data.type === 'ping') return;
 
+          setLastApiResponse(Date.now());
+
           // Stale event detection
           if (data._event_version && data.run_id && data.stage_key) {
             const dedupKey = `${data.run_id}:${data.stage_key}:${data._event_version}`;
             if (seenEventIds.current.has(dedupKey)) return;
             seenEventIds.current.add(dedupKey);
             if (seenEventIds.current.size > 1000) seenEventIds.current.clear();
+          }
+
+          // ── Notification bell: scan started ────────────────────────────
+          if (data.type === 'scan_started') {
+            addNotification({
+              type: 'info',
+              title: '🔄 Pipeline Started',
+              message: `${data.repo_name || data.repository || 'Unknown repo'} — scanning commit ${(data.commit_sha || '').substring(0, 8) || 'latest'}`,
+              category: 'pipelines',
+              link: `/pipelines`,
+            });
+          }
+
+          // ── Notification bell: scan complete ───────────────────────────
+          if (data.type === 'scan_complete') {
+            const isBlocked = data.action_taken === 'BLOCK';
+            addNotification({
+              type: isBlocked ? 'error' : 'success',
+              title: isBlocked ? '🚨 Pipeline Blocked' : '✅ Pipeline Passed',
+              message: `${data.repo_name || data.repository || 'Unknown repo'} — ${(data.commit_sha || '').substring(0, 8) || 'latest'}`,
+              category: 'pipelines',
+              link: `/pipelines`,
+            });
+          }
+
+          // ── Notification bell: pipeline stage completed ─────────────────
+          if (data.type === 'pipeline.synced' && data.status === 'BLOCK') {
+            addNotification({
+              type: 'error',
+              title: '🚨 Build Blocked by Security Gate',
+              message: `${data.repo_name || 'Pipeline'} was blocked — ${data.commit_sha?.substring(0, 8) || 'check details'}`,
+              category: 'security',
+              link: `/pipelines`,
+            });
+          }
+
+          // ── Notification bell: critical finding ────────────────────────
+          if (data.type === 'scan.critical_finding') {
+            addNotification({
+              type: 'error',
+              title: '⚠️ Critical Vulnerability Found',
+              message: data.message || `Critical finding in ${data.repo_name || 'unknown'}`,
+              category: 'security',
+              link: `/security-center`,
+            });
+          }
+
+          // ── Notification bell: Slack alert sent ────────────────────────
+          if (data.type === 'slack.alert_sent') {
+            addNotification({
+              type: 'info',
+              title: '📣 Slack Alert Sent',
+              message: data.message || 'Notification posted to #devsecops-alerts',
+              category: 'slack',
+            });
           }
 
           // Invalidate queries based on event type
@@ -115,6 +172,7 @@ export function useWebSocket() {
             qc.invalidateQueries({ queryKey: queryKeys.scans });
             qc.invalidateQueries({ queryKey: ['observability', 'overview'] });
             qc.invalidateQueries({ queryKey: ['events', 'feed'] });
+            qc.invalidateQueries({ queryKey: ['notifications'] });
           }
 
           if (data.type?.startsWith('deploy.')) {
@@ -124,6 +182,7 @@ export function useWebSocket() {
           if (data.type === 'scan_complete' || data.type === 'scan_started' || data.type === 'scan_timeout' || data.type === 'scan_progress' || data.type === 'scan_reanalyzed') {
             qc.invalidateQueries({ queryKey: queryKeys.scans });
             qc.invalidateQueries({ queryKey: queryKeys.pipelines });
+            qc.invalidateQueries({ queryKey: ['notifications'] });
           }
 
           if (data.type === 'dast_update') {
