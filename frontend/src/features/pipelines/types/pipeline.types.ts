@@ -16,7 +16,7 @@ export interface PipelineRun {
   action_taken?: 'ALLOW' | 'BLOCK';
   reason?: string;
   ai_explanation?: string;
-  status: 'running' | 'complete' | 'timeout' | 'superseded';
+  status: 'WAITING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'BLOCKED' | 'SKIPPED' | 'CANCELLED' | 'running' | 'complete' | 'timeout' | 'superseded';
   created_at: string;
   updated_at?: string;
   started_at?: string;
