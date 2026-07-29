@@ -986,7 +986,7 @@ jobs:
           echo "DAST POLLING DIAGNOSTICS INSTRUMENTATION"
           echo "BACKEND_URL: $BACKEND_URL"
           echo "RUN_ID: $RUN_ID"
-          echo "Full Endpoint: $BACKEND_URL/api/scan-results/$RUN_ID/progress"
+          echo "Polling URL: $BACKEND_URL/api/scan-results/$RUN_ID/progress"
           if [ -n "$BACKEND_API_SECRET" ]; then
             echo "Authorization header present: YES"
           else
@@ -1000,17 +1000,29 @@ jobs:
             POLL_NUM=$((retry + 1))
             TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-            RESP_FILE=$(mktemp)
-            HTTP_CODE=$(curl -sS -w "%{http_code}" -o "$RESP_FILE" -X GET "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
-              -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
-              -H "Content-Type: application/json" 2>&1 || echo "000")
-            RAW_RESP=$(cat "$RESP_FILE" 2>/dev/null || echo "")
-            rm -f "$RESP_FILE"
-
             echo "===================================================="
             echo "Poll $POLL_NUM | Timestamp: $TS"
-            echo "HTTP Status Code: $HTTP_CODE"
-            echo "Raw Response Body:"
+            echo "Executing Verbose Curl..."
+
+            CURL_ERR_FILE=$(mktemp)
+            RESP_FILE=$(mktemp)
+
+            curl --verbose --show-error \
+              -X GET "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
+              -H "Content-Type: application/json" \
+              -o "$RESP_FILE" \
+              2> "$CURL_ERR_FILE"
+            CURL_EXIT=$?
+
+            RAW_RESP=$(cat "$RESP_FILE" 2>/dev/null || echo "")
+            CURL_STDERR=$(cat "$CURL_ERR_FILE" 2>/dev/null || echo "")
+            rm -f "$RESP_FILE" "$CURL_ERR_FILE"
+
+            echo "CURL EXIT CODE: $CURL_EXIT"
+            echo "CURL STDERR / VERBOSE LOG:"
+            echo "$CURL_STDERR"
+            echo "RAW RESPONSE BODY:"
             echo "$RAW_RESP"
             echo "----------------------------------------------------"
 
@@ -1019,20 +1031,14 @@ jobs:
 
             if echo "$RAW_RESP" | jq empty 2>/dev/null && [ -n "$RAW_RESP" ]; then
               JQ_PARSE="SUCCESS"
-              if [ "$HTTP_CODE" = "200" ]; then
-                EXEC_PATH="VALID_JSON_200"
-              elif [ "$HTTP_CODE" = "403" ]; then
-                EXEC_PATH="AUTH_FAILURE_403"
-              else
-                EXEC_PATH="HTTP_ERROR_${HTTP_CODE}"
-              fi
+              EXEC_PATH="VALID_JSON"
               RESPONSE="$RAW_RESP"
             else
               JQ_PARSE="FAILED"
               if [ -z "$RAW_RESP" ]; then
                 EXEC_PATH="EMPTY_RESPONSE"
-              elif [ "$HTTP_CODE" = "000" ]; then
-                EXEC_PATH="CURL_NETWORK_FAILURE"
+              elif [ $CURL_EXIT -ne 0 ]; then
+                EXEC_PATH="CURL_ERROR_EXIT_${CURL_EXIT}"
               else
                 EXEC_PATH="NON_JSON_RESPONSE"
               fi
