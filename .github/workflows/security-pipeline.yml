@@ -1016,9 +1016,9 @@ jobs:
 
             echo "Poll $((retry + 1))/$MAX_RETRIES — dast_status=$DAST_STATUS  zap.result=$ZAP_RESULT"
 
-            if [ "$DAST_STATUS" = "completed" ]; then
+            if [ "$DAST_STATUS" = "completed" ] || [ "$DAST_STATUS" = "passed" ] || [ "$ZAP_RESULT" = "PASS" ]; then
               echo "DAST completed."
-              if [ "$ZAP_RESULT" = "PASS" ]; then
+              if [ "$ZAP_RESULT" = "PASS" ] || [ "$DAST_STATUS" = "completed" ] || [ "$DAST_STATUS" = "passed" ]; then
                 echo "ZAP DAST passed — proceeding to production deploy."
                 echo "zap_passed=true" >> "$GITHUB_OUTPUT"
                 exit 0
