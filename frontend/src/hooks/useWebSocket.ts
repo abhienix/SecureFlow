@@ -100,6 +100,16 @@ export function useWebSocket() {
           }
 
           // Invalidate queries based on event type
+          if (data.type === 'pipeline.stage_update' && data.run_id) {
+            qc.invalidateQueries({ queryKey: ['pipelines', 'detail', data.run_id.replace('run-', '')] });
+            qc.invalidateQueries({ queryKey: ['pipelines', 'detail', data.scan_id] });
+            qc.invalidateQueries({ queryKey: ['pipelines', 'latest'] });
+            qc.invalidateQueries({ queryKey: queryKeys.pipelines });
+            qc.invalidateQueries({ queryKey: ['events', 'feed'] });
+            window.dispatchEvent(new CustomEvent('sf_ws_event', { detail: data }));
+            return;
+          }
+
           if (data.type === 'pipeline.synced' || data.type?.startsWith('pipeline.') || data.type?.startsWith('scan.')) {
             qc.invalidateQueries({ queryKey: queryKeys.pipelines });
             qc.invalidateQueries({ queryKey: queryKeys.scans });

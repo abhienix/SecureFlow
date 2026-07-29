@@ -688,16 +688,9 @@ async def sync_single_scan_result_to_new_tables(scan_id: int, db: AsyncSession):
         run.commit_message = s.commit_message
         await db.commit()
 
-    # Idempotent replacement of child records
-    await db.execute(delete(PipelineStage).filter(PipelineStage.run_id == run_id))
-    await db.execute(delete(PipelineStep).filter(PipelineStep.id.like(f"step-{s.id}-%")))
-    await db.execute(delete(SecurityFinding).filter(SecurityFinding.pipeline_run_id == run_id))
-    await db.execute(delete(Deployment).filter(Deployment.pipeline_run_id == run_id))
-    await db.commit()
-
     steps_data = s.pipeline_steps or {}
 
-    # Compute stage statuses deterministically
+    # Incremental upsert of PipelineStage records — never delete+recreate
     for idx, stage_key in enumerate(STAGE_ORDER):
         step_val = steps_data.get(stage_key) or {}
         if isinstance(step_val, str):
@@ -733,26 +726,55 @@ async def sync_single_scan_result_to_new_tables(scan_id: int, db: AsyncSession):
                 detail = f"Awaiting execution of {status_label}."
 
         exit_code = 1 if StageStatus.is_failure(status) else 0
+        now = datetime.utcnow()
 
         stage_id = f"stage-{s.id}-{stage_key}"
-        stage_obj = PipelineStage(
-            id=stage_id, run_id=run.id,
-            name=STAGE_DEFINITIONS[stage_key]["label"],
-            stage_key=stage_key, order_index=idx,
-            status=status,
-            detail=detail, exit_code=exit_code,
-            started_at=s.created_at,
-            ended_at=s.created_at if StageStatus.is_terminal(status) else None,
-        )
-        db.add(stage_obj)
+        stage_res = await db.execute(select(PipelineStage).filter(PipelineStage.id == stage_id))
+        existing_stage = stage_res.scalars().first()
 
-        step_obj = PipelineStep(
-            id=f"step-{s.id}-{stage_key}", stage_id=stage_id,
-            name=STAGE_DEFINITIONS[stage_key]["label"],
-            status=status, exit_code=exit_code,
-            logs=build_stage_log(stage_key, status, detail)
-        )
-        db.add(step_obj)
+        if existing_stage:
+            if not PipelineStateMachine.can_transition(existing_stage.status, status):
+                logger.warning(f"[sync] Invalid state transition {existing_stage.status} -> {status} for stage {stage_key}, preserving existing")
+                status = existing_stage.status
+                detail = existing_stage.detail or detail
+                exit_code = existing_stage.exit_code or exit_code
+            else:
+                existing_stage.status = status
+            existing_stage.detail = detail
+            existing_stage.exit_code = exit_code
+            if status == StageStatus.RUNNING.value and not existing_stage.started_at:
+                existing_stage.started_at = now
+            if StageStatus.is_terminal(status) and not existing_stage.ended_at:
+                existing_stage.ended_at = now
+        else:
+            stage_obj = PipelineStage(
+                id=stage_id, run_id=run.id,
+                name=STAGE_DEFINITIONS[stage_key]["label"],
+                stage_key=stage_key, order_index=idx,
+                status=status,
+                detail=detail, exit_code=exit_code,
+                started_at=now if status == StageStatus.RUNNING.value else s.created_at,
+                ended_at=now if StageStatus.is_terminal(status) else None,
+            )
+            db.add(stage_obj)
+
+        # Upsert PipelineStep
+        step_id = f"step-{s.id}-{stage_key}"
+        step_res = await db.execute(select(PipelineStep).filter(PipelineStep.id == step_id))
+        existing_step = step_res.scalars().first()
+        if not existing_step:
+            step_obj = PipelineStep(
+                id=step_id, stage_id=stage_id,
+                name=STAGE_DEFINITIONS[stage_key]["label"],
+                status=status, exit_code=exit_code,
+                logs=build_stage_log(stage_key, status, detail)
+            )
+            db.add(step_obj)
+
+    # Clean up old findings + deployment for this run (stages are incremental above)
+    await db.execute(delete(SecurityFinding).filter(SecurityFinding.pipeline_run_id == run_id))
+    await db.execute(delete(Deployment).filter(Deployment.pipeline_run_id == run_id))
+    await db.commit()
 
     # Ingest findings
     f = s.findings or {}
@@ -1308,14 +1330,11 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
     if "status" in data:
         scan.status = data["status"]
 
-    # Allow worker to update dast_status (e.g. to "completed" after ZAP scan)
     if "dast_status" in data:
         scan.dast_status = data["dast_status"]
         if data["dast_status"] == "completed":
             from datetime import datetime as _dt
             scan.dast_completed_at = _dt.utcnow()
-            # Infer zap.result from dast_status transition when the worker
-            # sets completed without explicitly updating the zap step.
             zap_current = (scan.pipeline_steps or {}).get("zap", {}).get("result", "")
             if zap_current in ("PENDING", "QUEUED"):
                 zap_steps = enforce_monotonic_stages(dict(scan.pipeline_steps or {}), "zap", "PASS")
@@ -1326,7 +1345,6 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
                 zap_steps = enforce_monotonic_stages(dict(scan.pipeline_steps or {}), "zap", "FAILED")
                 scan.pipeline_steps = zap_steps
 
-    # Save ZAP findings telemetry and update merged findings dict
     if "zap_findings" in data:
         scan.zap_findings = data["zap_findings"]
         existing_findings = dict(scan.findings or {})
@@ -1338,19 +1356,110 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
         
     await db.commit()
     await db.refresh(scan)
-    
-    # Propagate update dynamically to normalized tables
-    try:
-        await sync_single_scan_result_to_new_tables(scan.id, db)
-    except Exception as ex:
-        logger.warning(f"[progress sync] failed to sync tables: {ex}")
 
-    await manager.broadcast({
-        "type": "scan_progress",
-        "run_id": run_id,
-        "pipeline_steps": scan.pipeline_steps,
-        "status": scan.status,
-    })
+    # Directly upsert PipelineStage records (no delete+recreate)
+    run_id_str = f"run-{scan.id}"
+    run_res = await db.execute(select(PipelineRun).filter(PipelineRun.id == run_id_str))
+    run = run_res.scalars().first()
+
+    broadcast_events = []
+    run_updated = False
+
+    for sk, sv in input_steps.items():
+        if not isinstance(sv, dict):
+            sv = {"result": str(sv)}
+        stage_result = sv.get("result", "")
+        stage_status = StageStatus.normalize(stage_result)
+        stage_detail = sv.get("detail", "")
+        stage_exit_code = 1 if StageStatus.is_failure(stage_status) else 0
+        now = datetime.utcnow()
+
+        stage_id = f"stage-{scan.id}-{sk}"
+        stage_res = await db.execute(select(PipelineStage).filter(PipelineStage.id == stage_id))
+        existing_stage = stage_res.scalars().first()
+
+        if existing_stage:
+            old_status = existing_stage.status
+            if old_status != stage_status:
+                if not PipelineStateMachine.can_transition(old_status, stage_status):
+                    logger.warning(f"[progress] Invalid transition {old_status} -> {stage_status} for stage {sk}, skipping")
+                    continue
+                existing_stage.status = stage_status
+            if stage_detail:
+                existing_stage.detail = stage_detail
+            existing_stage.exit_code = stage_exit_code
+            if stage_status == StageStatus.RUNNING.value and not existing_stage.started_at:
+                existing_stage.started_at = now
+            if StageStatus.is_terminal(stage_status) and not existing_stage.ended_at:
+                existing_stage.ended_at = now
+            run_updated = True
+        else:
+            idx = STAGE_ORDER.index(sk) if sk in STAGE_ORDER else -1
+            stage_obj = PipelineStage(
+                id=stage_id, run_id=run_id_str,
+                name=STAGE_DEFINITIONS.get(sk, {}).get("label", sk),
+                stage_key=sk, order_index=idx,
+                status=stage_status,
+                detail=stage_detail, exit_code=stage_exit_code,
+                started_at=now if stage_status == StageStatus.RUNNING.value else None,
+                ended_at=now if StageStatus.is_terminal(stage_status) else None,
+            )
+            db.add(stage_obj)
+            run_updated = True
+
+        broadcast_events.append({
+            "stage_key": sk,
+            "status": stage_status,
+            "detail": stage_detail,
+            "exit_code": stage_exit_code,
+            "timestamp": now.isoformat() + "Z",
+        })
+
+        # Create Event record for significant transitions
+        if stage_status in (StageStatus.PASSED.value, StageStatus.FAILED.value, StageStatus.BLOCKED.value):
+            evt_dedup = f"stage.{sk}:{scan.id}:{stage_status}"
+            evt_existing = await db.execute(select(Event).filter(Event.dedup_key == evt_dedup))
+            if not evt_existing.scalars().first():
+                evt_type = f"pipeline.stage.{stage_status.lower()}"
+                evt_msg = f"Stage '{STAGE_DEFINITIONS.get(sk, {}).get('label', sk)}' {stage_status.lower()} for run #{scan.id}"
+                db.add(Event(
+                    type=evt_type, message=evt_msg,
+                    source_link=f"/pipelines/{run_id_str}",
+                    severity="warning" if StageStatus.is_failure(stage_status) else "info",
+                    dedup_key=evt_dedup, event_version=1,
+                    created_at=now,
+                ))
+
+    # Update PipelineRun overall status based on latest stage states
+    if run_updated and run:
+        all_stages = await db.execute(
+            select(PipelineStage).filter(PipelineStage.run_id == run_id_str).order_by(PipelineStage.order_index)
+        )
+        stages = all_stages.scalars().all()
+        if stages:
+            running_stages = [s for s in stages if s.status == StageStatus.RUNNING.value]
+            failed_stages = [s for s in stages if StageStatus.is_failure(s.status)]
+            all_terminal = all(StageStatus.is_terminal(s.status) for s in stages)
+            if running_stages:
+                run.status = StageStatus.RUNNING.value
+            elif failed_stages:
+                run.status = StageStatus.BLOCKED.value if any(s.status == StageStatus.BLOCKED.value for s in failed_stages) else StageStatus.FAILED.value
+            elif all_terminal:
+                run.status = StageStatus.PASSED.value
+            else:
+                run.status = StageStatus.WAITING.value
+
+    await db.commit()
+
+    # Broadcast per-stage WebSocket events
+    for evt in broadcast_events:
+        await manager.broadcast({
+            "type": "pipeline.stage_update",
+            "run_id": run_id_str,
+            "scan_id": scan.id,
+            "repo_name": scan.repo_name,
+            **evt,
+        })
 
     return {
         "status": "progress updated",

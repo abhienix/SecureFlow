@@ -30,6 +30,7 @@ interface VoidStore {
   setTyping: (v: boolean) => void;
   setStreaming: (v: boolean) => void;
   setTriggerPrompt: (v: string | null) => void;
+  autoAnalyzePipeline: (runId: string, stageName: string) => void;
 }
 
 export const useVoidStore = create<VoidStore>((set) => ({
