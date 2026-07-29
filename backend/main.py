@@ -1332,8 +1332,26 @@ def enforce_monotonic_stages(pipeline_steps: dict, current_stage_key: str, outco
     return res
 
 
+@app.get("/api/scan-results/{run_id}/progress")
+async def get_scan_progress(run_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(ScanResult).filter(ScanResult.id == run_id))
+    scan = result.scalars().first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {
+        "id": scan.id,
+        "status": scan.status,
+        "dast_status": scan.dast_status or "pending",
+        "pipeline_steps": scan.pipeline_steps or {},
+        "action_taken": scan.action_taken,
+        "risk_score": scan.risk_score,
+    }
+
+
 @app.patch("/api/scan-results/{run_id}/progress", dependencies=[Depends(verify_api_secret)])
-async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+async def update_scan_progress(run_id: int, data: dict = None, db: AsyncSession = Depends(get_db)):
+    if data is None:
+        data = {}
     result = await db.execute(select(ScanResult).filter(ScanResult.id == run_id))
     scan = result.scalars().first()
     if not scan:
