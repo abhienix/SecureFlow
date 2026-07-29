@@ -992,12 +992,7 @@ jobs:
           echo "FINAL_URL=[$URL]"
           printf 'FINAL_URL_QUOTED=%q\n' "$URL"
 
-          python3 - <<'PY'
-import os
-url = os.environ.get("BACKEND_URL","")
-print("repr(BACKEND_URL) =", repr(url))
-print("endswith('/') =", url.endswith("/"))
-PY
+          python3 -c 'import os; u = os.getenv("BACKEND_URL",""); print("repr(BACKEND_URL) =", repr(u)); print("endswith(/) =", u.endswith("/"))'
 
           if [ -n "$BACKEND_API_SECRET" ]; then
             echo "Authorization header present: YES"
