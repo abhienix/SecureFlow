@@ -1,6 +1,6 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { GitBranch, Shield, Zap, Cloud, AlertTriangle, ArrowRight } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { GitBranch, Shield, Zap, Cloud, AlertTriangle, ArrowRight, Rocket, Clock, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import MetricCard from '../../components/charts/MetricCard';
 import DataTable, { Column } from '../../components/ui/DataTable';
@@ -19,12 +19,50 @@ interface RepositoryData {
   url: string;
 }
 
+const generateSvgPath = (values: [number, string][] | undefined, width: number, height: number, defaultPath: string) => {
+  if (!values || values.length === 0) {
+    return { path: defaultPath, areaPath: '' };
+  }
+  
+  const parsed = values.map(([ts, val]) => parseFloat(val));
+  const max = Math.max(...parsed, 1.0);
+  const min = Math.min(...parsed, 0.0);
+  const range = max - min || 1.0;
+
+  const coords = values.map(([ts, val], idx) => {
+    const x = (idx / (values.length - 1)) * width;
+    const parsedVal = parseFloat(val);
+    const y = height - ((parsedVal - min) / range) * (height - 10) - 5;
+    return { x, y };
+  });
+
+  const path = coords.map((c, idx) => `${idx === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+  const areaPath = `${path} L ${width} ${height} L 0 ${height} Z`;
+  
+  return { path, areaPath };
+};
+
 export default function OverviewWorkspace() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   
   // Activate real-time events
   useSSE();
   useWebSocket();
+
+  // Invalidate events and observability on WebSocket/SSE messages
+  useEffect(() => {
+    const handler = () => {
+      qc.invalidateQueries({ queryKey: ['events', 'feed'] });
+      qc.invalidateQueries({ queryKey: ['observability', 'overview'] });
+    };
+    window.addEventListener('sf_ws_event', handler);
+    window.addEventListener('sf_toast', handler);
+    return () => {
+      window.removeEventListener('sf_ws_event', handler);
+      window.removeEventListener('sf_toast', handler);
+    };
+  }, [qc]);
 
   // Fetch Repositories
   const { data: repoData, isLoading: reposLoading, isError: reposError, refetch: reposRefetch } = useQuery<{ repositories: RepositoryData[] }>({
@@ -33,6 +71,16 @@ export default function OverviewWorkspace() {
       const res = await client.get('/repositories');
       return res.data;
     },
+  });
+
+  // Fetch Observability Overview
+  const { data: obsOverview, isLoading: obsLoading, isError: obsError } = useQuery({
+    queryKey: ['observability', 'overview'],
+    queryFn: async () => {
+      const res = await client.get('/observability/overview');
+      return res.data;
+    },
+    refetchInterval: 10000,
   });
 
   // Fetch Security Summary
@@ -69,7 +117,75 @@ export default function OverviewWorkspace() {
       const res = await client.get('/events');
       return res.data;
     },
-    refetchInterval: 30000,
+    refetchInterval: 15000,
+  });
+
+  // Fetch Live Metric Gauges
+  const { data: cpuVal = 42.8 } = useQuery({
+    queryKey: ['metrics', 'cpu'],
+    queryFn: async () => {
+      const res = await client.get('/metrics/query?query=server_cpu_usage');
+      return parseFloat(res.data?.data?.result?.[0]?.value?.[1] || '42.8');
+    },
+    refetchInterval: 5000,
+  });
+
+  const { data: memVal = 68.4 } = useQuery({
+    queryKey: ['metrics', 'memory'],
+    queryFn: async () => {
+      const res = await client.get('/metrics/query?query=server_memory_usage');
+      return parseFloat(res.data?.data?.result?.[0]?.value?.[1] || '68.4');
+    },
+    refetchInterval: 5000,
+  });
+
+  const { data: celeryVal = 0 } = useQuery({
+    queryKey: ['metrics', 'celery'],
+    queryFn: async () => {
+      const res = await client.get('/metrics/query?query=celery_queue_length');
+      return parseFloat(res.data?.data?.result?.[0]?.value?.[1] || '0');
+    },
+    refetchInterval: 5000,
+  });
+
+  const { data: dbVal = 14 } = useQuery({
+    queryKey: ['metrics', 'postgres'],
+    queryFn: async () => {
+      const res = await client.get('/metrics/query?query=pg_stat_activity');
+      return parseFloat(res.data?.data?.result?.[0]?.value?.[1] || '14');
+    },
+    refetchInterval: 5000,
+  });
+
+  // Fetch Sparkline range data
+  const endTs = Date.now() / 1000;
+  const startTs = endTs - 3600;
+
+  const { data: throughputRange } = useQuery({
+    queryKey: ['metrics', 'throughput', 'range'],
+    queryFn: async () => {
+      const res = await client.get(`/metrics/range?query=http_requests&start=${startTs}&end=${endTs}&step=60`);
+      return res.data?.data?.result?.[0]?.values || [];
+    },
+    refetchInterval: 10000,
+  });
+
+  const { data: latencyRange } = useQuery({
+    queryKey: ['metrics', 'latency', 'range'],
+    queryFn: async () => {
+      const res = await client.get(`/metrics/range?query=latency&start=${startTs}&end=${endTs}&step=60`);
+      return res.data?.data?.result?.[0]?.values || [];
+    },
+    refetchInterval: 10000,
+  });
+
+  const { data: errorRange } = useQuery({
+    queryKey: ['metrics', 'errors', 'range'],
+    queryFn: async () => {
+      const res = await client.get(`/metrics/range?query=network&start=${startTs}&end=${endTs}&step=60`);
+      return res.data?.data?.result?.[0]?.values || [];
+    },
+    refetchInterval: 10000,
   });
 
   const repos = repoData?.repositories || [];
@@ -78,11 +194,11 @@ export default function OverviewWorkspace() {
   // Calculate security health score
   const criticalCount = secSummary?.critical || 0;
   const highCount = secSummary?.high || 0;
-  const healthScore = Math.max(0, 100 - (criticalCount * 15 + highCount * 5));
+  const healthScore = obsOverview?.security_score ?? Math.max(0, 100 - (criticalCount * 15 + highCount * 5));
 
   // Custom Active Pipelines rendering
   const renderActivePipelinesVal = () => {
-    const count = runningPipelines.length;
+    const count = obsOverview?.active_pipelines ?? runningPipelines.length;
     if (count === 0) {
       return <span style={{ color: 'var(--sf-text-secondary)' }}>0</span>;
     }
@@ -96,7 +212,7 @@ export default function OverviewWorkspace() {
 
   // Custom Infrastructure State rendering
   const renderInfraStateVal = () => {
-    const status = sysHealth?.status?.toLowerCase() || 'healthy';
+    const status = obsOverview?.infrastructure_status || sysHealth?.status?.toLowerCase() || 'healthy';
     if (status === 'healthy' || status === 'ok') {
       return <span style={{ color: '#10B981', fontWeight: 800 }}>OK</span>;
     } else if (status === 'degraded') {
@@ -168,6 +284,10 @@ export default function OverviewWorkspace() {
     },
   ];
 
+  const throughputPaths = generateSvgPath(throughputRange, 300, 60, "M 0 50 Q 30 20 60 40 T 120 15 T 180 30 T 240 10 T 300 25");
+  const latencyPaths = generateSvgPath(latencyRange, 300, 60, "M 0 30 Q 30 35 60 20 T 120 40 T 180 15 T 240 25 T 300 22");
+  const errorPaths = generateSvgPath(errorRange, 300, 60, "M 0 58 Q 30 55 60 59 T 120 50 T 180 57 T 240 45 T 300 58");
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Enterprise Workspace Header */}
@@ -202,15 +322,15 @@ export default function OverviewWorkspace() {
         </div>
       )}
 
-      {/* Row of 4 Metric Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
+      {/* Row of 6 Executive KPI Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
         <MetricCard
           title="Repositories Audited"
-          value={repos.length}
+          value={obsOverview?.total_repositories ?? repos.length}
           unit="repos"
           icon={<GitBranch size={16} />}
-          isLoading={reposLoading}
-          isError={reposError}
+          isLoading={reposLoading || obsLoading}
+          isError={reposError || obsError}
           color="blue"
         />
         <MetricCard
@@ -219,8 +339,8 @@ export default function OverviewWorkspace() {
           unit="%"
           change={healthScore >= 90 ? 1.5 : -2.3}
           icon={<Shield size={16} />}
-          isLoading={secLoading}
-          isError={reposError || secError}
+          isLoading={secLoading || obsLoading}
+          isError={reposError || secError || obsError}
           color="green"
         />
         <MetricCard
@@ -228,15 +348,33 @@ export default function OverviewWorkspace() {
           value={renderActivePipelinesVal()}
           unit="running"
           icon={<Zap size={16} />}
-          isLoading={pipeLoading}
-          isError={pipeError}
+          isLoading={pipeLoading || obsLoading}
+          isError={pipeError || obsError}
           color="indigo"
+        />
+        <MetricCard
+          title="Deployment Success"
+          value={`${obsOverview?.deployment_success_rate ?? 100.0}`}
+          unit="%"
+          icon={<Rocket size={16} />}
+          isLoading={obsLoading}
+          isError={obsError}
+          color="purple"
+        />
+        <MetricCard
+          title="Mean Run Time"
+          value={`${obsOverview?.mean_pipeline_duration_seconds ?? 45.0}`}
+          unit="sec"
+          icon={<Clock size={16} />}
+          isLoading={obsLoading}
+          isError={obsError}
+          color="orange"
         />
         <MetricCard
           title="Infrastructure State"
           value={renderInfraStateVal()}
           icon={<Cloud size={16} />}
-          isError={sysHealth?.status === 'degraded'}
+          isError={obsOverview?.infrastructure_status === 'degraded' || sysHealth?.status === 'degraded'}
           color="teal"
         />
       </div>
@@ -270,10 +408,10 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
               <span>Server CPU Load</span>
-              <span style={{ color: '#10B981', fontWeight: 800 }}>42.8%</span>
+              <span style={{ color: cpuVal > 80 ? '#EF4444' : '#10B981', fontWeight: 800 }}>{cpuVal.toFixed(1)}%</span>
             </div>
             <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ width: '42.8%', height: '100%', background: 'linear-gradient(90deg, #10B981 0%, #34D399 100%)', borderRadius: '3px' }} />
+              <div style={{ width: `${cpuVal}%`, height: '100%', background: cpuVal > 80 ? 'linear-gradient(90deg, #EF4444 0%, #F87171 100%)' : 'linear-gradient(90deg, #10B981 0%, #34D399 100%)', borderRadius: '3px' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
               <span>Threads: 16 Cores</span>
@@ -285,13 +423,13 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
               <span>Memory Saturation</span>
-              <span style={{ color: '#F59E0B', fontWeight: 800 }}>68.4%</span>
+              <span style={{ color: '#F59E0B', fontWeight: 800 }}>{memVal.toFixed(1)}%</span>
             </div>
             <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ width: '68.4%', height: '100%', background: 'linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%)', borderRadius: '3px' }} />
+              <div style={{ width: `${memVal}%`, height: '100%', background: 'linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%)', borderRadius: '3px' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
-              <span>Used: 10.9 GB</span>
+              <span>Used: {((memVal / 100) * 16.0).toFixed(1)} GB</span>
               <span>Total: 16.0 GB</span>
             </div>
           </div>
@@ -300,10 +438,10 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
               <span>Celery Tasks Load</span>
-              <span style={{ color: '#10B981', fontWeight: 800 }}>0 queued</span>
+              <span style={{ color: celeryVal > 0 ? '#F59E0B' : '#10B981', fontWeight: 800 }}>{celeryVal} queued</span>
             </div>
             <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ width: '0%', height: '100%', backgroundColor: '#10B981', borderRadius: '3px' }} />
+              <div style={{ width: `${Math.min(100, celeryVal * 20)}%`, height: '100%', backgroundColor: celeryVal > 0 ? '#F59E0B' : '#10B981', borderRadius: '3px' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
               <span>Active workers: 4</span>
@@ -315,14 +453,14 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
               <span>PostgreSQL Pool</span>
-              <span style={{ color: '#10B981', fontWeight: 800 }}>14%</span>
+              <span style={{ color: '#10B981', fontWeight: 800 }}>{dbVal.toFixed(0)}%</span>
             </div>
             <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ width: '14%', height: '100%', background: 'linear-gradient(90deg, #10B981 0%, #3B82F6 100%)', borderRadius: '3px' }} />
+              <div style={{ width: `${dbVal}%`, height: '100%', background: 'linear-gradient(90deg, #10B981 0%, #3B82F6 100%)', borderRadius: '3px' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
-              <span>Active: 14 / 100</span>
-              <span>Idle: 86 conns</span>
+              <span>Active: {dbVal.toFixed(0)} / 100</span>
+              <span>Idle: {(100 - dbVal).toFixed(0)} conns</span>
             </div>
           </div>
 
@@ -335,7 +473,9 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--sf-text-secondary)' }}>HTTP REQUEST RATE (24h)</span>
-              <span style={{ fontSize: '14px', fontWeight: 800, color: '#3B82F6' }}>242 req/s</span>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: '#3B82F6' }}>
+                {throughputRange && throughputRange.length > 0 ? `${parseFloat(throughputRange[throughputRange.length - 1][1]).toFixed(1)} req/s` : '242 req/s'}
+              </span>
             </div>
             <div style={{ height: '60px', width: '100%' }}>
               <svg width="100%" height="100%" viewBox="0 0 300 60" preserveAspectRatio="none">
@@ -345,8 +485,8 @@ export default function OverviewWorkspace() {
                     <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.0"/>
                   </linearGradient>
                 </defs>
-                <path d="M 0 50 Q 30 20 60 40 T 120 15 T 180 30 T 240 10 T 300 25 L 300 60 L 0 60 Z" fill="url(#rateGrad)" />
-                <path d="M 0 50 Q 30 20 60 40 T 120 15 T 180 30 T 240 10 T 300 25" fill="none" stroke="#3B82F6" strokeWidth="2" />
+                {throughputPaths.areaPath && <path d={throughputPaths.areaPath} fill="url(#rateGrad)" />}
+                <path d={throughputPaths.path} fill="none" stroke="#3B82F6" strokeWidth="2" />
               </svg>
             </div>
           </div>
@@ -355,7 +495,9 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--sf-text-secondary)' }}>API LATENCY (P95)</span>
-              <span style={{ fontSize: '14px', fontWeight: 800, color: '#10B981' }}>45 ms</span>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: '#10B981' }}>
+                {latencyRange && latencyRange.length > 0 ? `${parseFloat(latencyRange[latencyRange.length - 1][1]).toFixed(1)} ms` : '45 ms'}
+              </span>
             </div>
             <div style={{ height: '60px', width: '100%' }}>
               <svg width="100%" height="100%" viewBox="0 0 300 60" preserveAspectRatio="none">
@@ -365,8 +507,8 @@ export default function OverviewWorkspace() {
                     <stop offset="100%" stopColor="#10B981" stopOpacity="0.0"/>
                   </linearGradient>
                 </defs>
-                <path d="M 0 30 Q 30 35 60 20 T 120 40 T 180 15 T 240 25 T 300 22 L 300 60 L 0 60 Z" fill="url(#latencyGrad)" />
-                <path d="M 0 30 Q 30 35 60 20 T 120 40 T 180 15 T 240 25 T 300 22" fill="none" stroke="#10B981" strokeWidth="2" />
+                {latencyPaths.areaPath && <path d={latencyPaths.areaPath} fill="url(#latencyGrad)" />}
+                <path d={latencyPaths.path} fill="none" stroke="#10B981" strokeWidth="2" />
               </svg>
             </div>
           </div>
@@ -375,7 +517,9 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--sf-text-secondary)' }}>HTTP ERROR RATE (5xx)</span>
-              <span style={{ fontSize: '14px', fontWeight: 800, color: '#EF4444' }}>0.04%</span>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: '#EF4444' }}>
+                {errorRange && errorRange.length > 0 ? `${(parseFloat(errorRange[errorRange.length - 1][1]) / 100).toFixed(3)}%` : '0.04%'}
+              </span>
             </div>
             <div style={{ height: '60px', width: '100%' }}>
               <svg width="100%" height="100%" viewBox="0 0 300 60" preserveAspectRatio="none">
@@ -385,8 +529,8 @@ export default function OverviewWorkspace() {
                     <stop offset="100%" stopColor="#EF4444" stopOpacity="0.0"/>
                   </linearGradient>
                 </defs>
-                <path d="M 0 58 Q 30 55 60 59 T 120 50 T 180 57 T 240 45 T 300 58 L 300 60 L 0 60 Z" fill="url(#errorGrad)" />
-                <path d="M 0 58 Q 30 55 60 59 T 120 50 T 180 57 T 240 45 T 300 58" fill="none" stroke="#EF4444" strokeWidth="2" />
+                {errorPaths.areaPath && <path d={errorPaths.areaPath} fill="url(#errorGrad)" />}
+                <path d={errorPaths.path} fill="none" stroke="#EF4444" strokeWidth="2" />
               </svg>
             </div>
           </div>

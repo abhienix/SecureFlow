@@ -88,6 +88,9 @@ export function useWebSocket() {
             qc.invalidateQueries({ queryKey: ['findings'] });
             qc.invalidateQueries({ queryKey: ['deployments'] });
             qc.invalidateQueries({ queryKey: ['topology'] });
+            qc.invalidateQueries({ queryKey: ['events', 'feed'] });
+            qc.invalidateQueries({ queryKey: ['observability', 'overview'] });
+            window.dispatchEvent(new CustomEvent('sf_ws_event', { detail: data }));
           } catch {
             // Ignore parse errors
           }
