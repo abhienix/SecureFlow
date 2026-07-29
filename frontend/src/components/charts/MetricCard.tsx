@@ -63,7 +63,6 @@ export function MetricCard({
   }
 
   const isPositive = change !== undefined && change >= 0;
-  const gradientId = `gradient-${title.replace(/\s+/g, '-')}`;
 
   return (
     <div
@@ -157,35 +156,33 @@ export function MetricCard({
       </div>
 
       {/* Bottom Sparkline */}
-      <div style={{ height: '24px', width: '100%', overflow: 'hidden', pointerEvents: 'none' }}>
+      <div className="sf-metric-card-sparkline" style={{ height: '24px', width: '100%', overflow: 'hidden', pointerEvents: 'none' }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 0, bottom: 0, left: 0, right: 0 }}>
-            <defs>
-              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="0%"
-                  stopColor={resolvedColor}
-                  stopOpacity={0.1}
-                />
-                <stop
-                  offset="100%"
-                  stopColor={resolvedColor}
-                  stopOpacity={0}
-                />
-              </linearGradient>
-            </defs>
             <Area
               type="monotone"
               dataKey="value"
               stroke={resolvedColor}
               strokeWidth={1.5}
-              fill={`url(#${gradientId})`}
+              fill={resolvedColor}
+              fillOpacity={0.15}
               isAnimationActive={true}
-              animationDuration={600}
+              animationDuration={800}
               animationEasing="ease-out"
             />
           </AreaChart>
         </ResponsiveContainer>
+        <style>{`
+          @keyframes sparkline-draw {
+            from { stroke-dashoffset: 600; }
+            to { stroke-dashoffset: 0; }
+          }
+          .sf-metric-card-sparkline path.recharts-area-curve {
+            stroke-dasharray: 600;
+            stroke-dashoffset: 600;
+            animation: sparkline-draw 800ms ease-out forwards;
+          }
+        `}</style>
       </div>
     </div>
   );
