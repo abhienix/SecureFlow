@@ -2,6 +2,8 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useScans } from '../../hooks/useApi';
 
+import { safeFixed, safeNumber } from '../../utils/numbers';
+
 // ─── MAIN OVERVIEW WORKSPACE ───────────────────────────────────────────────────
 
 export default function OverviewWorkspace() {
@@ -578,7 +580,7 @@ export default function OverviewWorkspace() {
                         <div>
                           <span style={{ fontWeight: 700 }}>{item.val}</span>{' '}
                           <span style={{ fontSize: 10, color: '#888' }} className="dark:text-gray-400">
-                            ({((item.val / pct) * 100).toFixed(1)}%)
+                            ({safeFixed((safeNumber(item.val) / (safeNumber(pct) || 1)) * 100, 1)}%)
                           </span>
                         </div>
                       </div>

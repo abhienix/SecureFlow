@@ -8,6 +8,7 @@ import Badge from '../../components/ui/Badge';
 import { client } from '../../api/client';
 import { useSSE } from '../../hooks/useSSE';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { safeFixed, safeNumber } from '../../utils/numbers';
 
 interface RepositoryData {
   id: string;
@@ -36,7 +37,7 @@ const generateSvgPath = (values: [number, string][] | undefined, width: number, 
     return { x, y };
   });
 
-  const path = coords.map((c, idx) => `${idx === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+  const path = coords.map((c, idx) => `${idx === 0 ? 'M' : 'L'} ${safeFixed(c.x, 1)} ${safeFixed(c.y, 1)}`).join(' ');
   const areaPath = `${path} L ${width} ${height} L 0 ${height} Z`;
   
   return { path, areaPath };
@@ -413,7 +414,7 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
               <span>Server CPU Load</span>
-              <span style={{ color: cpuVal > 80 ? '#EF4444' : '#10B981', fontWeight: 800 }}>{cpuVal.toFixed(1)}%</span>
+              <span style={{ color: cpuVal > 80 ? '#EF4444' : '#10B981', fontWeight: 800 }}>{safeFixed(cpuVal, 1)}%</span>
             </div>
             <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
               <div style={{ width: `${cpuVal}%`, height: '100%', background: cpuVal > 80 ? 'linear-gradient(90deg, #EF4444 0%, #F87171 100%)' : 'linear-gradient(90deg, #10B981 0%, #34D399 100%)', borderRadius: '3px' }} />
@@ -428,13 +429,13 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
               <span>Memory Saturation</span>
-              <span style={{ color: '#F59E0B', fontWeight: 800 }}>{memVal.toFixed(1)}%</span>
+              <span style={{ color: '#F59E0B', fontWeight: 800 }}>{safeFixed(memVal, 1)}%</span>
             </div>
             <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
               <div style={{ width: `${memVal}%`, height: '100%', background: 'linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%)', borderRadius: '3px' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
-              <span>Used: {((memVal / 100) * 16.0).toFixed(1)} GB</span>
+              <span>Used: {safeFixed((safeNumber(memVal) / 100) * 16.0, 1)} GB</span>
               <span>Total: 16.0 GB</span>
             </div>
           </div>
@@ -458,14 +459,14 @@ export default function OverviewWorkspace() {
           <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--sf-text-secondary)', fontWeight: 700 }}>
               <span>PostgreSQL Pool</span>
-              <span style={{ color: '#10B981', fontWeight: 800 }}>{dbVal.toFixed(0)}%</span>
+              <span style={{ color: '#10B981', fontWeight: 800 }}>{safeFixed(dbVal, 0)}%</span>
             </div>
             <div style={{ height: '6px', backgroundColor: 'var(--sf-bg-elevated)', borderRadius: '3px', overflow: 'hidden' }}>
               <div style={{ width: `${dbVal}%`, height: '100%', background: 'linear-gradient(90deg, #10B981 0%, #3B82F6 100%)', borderRadius: '3px' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sf-text-muted)' }}>
-              <span>Active: {dbVal.toFixed(0)} / 100</span>
-              <span>Idle: {(100 - dbVal).toFixed(0)} conns</span>
+              <span>Active: {safeFixed(dbVal, 0)} / 100</span>
+              <span>Idle: {safeFixed(100 - safeNumber(dbVal), 0)} conns</span>
             </div>
           </div>
 
@@ -479,7 +480,7 @@ export default function OverviewWorkspace() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--sf-text-secondary)' }}>HTTP REQUEST RATE (24h)</span>
               <span style={{ fontSize: '14px', fontWeight: 800, color: '#3B82F6' }}>
-                {throughputRange && throughputRange.length > 0 ? `${parseFloat(throughputRange[throughputRange.length - 1][1]).toFixed(1)} req/s` : '242 req/s'}
+                {throughputRange && throughputRange.length > 0 ? `${safeFixed(throughputRange[throughputRange.length - 1][1], 1)} req/s` : '242 req/s'}
               </span>
             </div>
             <div style={{ height: '60px', width: '100%' }}>
@@ -501,7 +502,7 @@ export default function OverviewWorkspace() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--sf-text-secondary)' }}>API LATENCY (P95)</span>
               <span style={{ fontSize: '14px', fontWeight: 800, color: '#10B981' }}>
-                {latencyRange && latencyRange.length > 0 ? `${parseFloat(latencyRange[latencyRange.length - 1][1]).toFixed(1)} ms` : '45 ms'}
+                {latencyRange && latencyRange.length > 0 ? `${safeFixed(latencyRange[latencyRange.length - 1][1], 1)} ms` : '45 ms'}
               </span>
             </div>
             <div style={{ height: '60px', width: '100%' }}>
@@ -523,7 +524,7 @@ export default function OverviewWorkspace() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--sf-text-secondary)' }}>HTTP ERROR RATE (5xx)</span>
               <span style={{ fontSize: '14px', fontWeight: 800, color: '#EF4444' }}>
-                {errorRange && errorRange.length > 0 ? `${(parseFloat(errorRange[errorRange.length - 1][1]) / 100).toFixed(3)}%` : '0.04%'}
+                {errorRange && errorRange.length > 0 ? `${safeFixed(safeNumber(errorRange[errorRange.length - 1][1]) / 100, 3)}%` : '0.04%'}
               </span>
             </div>
             <div style={{ height: '60px', width: '100%' }}>

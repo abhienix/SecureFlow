@@ -28,19 +28,31 @@ const STATUSES = {
 };
 
 export function getNodeStyle(result: string | undefined, stage: string) {
-  const r = result?.toUpperCase() || 'PENDING';
-  if (r === 'PASS' || r === 'ALLOW' || r === 'SCANNED' || r === 'PASSED') return STATUSES.PASSED;
-  if (r === 'BLOCK' || r === 'BLOCKED') {
+  const r = (result ?? '').toString().toUpperCase().trim();
+  if (['PASS', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'COMPLETED', 'PASSED'].includes(r)) {
+    return STATUSES.PASSED;
+  }
+  if (['BLOCK', 'BLOCKED'].includes(r)) {
     if (stage === 'code_scan') {
       return { ...STATUSES.FAILED, overlay: 'shield-alert' };
     }
     return STATUSES.BLOCKED;
   }
-  if (r === 'FAIL' || r === 'FAILED') return STATUSES.FAILED;
-  if (r === 'RUN' || r === 'RUNNING' || r === 'QUEUED') return STATUSES.RUNNING;
-  if (r === 'PENDING' || r === 'WAITING') return STATUSES.WAITING;
-  if (r === 'SKIP' || r === 'SKIPPED') return STATUSES.SKIPPED;
-  if (r === 'CANCEL' || r === 'CANCELLED' || r === 'CANCELED') return STATUSES.CANCELLED;
+  if (['FAIL', 'FAILED', 'FAILURE', 'ERROR'].includes(r)) {
+    return STATUSES.FAILED;
+  }
+  if (['RUN', 'RUNNING', 'QUEUED', 'IN_PROGRESS', 'INPROGRESS'].includes(r)) {
+    return STATUSES.RUNNING;
+  }
+  if (['PENDING', 'WAITING', 'AWAITING'].includes(r)) {
+    return STATUSES.WAITING;
+  }
+  if (['SKIP', 'SKIPPED', 'SKIPPING'].includes(r)) {
+    return STATUSES.SKIPPED;
+  }
+  if (['CANCEL', 'CANCELLED', 'CANCELED'].includes(r)) {
+    return STATUSES.CANCELLED;
+  }
   return STATUSES.WAITING;
 }
 

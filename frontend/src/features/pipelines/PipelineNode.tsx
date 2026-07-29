@@ -39,16 +39,16 @@ export function PipelineNode({
   const baseStyle = getNodeStyle(forcedSkipped ? 'skipped' : result, stage);
   const IconComponent = StageIconMap[iconName] || Server;
 
-  const r = (forcedSkipped ? 'skipped' : result || 'PENDING').toUpperCase();
+  const r = (forcedSkipped ? 'skipped' : result || 'PENDING').toUpperCase().trim();
 
   // Determine 3D spherical radial gradient fill and hover shadow colors
   let gradientBackground = 'radial-gradient(circle at 30% 30%, #475569, #1E293B)';
   let glowColor = 'rgba(71, 85, 105, 0.3)';
 
-  if (r === 'PASS' || r === 'ALLOW' || r === 'SCANNED') {
+  if (['PASS', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'COMPLETED', 'PASSED'].includes(r)) {
     gradientBackground = 'radial-gradient(circle at 30% 30%, #34D399, #064E3B)';
     glowColor = 'rgba(16, 185, 129, 0.5)';
-  } else if (r === 'BLOCK') {
+  } else if (['BLOCK', 'BLOCKED'].includes(r)) {
     if (stage === 'code_scan') {
       gradientBackground = 'radial-gradient(circle at 30% 30%, #F87171, #7F1D1D)';
       glowColor = 'rgba(239, 68, 68, 0.5)';
@@ -56,13 +56,13 @@ export function PipelineNode({
       gradientBackground = 'radial-gradient(circle at 30% 30%, #FBBF24, #78350F)';
       glowColor = 'rgba(245, 158, 11, 0.5)';
     }
-  } else if (r === 'FAILED') {
+  } else if (['FAIL', 'FAILED', 'FAILURE', 'ERROR'].includes(r)) {
     gradientBackground = 'radial-gradient(circle at 30% 30%, #F87171, #7F1D1D)';
     glowColor = 'rgba(239, 68, 68, 0.5)';
-  } else if (r === 'RUNNING') {
+  } else if (['RUN', 'RUNNING', 'QUEUED', 'IN_PROGRESS', 'INPROGRESS'].includes(r)) {
     gradientBackground = 'radial-gradient(circle at 30% 30%, #818CF8, #1E1B4B)';
     glowColor = 'rgba(99, 102, 241, 0.5)';
-  } else if (r === 'SKIPPED' || r === 'skipped') {
+  } else if (['SKIP', 'SKIPPED', 'SKIPPING'].includes(r)) {
     gradientBackground = 'radial-gradient(circle at 30% 30%, #4B5563, #111827)';
     glowColor = 'transparent';
   }
