@@ -1385,17 +1385,25 @@ async def update_scan_progress(run_id: int, data: dict = None, db: AsyncSession 
             if zap_current in ("PENDING", "QUEUED"):
                 zap_steps = enforce_monotonic_stages(dict(scan.pipeline_steps or {}), "zap", "PASS")
                 
-                # Check for ZAP alerts
+                # Check for blocking ZAP alerts (HIGH and CRITICAL)
                 zap_f = data.get("zap_findings") or scan.zap_findings
                 alerts = []
                 if isinstance(zap_f, dict):
                     alerts = zap_f.get("alerts", [])
                 elif isinstance(zap_f, list):
                     alerts = zap_f
-                has_alerts = len(alerts) > 0
                 
-                zap_steps = enforce_monotonic_stages(zap_steps, "zap_gate", "BLOCK" if has_alerts else "PASS")
-                zap_steps["zap_gate"]["detail"] = f"ZAP Security Gate blocked: {len(alerts)} alerts." if has_alerts else "ZAP Security Gate passed with 0 alerts."
+                blocking_alerts = [
+                    a for a in alerts
+                    if isinstance(a, dict) and str(a.get("risk", "")).upper() in ("HIGH", "CRITICAL", "FAIL")
+                ]
+                has_blocking = len(blocking_alerts) > 0
+                
+                zap_steps = enforce_monotonic_stages(zap_steps, "zap_gate", "BLOCK" if has_blocking else "PASS")
+                if has_blocking:
+                    zap_steps["zap_gate"]["detail"] = f"ZAP Security Gate blocked: {len(blocking_alerts)} critical/high alerts found."
+                else:
+                    zap_steps["zap_gate"]["detail"] = f"ZAP Security Gate passed ({len(alerts)} non-blocking informational/medium findings)."
                 scan.pipeline_steps = zap_steps
         elif data["dast_status"] in ("failed", "queue_failed"):
             zap_current = (scan.pipeline_steps or {}).get("zap", {}).get("result", "")
