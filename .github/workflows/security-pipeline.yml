@@ -992,19 +992,11 @@ jobs:
               -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
               -H "Content-Type: application/json" 2>/dev/null || echo '')
 
-            if echo "$RAW_RESP" | jq empty 2>/dev/null; then
+            if echo "$RAW_RESP" | jq empty 2>/dev/null && [ -n "$RAW_RESP" ]; then
               RESPONSE="$RAW_RESP"
             else
-              RAW_PATCH=$(curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
-                -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
-                -H "Content-Type: application/json" \
-                -d '{}' 2>/dev/null || echo '')
-              if echo "$RAW_PATCH" | jq empty 2>/dev/null; then
-                RESPONSE="$RAW_PATCH"
-              else
-                echo "Poll $((retry + 1))/$MAX_RETRIES — Server returned non-JSON response: $RAW_RESP"
-                RESPONSE='{"dast_status":"running","pipeline_steps":{}}'
-              fi
+              echo "Poll $((retry + 1))/$MAX_RETRIES — GET request returned empty or invalid response. Retrying in $POLL_INTERVALs..."
+              RESPONSE='{"dast_status":"running","pipeline_steps":{}}'
             fi
 
             IS_NOT_FOUND=$(echo "$RESPONSE" | jq -r '.detail // empty' 2>/dev/null || echo '')
