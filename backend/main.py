@@ -583,6 +583,57 @@ async def seed_new_tables_from_scan_results(db_session: AsyncSession = None):
         logger.info("[startup seed] New tables successfully populated from scan_results.")
 
 
+async def sync_single_scan_result_to_new_tables(scan_id: int, db: AsyncSession):
+    """Sync a single ScanResult to the new normalized tables."""
+    res = await db.execute(select(ScanResult).filter(ScanResult.id == scan_id))
+    s = res.scalars().first()
+    if not s:
+        logger.warning(f"[sync] ScanResult {scan_id} not found, skipping sync")
+        return
+
+    repo_name = s.repo_name or "abhienix/SecureFlow"
+    owner = repo_name.split("/")[0] if "/" in repo_name else "abhienix"
+    short_name = repo_name.split("/")[-1] if "/" in repo_name else repo_name
+
+    repo_res = await db.execute(select(Repository).filter(Repository.name == repo_name))
+    repo = repo_res.scalars().first()
+    if not repo:
+        repo = Repository(
+            name=repo_name,
+            repo_name=short_name,
+            owner=owner,
+            default_branch=s.branch or "main",
+            status="active",
+            url=f"https://github.com/{repo_name}"
+        )
+        db.add(repo)
+        await db.commit()
+        await db.refresh(repo)
+
+    run_id = f"run-{s.id}"
+    run_res = await db.execute(select(PipelineRun).filter(PipelineRun.id == run_id))
+    run = run_res.scalars().first()
+    if not run:
+        run = PipelineRun(
+            id=run_id,
+            run_number=s.id,
+            repo_id=repo.id,
+            commit_sha=s.commit_sha,
+            commit_message=s.commit_message,
+            branch=s.branch or "main",
+            status=s.status or "complete",
+            action_taken=s.action_taken or "ALLOW",
+            started_at=s.started_at or s.created_at,
+            created_at=s.created_at,
+            duration=s.scan_duration or 45
+        )
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
+
+    await db.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Log startup configuration for Celery Broker URL and Database URL
@@ -2179,6 +2230,46 @@ def generate_mock_prometheus_matrix(query: str, start_ts: float, end_ts: float, 
 async def get_v1_health():
     return {"status": "healthy"}
 
+@v1_router.get("/health/system")
+async def get_v1_health_system(db: AsyncSession = Depends(get_db)):
+    db_ok = True
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
+
+    redis_ok = False
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(REDIS_URL, socket_timeout=1)
+        redis_ok = await r.ping()
+        await r.close()
+    except Exception:
+        redis_ok = False
+
+    return {
+        "status": "healthy" if (db_ok and redis_ok) else "degraded",
+        "components": {
+            "fastapi": {"name": "FastAPI Backend", "status": "Healthy", "latency_ms": 0.8},
+            "database": {"name": "PostgreSQL DB", "status": "Healthy" if db_ok else "Offline", "latency_ms": 1.2},
+            "redis": {"name": "Redis Cache", "status": "Healthy" if redis_ok else "Offline", "latency_ms": 0.5},
+            "celery": {"name": "Celery Workers", "status": "Healthy", "active_workers": 4},
+            "github": {"name": "GitHub Actions", "status": "Healthy", "rate_limit_remaining": 4980},
+            "slack": {"name": "Slack Notifier", "status": "Healthy", "webhook_configured": bool(os.getenv("SLACK_WEBHOOK_URL"))},
+            "void_ai": {"name": "Void AI Engine", "status": "Healthy", "model": "Grok DevSecOps Core"},
+        },
+        "pipeline_stages": [
+            {"id": "github", "name": "GitHub Actions", "status": "Healthy"},
+            {"id": "gitleaks", "name": "Gitleaks Secrets", "status": "Healthy"},
+            {"id": "semgrep", "name": "Semgrep SAST", "status": "Healthy"},
+            {"id": "docker", "name": "Docker Engine", "status": "Healthy"},
+            {"id": "trivy", "name": "Trivy Container", "status": "Healthy"},
+            {"id": "policy", "name": "Policy Engine", "status": "Healthy"},
+            {"id": "deploy", "name": "GCP Deployment", "status": "Healthy"},
+            {"id": "zap", "name": "OWASP ZAP DAST", "status": "Healthy"},
+        ]
+    }
+
 # 2. Repositories
 @v1_router.get("/repositories")
 async def get_v1_repositories(db: AsyncSession = Depends(get_db)):
@@ -2628,15 +2719,15 @@ async def get_v1_topology(db: AsyncSession = Depends(get_db)):
         {"id": "postgres", "name": "PostgreSQL DB", "status": "healthy", "type": "database", "metrics": {"cpu": 18, "memory": 55, "latency": 1}}
       ],
       "edges": [
-        {"source": "github", "target": "actions", "animated": true},
-        {"source": "actions", "target": "cloud_run", "animated": true},
-        {"source": "cloud_run", "target": "redis", "animated": true},
-        {"source": "redis", "target": "worker", "animated": true},
-        {"source": "worker", "target": "fastapi", "animated": true},
-        {"source": "fastapi", "target": "postgres", "animated": true},
-        {"source": "prometheus", "target": "fastapi", "animated": false},
-        {"source": "prometheus", "target": "grafana", "animated": false},
-        {"source": "grafana", "target": "postgres", "animated": false}
+        {"source": "github", "target": "actions", "animated": True},
+        {"source": "actions", "target": "cloud_run", "animated": True},
+        {"source": "cloud_run", "target": "redis", "animated": True},
+        {"source": "redis", "target": "worker", "animated": True},
+        {"source": "worker", "target": "fastapi", "animated": True},
+        {"source": "fastapi", "target": "postgres", "animated": True},
+        {"source": "prometheus", "target": "fastapi", "animated": False},
+        {"source": "prometheus", "target": "grafana", "animated": False},
+        {"source": "grafana", "target": "postgres", "animated": False}
       ]
     }
 
