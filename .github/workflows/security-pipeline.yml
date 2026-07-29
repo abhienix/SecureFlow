@@ -982,11 +982,23 @@ jobs:
             exit 0
           fi
 
+          CLEAN_BACKEND_URL="${BACKEND_URL%/}"
+          URL="${CLEAN_BACKEND_URL}/api/scan-results/$RUN_ID/progress"
+
           echo "===================================================="
           echo "DAST POLLING DIAGNOSTICS INSTRUMENTATION"
-          echo "BACKEND_URL: $BACKEND_URL"
-          echo "RUN_ID: $RUN_ID"
-          echo "Polling URL: $BACKEND_URL/api/scan-results/$RUN_ID/progress"
+          echo "BACKEND_URL=[$BACKEND_URL]"
+          echo "RUN_ID=[$RUN_ID]"
+          echo "FINAL_URL=[$URL]"
+          printf 'FINAL_URL_QUOTED=%q\n' "$URL"
+
+          python3 - <<'PY'
+import os
+url = os.environ.get("BACKEND_URL","")
+print("repr(BACKEND_URL) =", repr(url))
+print("endswith('/') =", url.endswith("/"))
+PY
+
           if [ -n "$BACKEND_API_SECRET" ]; then
             echo "Authorization header present: YES"
           else
@@ -1008,7 +1020,7 @@ jobs:
             RESP_FILE=$(mktemp)
 
             curl --verbose --show-error \
-              -X GET "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -X GET "$URL" \
               -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
               -H "Content-Type: application/json" \
               -o "$RESP_FILE" \
