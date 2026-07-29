@@ -93,5 +93,9 @@ export const useVoidStore = create<VoidStore>((set) => ({
 
   setTyping: (isTyping) => set({ isTyping }),
   setStreaming: (isStreaming) => set({ isStreaming }),
-  setTriggerPrompt: (triggerPrompt) => set({ triggerPrompt })
+  setTriggerPrompt: (triggerPrompt) => set({ triggerPrompt }),
+  autoAnalyzePipeline: (runId: string, stageName: string) => {
+    const prompt = `Automatically analyze this blocked/failed pipeline run #${runId} at stage "${stageName}". Provide root cause, specific CVE findings, policy violations, and step-by-step remediation.`;
+    set({ triggerPrompt: prompt, isOpen: true });
+  },
 }));

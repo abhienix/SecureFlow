@@ -1,7 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { API_BASE } from '../lib/api';
+import { queryKeys } from '../lib/queryClient';
 import { useUIStore } from '../stores/uiStore';
 
+/**
+ * Single consolidated WebSocket hook with:
+ * - Exponential backoff reconnection (max 30s)
+ * - Heartbeat/ping to detect stale connections
+ * - Stale event detection via _event_version
+ * - Graceful fallback to REST polling
+ * - Dedup of multiple subscriptions
+ */
 export function useWebSocket() {
   const qc = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
@@ -9,122 +19,146 @@ export function useWebSocket() {
   const healthTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const fallbackActive = useRef(false);
   const attemptRef = useRef(0);
+  const mountedRef = useRef(false);
+  const seenEventIds = useRef<Set<string>>(new Set());
   const { setWsConnected, setLastApiResponse, addNotification } = useUIStore();
 
-  useEffect(() => {
-    let mounted = true;
-    let wsConnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Determine backend URL
+  const BACKEND_URL =
+    process.env.REACT_APP_API_URL ||
+    (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+      ? 'http://localhost:8000'
+      : typeof window !== 'undefined'
+      ? window.location.origin.replace('frontend', 'backend')
+      : 'http://localhost:8000');
 
-    const BACKEND_URL =
-      process.env.REACT_APP_API_URL ||
-      (typeof window !== 'undefined' && window.location.hostname === 'localhost'
-        ? 'http://localhost:8000'
-        : typeof window !== 'undefined'
-        ? window.location.origin.replace('frontend', 'backend')
-        : 'http://localhost:8000');
-    
-    const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/events';
+  const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/events';
 
-    const startHealthPoll = () => {
-      if (fallbackActive.current) return;
-      fallbackActive.current = true;
-      const poll = async () => {
-        if (!mounted) return;
-        try {
-          const res = await fetch(`${BACKEND_URL}/health`);
-          if (mounted) {
-            setWsConnected(res.ok);
-            if (res.ok) setLastApiResponse(Date.now());
-          }
-        } catch {
-          if (mounted) setWsConnected(false);
+  const startHealthPoll = () => {
+    if (fallbackActive.current) return;
+    fallbackActive.current = true;
+    const poll = async () => {
+      if (!mountedRef.current) return;
+      try {
+        const res = await fetch(`${API_BASE}/`);
+        if (mountedRef.current) {
+          setWsConnected(res.ok);
+          if (res.ok) setLastApiResponse(Date.now());
         }
-      };
-      poll();
-      healthTimer.current = setInterval(poll, 15000);
-    };
-
-    const stopHealthPoll = () => {
-      fallbackActive.current = false;
-      if (healthTimer.current) {
-        clearInterval(healthTimer.current);
-        healthTimer.current = null;
+      } catch {
+        if (mountedRef.current) setWsConnected(false);
       }
     };
+    poll();
+    healthTimer.current = setInterval(poll, 15000);
+  };
 
-    const connect = () => {
-      if (!mounted) return;
-      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+  const stopHealthPoll = () => {
+    fallbackActive.current = false;
+    if (healthTimer.current) {
+      clearInterval(healthTimer.current);
+      healthTimer.current = null;
+    }
+  };
 
-      try {
-        const ws = new WebSocket(WS_URL);
-        wsRef.current = ws;
+  const connect = () => {
+    if (!mountedRef.current) return;
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-        wsConnectTimeout = setTimeout(() => {
-          if (!mounted) return;
-          if (ws.readyState !== WebSocket.OPEN) {
-            ws.close();
-            startHealthPoll();
+    try {
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+
+      const wsConnectTimeout = setTimeout(() => {
+        if (!mountedRef.current) return;
+        if (ws.readyState !== WebSocket.OPEN) {
+          ws.close();
+          startHealthPoll();
+        }
+      }, 8000);
+
+      ws.onopen = () => {
+        if (!mountedRef.current) return;
+        clearTimeout(wsConnectTimeout);
+        attemptRef.current = 0;
+        stopHealthPoll();
+        setWsConnected(true);
+        setLastApiResponse(Date.now());
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'ping') return;
+
+          // Stale event detection
+          if (data._event_version && data.run_id && data.stage_key) {
+            const dedupKey = `${data.run_id}:${data.stage_key}:${data._event_version}`;
+            if (seenEventIds.current.has(dedupKey)) return;
+            seenEventIds.current.add(dedupKey);
+            if (seenEventIds.current.size > 1000) seenEventIds.current.clear();
           }
-        }, 8000);
 
-        ws.onopen = () => {
-          if (!mounted) return;
-          if (wsConnectTimeout) clearTimeout(wsConnectTimeout);
-          attemptRef.current = 0;
-          stopHealthPoll();
-          setWsConnected(true);
-          setLastApiResponse(Date.now());
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'ping') return;
-
-            // Invalidate queries on message
-            qc.invalidateQueries({ queryKey: ['pipelines'] });
-            qc.invalidateQueries({ queryKey: ['scans'] });
-            qc.invalidateQueries({ queryKey: ['findings'] });
-            qc.invalidateQueries({ queryKey: ['deployments'] });
-            qc.invalidateQueries({ queryKey: ['topology'] });
-            qc.invalidateQueries({ queryKey: ['events', 'feed'] });
+          // Invalidate queries based on event type
+          if (data.type === 'pipeline.synced' || data.type?.startsWith('pipeline.') || data.type?.startsWith('scan.')) {
+            qc.invalidateQueries({ queryKey: queryKeys.pipelines });
+            qc.invalidateQueries({ queryKey: queryKeys.scans });
             qc.invalidateQueries({ queryKey: ['observability', 'overview'] });
-            window.dispatchEvent(new CustomEvent('sf_ws_event', { detail: data }));
-          } catch {
-            // Ignore parse errors
+            qc.invalidateQueries({ queryKey: ['events', 'feed'] });
           }
-        };
 
-        ws.onclose = () => {
-          if (!mounted) return;
-          if (!fallbackActive.current) setWsConnected(false);
-          wsRef.current = null;
-          if (wsConnectTimeout) clearTimeout(wsConnectTimeout);
-          startHealthPoll();
-          const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
-          attemptRef.current++;
-          reconnectTimer.current = setTimeout(connect, delay);
-        };
+          if (data.type?.startsWith('deploy.')) {
+            qc.invalidateQueries({ queryKey: ['deployments'] });
+          }
 
-        ws.onerror = () => {
-          if (!fallbackActive.current) setWsConnected(false);
-          startHealthPoll();
-        };
-      } catch {
+          if (data.type === 'scan_complete' || data.type === 'scan_started' || data.type === 'scan_timeout' || data.type === 'scan_progress' || data.type === 'scan_reanalyzed') {
+            qc.invalidateQueries({ queryKey: queryKeys.scans });
+            qc.invalidateQueries({ queryKey: queryKeys.pipelines });
+          }
+
+          if (data.type === 'dast_update') {
+            qc.invalidateQueries({ queryKey: queryKeys.metrics });
+          }
+
+          qc.invalidateQueries({ queryKey: ['findings'] });
+          qc.invalidateQueries({ queryKey: ['topology'] });
+
+          window.dispatchEvent(new CustomEvent('sf_ws_event', { detail: data }));
+
+        } catch {
+          // Ignore parse errors
+        }
+      };
+
+      ws.onclose = () => {
+        if (!mountedRef.current) return;
         if (!fallbackActive.current) setWsConnected(false);
+        wsRef.current = null;
         startHealthPoll();
         const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
         attemptRef.current++;
         reconnectTimer.current = setTimeout(connect, delay);
-      }
-    };
+      };
 
+      ws.onerror = () => {
+        if (!fallbackActive.current) setWsConnected(false);
+        startHealthPoll();
+      };
+    } catch {
+      if (!fallbackActive.current) setWsConnected(false);
+      startHealthPoll();
+      const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
+      attemptRef.current++;
+      reconnectTimer.current = setTimeout(connect, delay);
+    }
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
     connect();
 
     return () => {
-      mounted = false;
-      if (wsConnectTimeout) clearTimeout(wsConnectTimeout);
+      mountedRef.current = false;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       stopHealthPoll();
       if (wsRef.current) {

@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useCopilotStore } from '../store/copilotStore';
 import { useSecurityStore } from '../store/securityStore';
 import { usePipelineStore } from '../store/pipelineStore';
 import { useMetricsStore } from '../store/metricsStore';
+import { client } from '../api/client';
 
 export function useCopilotContext() {
   const location = useLocation();
@@ -12,6 +14,16 @@ export function useCopilotContext() {
   const activeFinding = useSecurityStore((s) => s.activeFinding);
   const activeRun = usePipelineStore((s) => s.activeRun);
   const alerts = useMetricsStore((s) => s.alerts);
+
+  // Fetch latest pipeline for deep context
+  const { data: latestRun } = useQuery({
+    queryKey: ['pipelines', 'latest'],
+    queryFn: async () => {
+      const res = await client.get('/pipelines/latest');
+      return res.data;
+    },
+    refetchInterval: 30000,
+  });
 
   useEffect(() => {
     const currentRoute = location.pathname;
@@ -47,13 +59,27 @@ export function useCopilotContext() {
       };
     }
 
+    // Enrich with latest run stages if available
+    if (latestRun?.stages) {
+      context.latest_run = {
+        id: latestRun.id,
+        status: latestRun.status,
+        stages: latestRun.stages.map((s: any) => ({
+          name: s.name,
+          stage_key: s.stage_key,
+          status: s.status,
+          order_index: s.order_index,
+        })),
+      };
+    }
+
     if (alerts && alerts.length > 0) {
       context.infra = {
-        active_alerts: alerts.map((a) => a.name),
+        active_alerts: alerts.map((a: any) => a.name),
         degraded_services: ['celery-worker'],
       };
     }
 
     setContext(context);
-  }, [location.pathname, params.id, activeFinding, activeRun, alerts, setContext]);
+  }, [location.pathname, params.id, activeFinding, activeRun, alerts, setContext, latestRun]);
 }

@@ -17,49 +17,56 @@ export const STAGE_META = {
   deploy_prod:    { label: 'Deploy Prod',      icon: 'Rocket'      },
 };
 
+const STATUSES = {
+  PASSED:   { border: '#10B981', fill: '#064E3B', overlay: 'check', animate: null, skipped: false },
+  BLOCKED:  { border: '#F59E0B', fill: '#78350F', overlay: 'lock', animate: 'pulse-amber', skipped: false },
+  FAILED:   { border: '#EF4444', fill: '#7F1D1D', overlay: 'x', animate: 'pulse-red', skipped: false },
+  RUNNING:  { border: '#6366F1', fill: '#1E1B4B', overlay: null, animate: 'spin', skipped: false },
+  WAITING:  { border: '#475569', fill: '#1E293B', overlay: 'clock', animate: null, skipped: false },
+  SKIPPED:  { border: '#374151', fill: '#111827', overlay: null, animate: null, skipped: true },
+  CANCELLED:{ border: '#374151', fill: '#111827', overlay: null, animate: null, skipped: true },
+};
+
 export function getNodeStyle(result: string | undefined, stage: string) {
   const r = result?.toUpperCase() || 'PENDING';
-  if (r === 'PASS' || r === 'ALLOW' || r === 'SCANNED') {
-    return { border: '#10B981', fill: '#064E3B', overlay: 'check', animate: null, skipped: false };
-  }
-  if (r === 'BLOCK') {
+  if (r === 'PASS' || r === 'ALLOW' || r === 'SCANNED' || r === 'PASSED') return STATUSES.PASSED;
+  if (r === 'BLOCK' || r === 'BLOCKED') {
     if (stage === 'code_scan') {
-      return { border: '#EF4444', fill: '#7F1D1D', overlay: 'shield-alert', animate: 'pulse-red', skipped: false };
+      return { ...STATUSES.FAILED, overlay: 'shield-alert' };
     }
-    return { border: '#F59E0B', fill: '#78350F', overlay: 'lock', animate: 'pulse-amber', skipped: false };
+    return STATUSES.BLOCKED;
   }
-  if (r === 'FAILED') {
-    return { border: '#EF4444', fill: '#7F1D1D', overlay: 'x', animate: 'pulse-red', skipped: false };
-  }
-  if (r === 'RUNNING') {
-    return { border: '#6366F1', fill: '#1E1B4B', overlay: null, animate: 'spin', skipped: false };
-  }
-  if (r === 'PENDING') {
-    return { border: '#475569', fill: '#1E293B', overlay: 'clock', animate: null, skipped: false };
-  }
-  if (r === 'SKIPPED' || r === 'skipped') {
-    return { border: '#374151', fill: '#111827', overlay: null, animate: null, skipped: true };
-  }
-  return { border: '#475569', fill: '#1E293B', overlay: 'clock', animate: null, skipped: false };
+  if (r === 'FAIL' || r === 'FAILED') return STATUSES.FAILED;
+  if (r === 'RUN' || r === 'RUNNING' || r === 'QUEUED') return STATUSES.RUNNING;
+  if (r === 'PENDING' || r === 'WAITING') return STATUSES.WAITING;
+  if (r === 'SKIP' || r === 'SKIPPED') return STATUSES.SKIPPED;
+  if (r === 'CANCEL' || r === 'CANCELLED' || r === 'CANCELED') return STATUSES.CANCELLED;
+  return STATUSES.WAITING;
 }
 
 export function getOverallBadge(run: PipelineRun) {
   const steps = run.pipeline_steps || {};
   const action = run.action || run.action_taken;
-  if (action === 'BLOCK') {
+
+  if (action === 'BLOCK' || run.status === 'BLOCKED') {
     if (steps.code_scan?.result === 'BLOCK') return { label: 'SECURITY BLOCK', color: 'red' };
     if (steps.policy?.result === 'BLOCK')    return { label: 'POLICY BLOCKED', color: 'amber' };
     if (steps.zap_gate?.result === 'BLOCK')  return { label: 'ZAP BLOCKED',    color: 'red' };
     return { label: 'BLOCKED', color: 'amber' };
   }
-  if (run.status === 'timeout' || run.status === 'superseded') {
-    return { label: run.status.toUpperCase(), color: 'gray' };
-  }
+
+  if (run.status === 'CANCELLED' || run.status === 'timeout') return { label: 'CANCELLED', color: 'gray' };
+  if (run.status === 'SKIPPED' || run.status === 'superseded') return { label: 'SKIPPED', color: 'gray' };
+
+  const statusUpper = (run.status || '').toUpperCase();
+  if (statusUpper === 'PASSED' || statusUpper === 'COMPLETE') return { label: 'PASSED', color: 'green' };
+
   const allSteps = Object.values(steps);
-  if (allSteps.some(s => s?.result?.toUpperCase() === 'FAILED')) return { label: 'FAILED', color: 'red' };
-  if (run.status === 'running' || allSteps.some(s => s?.result?.toUpperCase() === 'RUNNING')) {
+  if (allSteps.some(s => s?.result?.toUpperCase() === 'FAILED' || s?.result?.toUpperCase() === 'BLOCK')) {
+    return { label: 'FAILED', color: 'red' };
+  }
+  if (statusUpper === 'RUNNING' || allSteps.some(s => s?.result?.toUpperCase() === 'RUNNING')) {
     return { label: 'RUNNING', color: 'indigo' };
   }
-  if (action === 'ALLOW' && run.status === 'complete') return { label: 'PASSED', color: 'green' };
-  return { label: 'QUEUED', color: 'gray' };
+  return { label: 'WAITING', color: 'gray' };
 }
