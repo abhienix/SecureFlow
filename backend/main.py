@@ -265,16 +265,17 @@ async def _init_db_tables():
         # The PostgreSQL migration will fail if duplicates exist — the
         # operator must clean them up first via manual SQL or a one-off
         # migration job.
-        if not is_sqlite:
-            dup_sql = text("""
-                SELECT commit_sha, repo_name, branch, COUNT(*) AS cnt
-                FROM scan_results
-                WHERE status != 'superseded'
-                GROUP BY commit_sha, repo_name, branch
-                HAVING COUNT(*) > 1
-                LIMIT 20
-            """)
-            try:
+    if not is_sqlite:
+        dup_sql = text("""
+            SELECT commit_sha, repo_name, branch, COUNT(*) AS cnt
+            FROM scan_results
+            WHERE status != 'superseded'
+            GROUP BY commit_sha, repo_name, branch
+            HAVING COUNT(*) > 1
+            LIMIT 20
+        """)
+        try:
+            async with engine.begin() as conn:
                 dup_result = await conn.execute(dup_sql)
                 dup_rows = dup_result.fetchall()
                 if dup_rows:
@@ -286,8 +287,8 @@ async def _init_db_tables():
                         len(dup_rows),
                         [dict(r._mapping) for r in dup_rows[:5]],
                     )
-            except Exception as e:
-                logger.info(f"[startup migration] duplicate check skipped: {e}")
+        except Exception as e:
+            logger.info(f"[startup migration] duplicate check skipped: {e}")
 
 
 @asynccontextmanager
@@ -912,11 +913,11 @@ async def lifespan(app: FastAPI):
     logger.info(f"[startup] DATABASE_URL=postgresql://*****@{masked_db}")
 
     try:
-        await asyncio.wait_for(_init_db_tables(), timeout=20.0)
+        await asyncio.wait_for(_init_db_tables(), timeout=60.0)
         # Sync legacy data to new schema tables
         await seed_new_tables_from_scan_results()
     except asyncio.TimeoutError:
-        logger.warning("[startup migration] Database connection timed out after 20.0s — proceeding with startup")
+        logger.warning("[startup migration] Database connection timed out after 60.0s — proceeding with startup")
     except Exception as ex:
         logger.warning(f"[startup migration] notice during database init: {ex}")
 
@@ -1494,21 +1495,22 @@ async def update_scan_progress(run_id: int, data: dict = None, db: AsyncSession 
             "timestamp": now.isoformat() + "Z",
         })
 
-        # Create Event record for significant transitions
+        # Create Event record for significant transitions safely using nested savepoint
         try:
             if stage_status in (StageStatus.PASSED.value, StageStatus.FAILED.value, StageStatus.BLOCKED.value):
                 evt_dedup = f"stage.{sk}:{scan.id}:{stage_status}"
-                evt_existing = await db.execute(select(Event).filter(Event.dedup_key == evt_dedup))
-                if not evt_existing.scalars().first():
-                    evt_type = f"pipeline.stage.{stage_status.lower()}"
-                    evt_msg = f"Stage '{STAGE_DEFINITIONS.get(sk, {}).get('label', sk)}' {stage_status.lower()} for run #{scan.id}"
-                    db.add(Event(
-                        type=evt_type, message=evt_msg,
-                        source_link=f"/pipelines/{run_id_str}",
-                        severity="warning" if StageStatus.is_failure(stage_status) else "info",
-                        dedup_key=evt_dedup, event_version=1,
-                        created_at=now,
-                    ))
+                async with db.begin_nested():
+                    evt_existing = await db.execute(select(Event).filter(Event.dedup_key == evt_dedup))
+                    if not evt_existing.scalars().first():
+                        evt_type = f"pipeline.stage.{stage_status.lower()}"
+                        evt_msg = f"Stage '{STAGE_DEFINITIONS.get(sk, {}).get('label', sk)}' {stage_status.lower()} for run #{scan.id}"
+                        db.add(Event(
+                            type=evt_type, message=evt_msg,
+                            source_link=f"/pipelines/{run_id_str}",
+                            severity="warning" if StageStatus.is_failure(stage_status) else "info",
+                            dedup_key=evt_dedup, event_version=1,
+                            created_at=now,
+                        ))
         except Exception as e:
             logger.warning(f"[progress] Error creating event record: {e}")
 
