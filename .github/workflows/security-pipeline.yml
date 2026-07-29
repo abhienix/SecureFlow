@@ -979,12 +979,26 @@ jobs:
           consecutive_404=0
 
           while [ $retry -lt $MAX_RETRIES ]; do
-            RESPONSE=$(curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            RAW_RESP=$(curl -sS -X GET "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
               -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
-              -H "Content-Type: application/json" \
-              -d '{}' || echo '{"dast_status":"error","pipeline_steps":{}}')
+              -H "Content-Type: application/json" 2>/dev/null || echo '')
 
-            IS_NOT_FOUND=$(echo "$RESPONSE" | jq -r '.detail // empty')
+            if echo "$RAW_RESP" | jq empty 2>/dev/null; then
+              RESPONSE="$RAW_RESP"
+            else
+              RAW_PATCH=$(curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+                -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
+                -H "Content-Type: application/json" \
+                -d '{}' 2>/dev/null || echo '')
+              if echo "$RAW_PATCH" | jq empty 2>/dev/null; then
+                RESPONSE="$RAW_PATCH"
+              else
+                echo "Poll $((retry + 1))/$MAX_RETRIES — Server returned non-JSON response: $RAW_RESP"
+                RESPONSE='{"dast_status":"running","pipeline_steps":{}}'
+              fi
+            fi
+
+            IS_NOT_FOUND=$(echo "$RESPONSE" | jq -r '.detail // empty' 2>/dev/null || echo '')
             if [ "$IS_NOT_FOUND" = "Run not found" ] || [ "$IS_NOT_FOUND" = "Not Found" ]; then
               consecutive_404=$((consecutive_404 + 1))
               echo "Poll $((retry + 1))/$MAX_RETRIES — Run $RUN_ID not found on backend (404 count: $consecutive_404/3)"
@@ -997,8 +1011,8 @@ jobs:
               consecutive_404=0
             fi
 
-            DAST_STATUS=$(echo "$RESPONSE" | jq -r '.dast_status // "running"')
-            ZAP_RESULT=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap.result // "PENDING"')
+            DAST_STATUS=$(echo "$RESPONSE" | jq -r '.dast_status // "running"' 2>/dev/null || echo "running")
+            ZAP_RESULT=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap.result // "PENDING"' 2>/dev/null || echo "PENDING")
 
             echo "Poll $((retry + 1))/$MAX_RETRIES — dast_status=$DAST_STATUS  zap.result=$ZAP_RESULT"
 
