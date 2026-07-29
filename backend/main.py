@@ -1374,6 +1374,27 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
         stage_exit_code = 1 if StageStatus.is_failure(stage_status) else 0
         now = datetime.utcnow()
 
+        # ── Dependency enforcement ──────────────────────────────────────
+        # Never allow a stage to progress past WAITING until ALL its
+        # upstream dependencies have reached a terminal state.
+        deps = STAGE_DEFINITIONS.get(sk, {}).get("deps", [])
+        if deps and stage_status != StageStatus.WAITING.value:
+            all_run_stages = await db.execute(
+                select(PipelineStage).filter(PipelineStage.run_id == run_id_str)
+            )
+            dep_map = {ds.stage_key: ds.status for ds in all_run_stages.scalars().all()}
+            for dep_key in deps:
+                dep_status = dep_map.get(dep_key)
+                if dep_status and not StageStatus.is_terminal(dep_status):
+                    logger.warning(
+                        f"[progress] Dependency not met: {sk} -> {stage_status} "
+                        f"but dependency '{dep_key}' is {dep_status}, skipping"
+                    )
+                    stage_status = StageStatus.WAITING.value
+                    stage_detail = f"Awaiting dependency: {STAGE_DEFINITIONS.get(dep_key, {}).get('label', dep_key)}"
+                    stage_exit_code = 0
+                    break
+
         stage_id = f"stage-{scan.id}-{sk}"
         stage_res = await db.execute(select(PipelineStage).filter(PipelineStage.id == stage_id))
         existing_stage = stage_res.scalars().first()
