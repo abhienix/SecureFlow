@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { GitBranch, Clock, ChevronDown } from 'lucide-react';
+import { useTheme } from '../../contexts/ThemeContext';
 import { PipelineRun } from './types/pipeline.types';
 import { getOverallBadge, STAGE_ORDER, STAGE_META, getNodeStyle } from './utils/statusMapping';
 import { formatRelativeTime, formatDuration } from './utils/timeFormatters';
@@ -12,6 +13,7 @@ interface PipelineCardProps {
 }
 
 export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) {
+  const { C } = useTheme();
   const [isExpanded, setIsExpanded] = useState(isLatest);
   const [timeAgo, setTimeAgo] = useState(formatRelativeTime(run.created_at));
   const [liveDuration, setLiveDuration] = useState<number>(run.duration || 0);
@@ -106,8 +108,8 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
 
   return (
     <div style={{
-      backgroundColor: '#111827',
-      border: '1px solid #1E293B',
+      backgroundColor: C.bgCard,
+      border: `1px solid ${C.border}`,
       borderRadius: '12px',
       overflow: 'hidden',
       display: 'flex',
@@ -124,22 +126,22 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
           flexDirection: 'column',
           gap: '8px',
           userSelect: 'none',
-          backgroundColor: '#1E293B'
+          backgroundColor: C.bgSecondary
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
           {/* Metadata */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 800, color: '#6366F1', fontSize: '14px' }}>
+            <span style={{ fontWeight: 800, color: C.accent, fontSize: '14px' }}>
               #{run.id}
             </span>
-            <span style={{ color: '#E2E8F0', fontWeight: 600, fontSize: '13px' }}>
+            <span style={{ color: C.textPrimary, fontWeight: 600, fontSize: '13px' }}>
               {run.repo_name}
             </span>
-            <span style={{ color: '#94A3B8', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ color: C.textSecondary, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <GitBranch size={13} /> {run.branch}
             </span>
-            <span style={{ color: '#64748B', fontFamily: 'var(--sf-font-mono)', fontSize: '11px' }}>
+            <span style={{ color: C.textMuted || '#64748B', fontFamily: 'var(--sf-font-mono)', fontSize: '11px' }}>
               {run.commit_sha.slice(0, 7)}
             </span>
           </div>
@@ -163,7 +165,7 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
                   width: '6px',
                   height: '6px',
                   borderRadius: '50%',
-                  backgroundColor: '#6366F1',
+                  backgroundColor: C.accent,
                   animation: 'sf-pulse 1.2s infinite'
                 }} />
               )}
@@ -172,7 +174,7 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
 
             <ChevronDown 
               size={16} 
-              color="#94A3B8"
+              color={C.textSecondary}
               style={{
                 transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                 transition: 'transform 200ms ease'
@@ -182,16 +184,16 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
         </div>
 
         {/* Commit Message */}
-        <div style={{ fontSize: '14px', fontWeight: 600, color: '#F8FAFC', margin: '2px 0' }}>
+        <div style={{ fontSize: '14px', fontWeight: 600, color: C.textPrimary, margin: '2px 0' }}>
           "{commitMsg}"
         </div>
 
         {/* Trigger / Time Info */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: '#94A3B8' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: C.textSecondary }}>
             <span style={{
-              backgroundColor: '#334155',
-              color: '#F1F5F9',
+              backgroundColor: C.bgElevated,
+              color: C.textPrimary,
               padding: '2px 6px',
               borderRadius: '4px',
               fontSize: '10px',
@@ -237,7 +239,7 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
               gap: '4px',
               fontSize: '12px',
               fontWeight: 600,
-              color: '#6366F1',
+              color: C.accent,
               textDecoration: 'none'
             }}
           >
@@ -253,7 +255,7 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
             gap: '4px',
             marginTop: '8px',
             paddingTop: '8px',
-            borderTop: '1px solid #334155'
+            borderTop: `1px solid ${C.border}`
           }}>
             {STAGE_ORDER.map((stageKey) => {
               const step = run.pipeline_steps?.[stageKey];
@@ -282,8 +284,8 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
       {/* Graph Area (visible when expanded) */}
       {isExpanded && (
         <div style={{
-          borderTop: '1px solid #1E293B',
-          backgroundColor: '#0F172A',
+          borderTop: `1px solid ${C.border}`,
+          backgroundColor: C.bgSurface,
           animation: 'sf-fade-in 200ms ease-out'
         }}>
           <PipelineNodeGraph 

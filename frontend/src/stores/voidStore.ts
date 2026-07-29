@@ -18,6 +18,7 @@ interface VoidStore {
   conversationHistory: ChatMessage[];
   isTyping: boolean;
   isStreaming: boolean;
+  triggerPrompt: string | null;
   
   open: () => void;
   close: () => void;
@@ -28,6 +29,7 @@ interface VoidStore {
   clearConversation: (repoName: string) => void;
   setTyping: (v: boolean) => void;
   setStreaming: (v: boolean) => void;
+  setTriggerPrompt: (v: string | null) => void;
 }
 
 export const useVoidStore = create<VoidStore>((set) => ({
@@ -42,6 +44,7 @@ export const useVoidStore = create<VoidStore>((set) => ({
   conversationHistory: [],
   isTyping: false,
   isStreaming: false,
+  triggerPrompt: null,
 
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false }),
@@ -84,9 +87,11 @@ export const useVoidStore = create<VoidStore>((set) => ({
     ],
     conversationHistory: [],
     isTyping: false,
-    isStreaming: false
+    isStreaming: false,
+    triggerPrompt: null
   }),
 
   setTyping: (isTyping) => set({ isTyping }),
-  setStreaming: (isStreaming) => set({ isStreaming })
+  setStreaming: (isStreaming) => set({ isStreaming }),
+  setTriggerPrompt: (triggerPrompt) => set({ triggerPrompt })
 }));

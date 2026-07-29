@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldAlert, ExternalLink, Lock } from 'lucide-react';
+import { ShieldAlert, ExternalLink, Lock, Bot } from 'lucide-react';
 import { PipelineRun } from '../types/pipeline.types';
 import { API_BASE } from '../../../lib/api';
+import { useVoidStore } from '../../../stores/voidStore';
 
 interface BlockPolicyDrawerProps {
   run: PipelineRun;
@@ -159,6 +160,39 @@ export function BlockPolicyDrawer({
 
       {/* Buttons */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+        <button
+          onClick={() => {
+            const prompt = `Explain why the Policy Gate blocked in pipeline run #${run.id} for commit "${run.commit_message}". What policy violations occurred and how can I resolve or bypass them?`;
+            useVoidStore.getState().setTriggerPrompt(prompt);
+          }}
+          style={{
+            padding: '10px',
+            background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
+            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 700,
+            fontSize: '12px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            transition: 'all 200ms ease'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.boxShadow = '0 6px 16px rgba(99, 102, 241, 0.45)';
+            e.currentTarget.style.transform = 'translateY(-1px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(99, 102, 241, 0.3)';
+            e.currentTarget.style.transform = 'none';
+          }}
+        >
+          Ask Void to Explain & Fix <Bot size={14} />
+        </button>
+
         <button
           onClick={onNavigateToSecurity}
           style={{
