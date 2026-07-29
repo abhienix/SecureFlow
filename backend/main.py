@@ -2799,7 +2799,6 @@ async def get_v1_events(db: AsyncSession = Depends(get_db)):
     events = res.scalars().all()
     return events
 
-# 9. Copilot SSE Chat
 @v1_router.post("/copilot/chat")
 async def copilot_chat_streaming(data: dict):
     messages = data.get("messages", [])
@@ -2808,9 +2807,10 @@ async def copilot_chat_streaming(data: dict):
     async def token_generator():
         question = messages[-1]["content"] if messages else "Hello"
         try:
-            response = await answer_copilot_question(question, context=context)
-            ans_text = response.get("answer") or "I'm SecureFlow Copilot, how can I help you today?"
+            response = await asyncio.to_thread(answer_copilot_question, question, context)
+            ans_text = response or "I'm SecureFlow Copilot, how can I help you today?"
         except Exception as e:
+            logger.error(f"[copilot chat] error: {e}")
             ans_text = f"SecureFlow Copilot (Heuristics): Evaluation indicates action taken is ALLOW. No critical blocker found."
 
         words = ans_text.split(" ")
