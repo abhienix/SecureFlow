@@ -238,6 +238,11 @@ async def _init_db_tables():
             text("ALTER TABLE scan_results ADD COLUMN worker_id VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS worker_id VARCHAR"),
             text("ALTER TABLE scan_results ADD COLUMN queue_error TEXT") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS queue_error TEXT"),
             text("ALTER TABLE scan_results ADD COLUMN zap_report_path VARCHAR") if is_sqlite else text("ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS zap_report_path VARCHAR"),
+            text("ALTER TABLE pipeline_stages ADD COLUMN stage_key VARCHAR") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS stage_key VARCHAR"),
+            text("ALTER TABLE pipeline_stages ADD COLUMN order_index INTEGER") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS order_index INTEGER"),
+            text("ALTER TABLE pipeline_stages ADD COLUMN exit_code INTEGER") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS exit_code INTEGER"),
+            text("ALTER TABLE pipeline_stages ADD COLUMN detail TEXT") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS detail TEXT"),
+            text("ALTER TABLE pipeline_stages ADD COLUMN retry_count INTEGER") if is_sqlite else text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS retry_count INTEGER"),
         ]
 
         for stmt in migration_statements:
@@ -1338,11 +1343,25 @@ async def update_scan_progress(run_id: int, data: dict, db: AsyncSession = Depen
             zap_current = (scan.pipeline_steps or {}).get("zap", {}).get("result", "")
             if zap_current in ("PENDING", "QUEUED"):
                 zap_steps = enforce_monotonic_stages(dict(scan.pipeline_steps or {}), "zap", "PASS")
+                
+                # Check for ZAP alerts
+                zap_f = data.get("zap_findings") or scan.zap_findings
+                alerts = []
+                if isinstance(zap_f, dict):
+                    alerts = zap_f.get("alerts", [])
+                elif isinstance(zap_f, list):
+                    alerts = zap_f
+                has_alerts = len(alerts) > 0
+                
+                zap_steps = enforce_monotonic_stages(zap_steps, "zap_gate", "BLOCK" if has_alerts else "PASS")
+                zap_steps["zap_gate"]["detail"] = f"ZAP Security Gate blocked: {len(alerts)} alerts." if has_alerts else "ZAP Security Gate passed with 0 alerts."
                 scan.pipeline_steps = zap_steps
         elif data["dast_status"] in ("failed", "queue_failed"):
             zap_current = (scan.pipeline_steps or {}).get("zap", {}).get("result", "")
             if zap_current in ("PENDING", "QUEUED"):
                 zap_steps = enforce_monotonic_stages(dict(scan.pipeline_steps or {}), "zap", "FAILED")
+                zap_steps = enforce_monotonic_stages(zap_steps, "zap_gate", "SKIPPED")
+                zap_steps["zap_gate"]["detail"] = "ZAP Security Gate skipped due to upstream scan failure."
                 scan.pipeline_steps = zap_steps
 
     if "zap_findings" in data:
@@ -1640,10 +1659,27 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
                         "result": "PASS",
                         "detail": f"OWASP ZAP DAST scan completed by {scan.worker_name or 'Worker VM'}"
                     }
+                    # Also determine zap_gate
+                    zap_f = zap_data or scan.zap_findings
+                    alerts = []
+                    if isinstance(zap_f, dict):
+                        alerts = zap_f.get("alerts", [])
+                    elif isinstance(zap_f, list):
+                        alerts = zap_f
+                    has_alerts = len(alerts) > 0
+                    
+                    merged_steps["zap_gate"] = {
+                        "result": "BLOCK" if has_alerts else "PASS",
+                        "detail": f"ZAP Security Gate blocked: {len(alerts)} alerts." if has_alerts else "ZAP Security Gate passed with 0 alerts."
+                    }
                 elif scan.dast_status in ("failed", "queue_failed"):
                     merged_steps["zap"] = {
                         "result": "FAILED",
                         "detail": scan.queue_error or f"ZAP DAST scan failed on {scan.target_url or 'target'}"
+                    }
+                    merged_steps["zap_gate"] = {
+                        "result": "SKIPPED",
+                        "detail": "ZAP Security Gate skipped due to upstream scan failure."
                     }
 
                 scan.pipeline_steps = merged_steps
