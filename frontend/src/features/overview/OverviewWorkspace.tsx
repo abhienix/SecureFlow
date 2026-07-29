@@ -27,7 +27,7 @@ export default function OverviewWorkspace() {
   useWebSocket();
 
   // Fetch Repositories
-  const { data: repoData, isLoading: reposLoading } = useQuery<{ repositories: RepositoryData[] }>({
+  const { data: repoData, isLoading: reposLoading, isError: reposError, refetch: reposRefetch } = useQuery<{ repositories: RepositoryData[] }>({
     queryKey: ['repositories'],
     queryFn: async () => {
       const res = await client.get('/repositories');
@@ -36,7 +36,7 @@ export default function OverviewWorkspace() {
   });
 
   // Fetch Security Summary
-  const { data: secSummary, isLoading: secLoading } = useQuery({
+  const { data: secSummary, isLoading: secLoading, isError: secError } = useQuery({
     queryKey: ['security', 'summary'],
     queryFn: async () => {
       const res = await client.get('/security/summary');
@@ -45,7 +45,7 @@ export default function OverviewWorkspace() {
   });
 
   // Fetch Pipelines
-  const { data: pipelineData, isLoading: pipeLoading } = useQuery({
+  const { data: pipelineData, isLoading: pipeLoading, isError: pipeError } = useQuery({
     queryKey: ['pipelines'],
     queryFn: async () => {
       const res = await client.get('/pipelines');
@@ -57,7 +57,6 @@ export default function OverviewWorkspace() {
   const { data: sysHealth } = useQuery({
     queryKey: ['system', 'health'],
     queryFn: async () => {
-      // Legacy health endpoint
       const res = await client.get('/health/system');
       return res.data;
     },
@@ -211,6 +210,7 @@ export default function OverviewWorkspace() {
           unit="repos"
           icon={<GitBranch size={16} />}
           isLoading={reposLoading}
+          isError={reposError}
           color="blue"
         />
         <MetricCard
@@ -220,7 +220,7 @@ export default function OverviewWorkspace() {
           change={healthScore >= 90 ? 1.5 : -2.3}
           icon={<Shield size={16} />}
           isLoading={secLoading}
-          isError={healthScore < 80}
+          isError={reposError || secError}
           color="green"
         />
         <MetricCard
@@ -229,6 +229,7 @@ export default function OverviewWorkspace() {
           unit="running"
           icon={<Zap size={16} />}
           isLoading={pipeLoading}
+          isError={pipeError}
           color="indigo"
         />
         <MetricCard
@@ -342,6 +343,8 @@ export default function OverviewWorkspace() {
           columns={columns}
           data={repos}
           isLoading={reposLoading}
+          isError={reposError}
+          onRetry={reposRefetch}
           emptyMessage="No repositories registered under SecureFlow control"
         />
       </div>

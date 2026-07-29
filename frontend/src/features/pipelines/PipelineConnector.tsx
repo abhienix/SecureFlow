@@ -1,0 +1,84 @@
+import React from 'react';
+
+interface PipelineConnectorProps {
+  sourceResult?: string;
+  forcedSkipped?: boolean;
+}
+
+export function PipelineConnector({ sourceResult, forcedSkipped = false }: PipelineConnectorProps) {
+  const r = forcedSkipped ? 'skipped' : sourceResult?.toUpperCase() || 'PENDING';
+
+  let color = '#374151';
+  let dasharray = 'none';
+  let opacity = 1;
+  let animate = false;
+
+  if (r === 'PASS' || r === 'ALLOW') {
+    color = '#10B981';
+  } else if (r === 'SCANNED') {
+    color = '#3B82F6';
+  } else if (r === 'BLOCK') {
+    color = '#F59E0B';
+    dasharray = '6,4';
+  } else if (r === 'FAILED') {
+    color = '#EF4444';
+    dasharray = '6,4';
+  } else if (r === 'RUNNING') {
+    color = '#6366F1';
+    dasharray = '8,4';
+    animate = true;
+  } else if (r === 'PENDING') {
+    color = '#374151';
+    dasharray = '4,6';
+    opacity = 0.4;
+  } else if (r === 'SKIPPED' || r === 'skipped') {
+    color = '#374151';
+    dasharray = '4,6';
+    opacity = 0.3;
+  } else {
+    // Treat unknown as pending
+    color = '#374151';
+    dasharray = '4,6';
+    opacity = 0.4;
+  }
+
+  return (
+    <div style={{
+      flex: 1,
+      display: 'flex',
+      alignItems: 'center',
+      minWidth: '16px',
+      height: '52px', // Align with center of the 52px circle
+      paddingBottom: '26px', // Shift up by half node height + label height offset
+      boxSizing: 'border-box'
+    }}>
+      <svg 
+        style={{ 
+          width: '100%', 
+          height: '2px', 
+          overflow: 'visible',
+          opacity 
+        }}
+      >
+        <line
+          x1="0"
+          y1="1"
+          x2="100%"
+          y2="1"
+          stroke={color}
+          strokeWidth={2}
+          strokeDasharray={dasharray}
+          style={{
+            animation: animate ? 'sf-connector-dash 1s linear infinite' : 'none',
+            strokeDashoffset: animate ? 20 : 0
+          }}
+        />
+      </svg>
+      <style>{`
+        @keyframes sf-connector-dash {
+          to { stroke-dashoffset: 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
