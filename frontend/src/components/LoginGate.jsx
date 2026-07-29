@@ -63,7 +63,7 @@ export function LoginGate({ onAuthenticate, C }) {
             SecureFlow Platform
           </h1>
           <p style={{ fontSize: 12, fontWeight: 600, color: "#6366F1", marginTop: 4, letterSpacing: "0.5px", textTransform: "uppercase" }}>
-            AI-Powered DevSecOps Gateway
+            CI/CD Security Intelligence
           </p>
         </div>
 

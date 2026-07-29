@@ -55,7 +55,8 @@ const THEMES = {
     shadow: "0 1px 3px rgba(0,0,0,0.4)",
     shadowLg: "0 8px 32px rgba(0,0,0,0.5)",
     mono: "'JetBrains Mono','Fira Code','Courier New',monospace",
-    sans: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    sans: "'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    display: "'Outfit',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
   },
   light: {
     isDark: false,
@@ -111,7 +112,8 @@ const THEMES = {
     shadow: "0 2px 8px rgba(15,23,42,0.06)",
     shadowLg: "0 12px 36px rgba(15,23,42,0.10)",
     mono: "'JetBrains Mono','Fira Code','Courier New',monospace",
-    sans: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    sans: "'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    display: "'Outfit',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
   },
 };
 

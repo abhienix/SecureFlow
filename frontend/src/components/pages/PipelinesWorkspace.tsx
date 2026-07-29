@@ -581,6 +581,50 @@ export default function PipelinesWorkspace() {
           </div>
         </div>
 
+      {/* Security Remediation Advice container */}
+      {decision === 'BLOCK' && (
+        <div style={{
+          backgroundColor: 'rgba(239, 68, 68, 0.04)',
+          border: '1px solid rgba(239, 68, 68, 0.25)',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+          color: 'var(--sf-ink)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ShieldAlert size={18} color="#EF4444" />
+            <h3 style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0, color: '#FCA5A5' }}>
+              Required Security Remediation Actions
+            </h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {pipelineStages
+              .filter(stage => stage.status === 'failed' || stage.status === 'blocked')
+              .map(stage => (
+                <div key={stage.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderLeft: '3px solid #EF4444', paddingLeft: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#EF4444' }}>{stage.name}</span>
+                    <span style={{ fontSize: '10px', backgroundColor: 'rgba(239,68,68,0.15)', color: '#FCA5A5', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                      {stage.status.toUpperCase()}
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--sf-text-secondary)', lineHeight: '1.4' }}>
+                    <strong>Finding:</strong> {stage.blockReason || stage.details?.reason || 'Security check failed.'}
+                  </p>
+                  {stage.suggestedFix && (
+                    <div style={{ margin: '4px 0 0 0', display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '12px', color: '#86EFAC', backgroundColor: 'rgba(16,185,129,0.06)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(16,185,129,0.1)' }}>
+                      <span style={{ fontWeight: 800, color: '#10B981', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.5px' }}>Suggested Fix:</span>
+                      <span style={{ lineHeight: '1.4' }}>{stage.suggestedFix}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
         {/* SECTION 1C: REDESIGNED PIPELINE SELECTOR DROPDOWN */}
         <div style={{ position: 'relative' }}>
           <button

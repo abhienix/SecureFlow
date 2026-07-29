@@ -1291,12 +1291,16 @@ def enforce_monotonic_stages(pipeline_steps: dict, current_stage_key: str, outco
     res = dict(pipeline_steps)
     
     # 0. Monotonic Guard: Reject regression if any downstream stage is already running/passed/failed
+    curr_val = res.get(current_stage_key) or {}
+    curr_result = (curr_val.get("result") or "").upper()
     for j in range(idx + 1, len(stage_sequence)):
         later_key = stage_sequence[j]
         later_val = res.get(later_key) or {}
         later_result = (later_val.get("result") or "").upper()
         if later_result in ("RUNNING", "PASS", "ALLOW", "SCANNED", "FAILED", "BLOCK", "SKIPPED", "PASSED", "BLOCKED"):
             if outcome.upper() in ("PENDING", "RUNNING", "QUEUED", "WAITING"):
+                return res
+            if curr_result in ("PASS", "ALLOW", "SCANNED", "FAILED", "BLOCK", "PASSED", "BLOCKED") and outcome.upper() == "SKIPPED":
                 return res
     
     # 1. Enforce that all stages before idx are resolved (e.g. PASS/passed) if they are currently PENDING or missing
@@ -2264,7 +2268,16 @@ async def migrate(db: AsyncSession = Depends(get_db)):
         except Exception as e:
             logger.info(f"[migrate endpoint] notice: {e}")
     await db.commit()
-    return {"status": "migrated", "dast_schema": "up to date"}
+    
+    # Force re-sync of all historical runs to clear any stuck stage states
+    try:
+        scans_res = await db.execute(select(ScanResult))
+        for scan in scans_res.scalars().all():
+            await sync_single_scan_result_to_new_tables(scan.id, db)
+    except Exception as ex:
+        logger.warning(f"[migrate resync] failed to resync scans: {ex}")
+        
+    return {"status": "migrated", "dast_schema": "up to date", "historical_resync": "completed"}
 
 
 # ---------------------------------------------------------------------------

@@ -1,11 +1,12 @@
-import React, { useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import React, { useState, useEffect, useRef } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useScans, useFindings } from "../../hooks/useApi";
 import { useUIStore } from "../../stores/uiStore";
 import {
   ShieldCheck, GitPullRequest, GitBranch, ShieldAlert, FileText,
-  Settings, Sun, Moon, Monitor, PanelLeftClose, PanelLeft, Radar, Bell
+  Settings, Sun, Moon, Monitor, PanelLeftClose, PanelLeft, Radar, Bell,
+  CheckCircle2, XCircle, Loader2
 } from "lucide-react";
 
 const NAV_SECTIONS = [
@@ -37,11 +38,54 @@ export default function Sidebar({ C }) {
   const { mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // ── Animated pipeline toast state ──────────────────────────────────
+  const [pipelineToast, setPipelineToast] = useState(null);
+  // { repo, sha, status: 'running' | 'passed' | 'blocked', visible }
+  const toastTimer = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      const data = e.detail;
+      if (!data) return;
+
+      if (data.type === 'scan_started') {
+        clearTimeout(toastTimer.current);
+        setPipelineToast({
+          repo: data.repo_name || data.repository || 'Pipeline',
+          sha: (data.commit_sha || '').substring(0, 7),
+          status: 'running',
+          visible: true,
+        });
+        // auto-dismiss after 6s if no completion event
+        toastTimer.current = setTimeout(() => setPipelineToast(null), 6000);
+      }
+
+      if (data.type === 'scan_complete') {
+        clearTimeout(toastTimer.current);
+        const isBlocked = data.action_taken === 'BLOCK';
+        setPipelineToast({
+          repo: data.repo_name || data.repository || 'Pipeline',
+          sha: (data.commit_sha || '').substring(0, 7),
+          status: isBlocked ? 'blocked' : 'passed',
+          visible: true,
+        });
+        toastTimer.current = setTimeout(() => setPipelineToast(null), 5000);
+      }
+    };
+
+    window.addEventListener('sf_ws_event', handler);
+    return () => {
+      window.removeEventListener('sf_ws_event', handler);
+      clearTimeout(toastTimer.current);
+    };
+  }, []);
 
   // Live counts from TanStack Query (auto-updates on WS events)
   const { data: scans } = useScans(200);
   const { data: findings } = useFindings();
-  const scansCount = scans?.length || 0;
+  const scansCount = scans?.filter(s => s.status?.toLowerCase() === 'running')?.length || 0;
   const openFindingsCount = findings?.length || 0;
   const counts = { scansCount, openFindingsCount };
   const ThemeIcon = THEME_ICONS[mode];
@@ -86,8 +130,8 @@ export default function Sidebar({ C }) {
             <h2 style={{ fontSize: 15, fontWeight: 800, color: C.ink, letterSpacing: "-0.3px", whiteSpace: "nowrap" }}>
               SecureFlow
             </h2>
-            <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-              DevSecOps Platform
+            <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.8px" }}>
+              CI/CD Security Intelligence
             </span>
           </div>
         )}
@@ -182,6 +226,104 @@ export default function Sidebar({ C }) {
           color: #4F46E5 !important;
           border-left: 4px solid #4F46E5 !important;
           font-weight: 700;
+        }
+      `}</style>
+
+      {/* ── Animated Pipeline Toast ─────────────────────────────── */}
+      {pipelineToast && (
+        <div
+          onClick={() => navigate('/pipelines')}
+          style={{
+            cursor: 'pointer',
+            borderRadius: 10,
+            padding: collapsed ? '10px 6px' : '10px 12px',
+            background: pipelineToast.status === 'running'
+              ? 'rgba(99,102,241,0.12)'
+              : pipelineToast.status === 'blocked'
+              ? 'rgba(244,63,94,0.12)'
+              : 'rgba(16,185,129,0.12)',
+            border: `1px solid ${
+              pipelineToast.status === 'running'
+                ? 'rgba(99,102,241,0.35)'
+                : pipelineToast.status === 'blocked'
+                ? 'rgba(244,63,94,0.35)'
+                : 'rgba(16,185,129,0.35)'
+            }`,
+            animation: 'sf-toast-slide 0.35s cubic-bezier(0.22,1,0.36,1)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            overflow: 'hidden',
+          }}
+        >
+          {/* Status icon */}
+          <div style={{
+            minWidth: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: '50%',
+            background: pipelineToast.status === 'running'
+              ? 'rgba(99,102,241,0.2)'
+              : pipelineToast.status === 'blocked'
+              ? 'rgba(244,63,94,0.2)'
+              : 'rgba(16,185,129,0.2)',
+          }}>
+            {pipelineToast.status === 'running' && (
+              <Loader2
+                size={13}
+                color="#818CF8"
+                style={{ animation: 'sf-spin 1s linear infinite' }}
+              />
+            )}
+            {pipelineToast.status === 'passed' && <CheckCircle2 size={13} color="#10B981" />}
+            {pipelineToast.status === 'blocked' && <XCircle size={13} color="#F43F5E" />}
+          </div>
+
+          {/* Text — only show when not collapsed */}
+          {!collapsed && (
+            <div style={{ overflow: 'hidden', flex: 1 }}>
+              <div style={{
+                fontSize: 10, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase',
+                color: pipelineToast.status === 'running'
+                  ? '#818CF8'
+                  : pipelineToast.status === 'blocked'
+                  ? '#F43F5E'
+                  : '#10B981',
+                marginBottom: 1,
+              }}>
+                {pipelineToast.status === 'running' ? 'Pipeline Running' :
+                 pipelineToast.status === 'blocked' ? 'Build Blocked' : 'Build Passed'}
+              </div>
+              <div style={{
+                fontSize: 10, color: C.inkMuted, whiteSpace: 'nowrap',
+                overflow: 'hidden', textOverflow: 'ellipsis',
+              }}>
+                {pipelineToast.repo}
+                {pipelineToast.sha ? ` · ${pipelineToast.sha}` : ''}
+              </div>
+            </div>
+          )}
+
+          {/* Running pulse dot (collapsed mode) */}
+          {collapsed && pipelineToast.status === 'running' && (
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%', background: '#818CF8',
+              animation: 'sf-pulse 1.2s ease-in-out infinite',
+            }} />
+          )}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes sf-toast-slide {
+          from { opacity: 0; transform: translateY(12px) scale(0.97); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes sf-spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes sf-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%       { opacity: 0.4; transform: scale(0.75); }
         }
       `}</style>
 
