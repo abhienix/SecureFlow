@@ -982,27 +982,71 @@ jobs:
             exit 0
           fi
 
-          echo "Polling backend for DAST completion on run $RUN_ID..."
-          echo "Endpoint: $BACKEND_URL/api/scan-results/$RUN_ID/progress"
+          echo "===================================================="
+          echo "DAST POLLING DIAGNOSTICS INSTRUMENTATION"
+          echo "BACKEND_URL: $BACKEND_URL"
+          echo "RUN_ID: $RUN_ID"
+          echo "Full Endpoint: $BACKEND_URL/api/scan-results/$RUN_ID/progress"
+          if [ -n "$BACKEND_API_SECRET" ]; then
+            echo "Authorization header present: YES"
+          else
+            echo "Authorization header present: NO"
+          fi
+          echo "===================================================="
 
           consecutive_404=0
 
           while [ $retry -lt $MAX_RETRIES ]; do
-            RAW_RESP=$(curl -sS -X GET "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+            POLL_NUM=$((retry + 1))
+            TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+            RESP_FILE=$(mktemp)
+            HTTP_CODE=$(curl -sS -w "%{http_code}" -o "$RESP_FILE" -X GET "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
               -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
-              -H "Content-Type: application/json" 2>/dev/null || echo '')
+              -H "Content-Type: application/json" 2>&1 || echo "000")
+            RAW_RESP=$(cat "$RESP_FILE" 2>/dev/null || echo "")
+            rm -f "$RESP_FILE"
+
+            echo "===================================================="
+            echo "Poll $POLL_NUM | Timestamp: $TS"
+            echo "HTTP Status Code: $HTTP_CODE"
+            echo "Raw Response Body:"
+            echo "$RAW_RESP"
+            echo "----------------------------------------------------"
+
+            JQ_PARSE="FAILED"
+            EXEC_PATH="UNKNOWN"
 
             if echo "$RAW_RESP" | jq empty 2>/dev/null && [ -n "$RAW_RESP" ]; then
+              JQ_PARSE="SUCCESS"
+              if [ "$HTTP_CODE" = "200" ]; then
+                EXEC_PATH="VALID_JSON_200"
+              elif [ "$HTTP_CODE" = "403" ]; then
+                EXEC_PATH="AUTH_FAILURE_403"
+              else
+                EXEC_PATH="HTTP_ERROR_${HTTP_CODE}"
+              fi
               RESPONSE="$RAW_RESP"
             else
-              echo "Poll $((retry + 1))/$MAX_RETRIES — GET request returned empty or invalid response. Retrying in $POLL_INTERVALs..."
+              JQ_PARSE="FAILED"
+              if [ -z "$RAW_RESP" ]; then
+                EXEC_PATH="EMPTY_RESPONSE"
+              elif [ "$HTTP_CODE" = "000" ]; then
+                EXEC_PATH="CURL_NETWORK_FAILURE"
+              else
+                EXEC_PATH="NON_JSON_RESPONSE"
+              fi
+              echo "EXECUTION PATH TRIGGERED: $EXEC_PATH — Retrying..."
               RESPONSE='{"dast_status":"running","pipeline_steps":{}}'
             fi
+
+            echo "JSON Parse: $JQ_PARSE"
+            echo "Execution Path: $EXEC_PATH"
 
             IS_NOT_FOUND=$(echo "$RESPONSE" | jq -r '.detail // empty' 2>/dev/null || echo '')
             if [ "$IS_NOT_FOUND" = "Run not found" ] || [ "$IS_NOT_FOUND" = "Not Found" ]; then
               consecutive_404=$((consecutive_404 + 1))
-              echo "Poll $((retry + 1))/$MAX_RETRIES — Run $RUN_ID not found on backend (404 count: $consecutive_404/3)"
+              echo "Poll $POLL_NUM — Run $RUN_ID not found on backend (404 count: $consecutive_404/3)"
               if [ $consecutive_404 -ge 3 ]; then
                 echo "ERROR: Scan run_id=$RUN_ID does not exist on backend after 3 checks."
                 echo "zap_passed=false" >> "$GITHUB_OUTPUT"
@@ -1016,7 +1060,8 @@ jobs:
             ZAP_RESULT=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap.result // "PENDING"' 2>/dev/null || echo "PENDING")
             ZAP_GATE=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap_gate.result // .pipeline_steps.zap.result // "PENDING"' 2>/dev/null || echo "PENDING")
 
-            echo "Poll $((retry + 1))/$MAX_RETRIES — dast_status=$DAST_STATUS zap.result=$ZAP_RESULT zap_gate=$ZAP_GATE"
+            echo "Extracted values: dast_status=$DAST_STATUS zap.result=$ZAP_RESULT zap_gate=$ZAP_GATE"
+            echo "===================================================="
 
             if [ "$DAST_STATUS" = "completed" ] || [ "$DAST_STATUS" = "passed" ] || [ "$ZAP_RESULT" = "PASS" ] || [ "$ZAP_RESULT" = "FAIL" ] || [ "$ZAP_GATE" = "BLOCK" ]; then
               echo "DAST scan finished on backend."
