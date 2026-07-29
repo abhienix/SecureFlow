@@ -278,9 +278,9 @@ export default function PipelineDetailPage() {
                 <div style={{ color: meta.color }}>{meta.icon}</div>
                 <div style={{ flex: 1, fontSize: '13px', fontWeight: 600, color: '#E2E8F0' }}>{stage.name}</div>
                 <Badge variant={
-                  stage.status === STATUS.PASSED ? 'success' :
+                  stage.status === STATUS.PASSED ? 'passed' :
                   stage.status === STATUS.FAILED || stage.status === STATUS.BLOCKED ? 'failed' :
-                  stage.status === STATUS.RUNNING ? 'warning' : 'default'
+                  stage.status === STATUS.RUNNING ? 'running' : 'neutral'
                 }>{meta.label}</Badge>
                 {stage.duration && stage.duration !== '0s' && (
                   <div style={{ fontSize: '12px', color: '#64748B', fontFamily: 'var(--sf-font-mono)' }}>{stage.duration}</div>
