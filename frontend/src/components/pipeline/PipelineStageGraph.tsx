@@ -1,13 +1,15 @@
 import React from 'react';
-import { Play, CheckCircle, XCircle, AlertTriangle, HelpCircle, Loader2 } from 'lucide-react';
+import { Play, CheckCircle, XCircle, AlertTriangle, HelpCircle, Loader2, SkipForward, Ban, Clock, Lock } from 'lucide-react';
 
 export interface Stage {
   id: string;
   name: string;
-  status: 'passed' | 'failed' | 'running' | 'queued' | 'skipped' | 'pending';
+  stage_key?: string;
+  order_index?: number;
+  status: 'WAITING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'BLOCKED' | 'SKIPPED' | 'CANCELLED';
   duration?: string;
   stepsCount?: number;
-  eta?: string;
+  detail?: string;
 }
 
 interface PipelineStageGraphProps {
@@ -15,158 +17,59 @@ interface PipelineStageGraphProps {
   onStageClick?: (stage: Stage) => void;
 }
 
+const STATUS_META: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
+  WAITING:  { color: '#475569', icon: <Clock size={16} color="#475569" />, label: 'Waiting' },
+  RUNNING:  { color: '#6366F1', icon: <Loader2 size={16} color="#6366F1" className="spin" style={{ animation: 'spin 2s linear infinite' }} />, label: 'Running' },
+  PASSED:   { color: '#10B981', icon: <CheckCircle size={16} color="#10B981" />, label: 'Passed' },
+  FAILED:   { color: '#EF4444', icon: <XCircle size={16} color="#EF4444" />, label: 'Failed' },
+  BLOCKED:  { color: '#F59E0B', icon: <Lock size={16} color="#F59E0B" />, label: 'Blocked' },
+  SKIPPED:  { color: '#6B7280', icon: <SkipForward size={16} color="#6B7280" />, label: 'Skipped' },
+  CANCELLED:{ color: '#6B7280', icon: <Ban size={16} color="#6B7280" />, label: 'Cancelled' },
+};
+
 export function PipelineStageGraph({ stages, onStageClick }: PipelineStageGraphProps) {
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'passed':
-        return <CheckCircle size={16} color="var(--sf-success)" />;
-      case 'failed':
-        return <XCircle size={16} color="var(--sf-danger)" />;
-      case 'running':
-        return <Loader2 size={16} color="var(--sf-accent)" className="spin" style={{ animation: 'spin 2s linear infinite' }} />;
-      case 'queued':
-      case 'pending':
-        return <Play size={16} color="var(--sf-info)" />;
-      default:
-        return <HelpCircle size={16} color="var(--sf-text-muted)" />;
-    }
+  const getStatusBorder = (status: string) => {
+    const meta = STATUS_META[status];
+    if (!meta) return '1px dashed #475569';
+    if (status === 'WAITING') return '1px dashed #475569';
+    if (status === 'RUNNING') return '2px solid #6366F1';
+    return `2px solid ${meta.color}`;
   };
 
-  const getStatusBorder = (status: string) => {
-    switch (status) {
-      case 'passed':
-        return '2px solid var(--sf-success)';
-      case 'failed':
-        return '2px solid var(--sf-danger)';
-      case 'running':
-        return '2px solid var(--sf-accent)';
-      case 'queued':
-      case 'pending':
-        return '1px dashed var(--sf-info)';
-      default:
-        return '1px solid var(--sf-border)';
-    }
-  };
+  const sorted = [...stages].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        width: '100%',
-        overflowX: 'auto',
-        padding: '24px 16px',
-        backgroundColor: 'var(--sf-bg-card)',
-        border: '1px solid var(--sf-border)',
-        borderRadius: '12px',
-        gap: '24px',
-      }}
-    >
-      {stages.map((stage, idx) => {
-        const isLast = idx === stages.length - 1;
-        const isRunning = stage.status === 'running';
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', overflowX: 'auto', padding: '24px 16px', backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '12px', gap: '24px' }}>
+      {sorted.map((stage, idx) => {
+        const isLast = idx === sorted.length - 1;
+        const meta = STATUS_META[stage.status] || STATUS_META.WAITING;
+        const isActive = stage.status === 'RUNNING';
 
         return (
-          <React.Fragment key={stage.id}>
-            {/* Stage Box */}
+          <React.Fragment key={stage.id || stage.stage_key || idx}>
             <div
               onClick={() => onStageClick?.(stage)}
               style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                padding: '12px 16px',
-                backgroundColor: 'var(--sf-bg-surface)',
-                border: getStatusBorder(stage.status),
-                borderRadius: '8px',
-                minWidth: '150px',
-                cursor: onStageClick ? 'pointer' : 'default',
-                transition: 'transform 150ms ease, box-shadow 150ms ease',
-                position: 'relative',
+                display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px',
+                backgroundColor: 'var(--sf-bg-surface)', border: getStatusBorder(stage.status),
+                borderRadius: '8px', minWidth: '150px', cursor: onStageClick ? 'pointer' : 'default',
+                transition: 'transform 150ms ease, box-shadow 150ms ease', position: 'relative',
               }}
-              onMouseEnter={(e) => {
-                if (onStageClick) {
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = 'var(--sf-shadow)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (onStageClick) {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }
-              }}
+              onMouseEnter={(e) => { if (onStageClick) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--sf-shadow)'; } }}
+              onMouseLeave={(e) => { if (onStageClick) { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; } }}
             >
-              {/* Top Row: Icon + Name */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {getStatusIcon(stage.status)}
-                <span
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: 'var(--sf-text-primary)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {stage.name}
-                </span>
+                {meta.icon}
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--sf-text-primary)', whiteSpace: 'nowrap' }}>{stage.name}</span>
               </div>
-
-              {/* Bottom Row: Steps + Duration / ETA */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  fontSize: '11px',
-                  color: 'var(--sf-text-muted)',
-                }}
-              >
-                <span>{stage.stepsCount !== undefined ? `${stage.stepsCount} steps` : '—'}</span>
-                <span>{stage.duration || stage.eta || ''}</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: 'var(--sf-text-muted)' }}>
+                <span>{meta.label}</span>
+                <span>{stage.duration || ''}</span>
               </div>
-
-              {/* Running Status Pulse */}
-              {isRunning && (
-                <div
-                  className="pulse-glow"
-                  style={{
-                    position: 'absolute',
-                    inset: -2,
-                    borderRadius: '8px',
-                    pointerEvents: 'none',
-                  }}
-                />
-              )}
+              {isActive && <div className="pulse-glow" style={{ position: 'absolute', inset: -2, borderRadius: '8px', pointerEvents: 'none' }} />}
             </div>
-
-            {/* Connector Line */}
             {!isLast && (
-              <div
-                style={{
-                  flex: 1,
-                  height: '2px',
-                  backgroundColor: stage.status === 'passed' ? 'var(--sf-success)' : 'var(--sf-border)',
-                  minWidth: '24px',
-                  position: 'relative',
-                }}
-              >
-                {stage.status === 'running' && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: '100%',
-                      backgroundColor: 'var(--sf-accent)',
-                      transformOrigin: 'left',
-                      animation: 'skeleton-shimmer 1.5s linear infinite',
-                    }}
-                  />
-                )}
-              </div>
+              <div style={{ flex: 1, height: '2px', backgroundColor: stage.status === 'PASSED' ? '#10B981' : isFailure(stage.status) ? '#EF4444' : 'var(--sf-border)', minWidth: '24px', position: 'relative' }} />
             )}
           </React.Fragment>
         );
@@ -174,4 +77,9 @@ export function PipelineStageGraph({ stages, onStageClick }: PipelineStageGraphP
     </div>
   );
 }
+
+function isFailure(status: string) {
+  return status === 'FAILED' || status === 'BLOCKED';
+}
+
 export default PipelineStageGraph;

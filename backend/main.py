@@ -41,6 +41,9 @@ from models import (
 from redis_pubsub import RedisPubSubManager, REDIS_BROADCAST_CHANNEL
 from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label, load_policy_file
 from ai_analysis import analyze_scan, analyze_code_scan_failure, answer_copilot_question
+from pipeline_engine import (
+    PipelineStateMachine, StageStatus, STAGE_ORDER, STAGE_DEFINITIONS, build_stage_log,
+)
 from celery_client import (
     publish_dast_task,
     resolve_target_url,
@@ -112,6 +115,10 @@ class ConnectionManager:
         # Dedup set prevents double-broadcast when Redis echoes our own message
         self._seen_ids: set = set()
         self._seen_lock = asyncio.Lock()
+        # Event version counter for stale event detection
+        self._event_version = 0
+        self._version_lock = asyncio.Lock()
+        self._last_states: dict = {}  # run_id -> {stage_key: (version, status)}
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
@@ -126,6 +133,21 @@ class ConnectionManager:
         import uuid
         msg_id = data.get("_msg_id") or uuid.uuid4().hex
         data["_msg_id"] = msg_id
+
+        # Assign event version for stale detection
+        run_id = data.get("run_id")
+        if run_id:
+            async with self._version_lock:
+                self._event_version += 1
+                data["_event_version"] = self._event_version
+                # Check staleness for stage-specific updates
+                stage_key = data.get("stage_key")
+                if stage_key:
+                    state_key = f"{run_id}:{stage_key}"
+                    current = self._last_states.get(state_key)
+                    if current and current[0] >= self._event_version - 1:
+                        # Skip broadcast if stale
+                        return
 
         await self._broadcast_local(data, msg_id)
 
@@ -144,6 +166,19 @@ class ConnectionManager:
         self.active -= dead
         if dead:
             logger.info(f"[ws] BROADCAST instance={_INSTANCE_ID} sent={len(dead) + len(self.active)} dead={len(dead)} remaining={len(self.active)}")
+
+    async def is_stale_event(self, run_id: str, stage_key: str, new_status: str, new_version: int) -> bool:
+        """Check if an event is stale (a newer event for the same stage already seen)."""
+        async with self._version_lock:
+            key = f"{run_id}:{stage_key}"
+            current = self._last_states.get(key)
+            if current and current[0] >= new_version:
+                return True  # Stale — same or newer version already recorded
+            self._last_states[key] = (new_version, new_status)
+            # Prune old entries
+            if len(self._last_states) > 5000:
+                self._last_states.clear()
+            return False
 
     async def on_redis_message(self, raw: str):
         """Callback for Redis pub/sub messages — broadcast only to local clients."""
@@ -584,7 +619,11 @@ async def seed_new_tables_from_scan_results(db_session: AsyncSession = None):
 
 
 async def sync_single_scan_result_to_new_tables(scan_id: int, db: AsyncSession):
-    """Sync a single ScanResult to the new normalized tables."""
+    """Sync a single ScanResult using the deterministic pipeline state machine.
+
+    The backend is the single source of truth. Stage order and dependencies
+    are validated before any record is written.
+    """
     res = await db.execute(select(ScanResult).filter(ScanResult.id == scan_id))
     s = res.scalars().first()
     if not s:
@@ -610,273 +649,222 @@ async def sync_single_scan_result_to_new_tables(scan_id: int, db: AsyncSession):
         await db.commit()
         await db.refresh(repo)
 
+    action_taken = (s.action_taken or "ALLOW").upper()
+
+    # Compute pipeline-level status deterministically
+    pipeline_raw = StageStatus.normalize(s.status)
+    if action_taken == "BLOCK":
+        pipeline_computed = StageStatus.BLOCKED.value
+    elif pipeline_raw == StageStatus.RUNNING.value:
+        pipeline_computed = StageStatus.RUNNING.value
+    elif pipeline_raw == StageStatus.CANCELLED.value or s.status == "timeout":
+        pipeline_computed = StageStatus.CANCELLED.value
+    elif pipeline_raw == StageStatus.FAILED.value:
+        pipeline_computed = StageStatus.FAILED.value
+    elif s.status == "superseded":
+        pipeline_computed = StageStatus.SKIPPED.value
+    else:
+        pipeline_computed = StageStatus.PASSED.value
+
     run_id = f"run-{s.id}"
     run_res = await db.execute(select(PipelineRun).filter(PipelineRun.id == run_id))
     run = run_res.scalars().first()
     if not run:
         run = PipelineRun(
-            id=run_id,
-            run_number=s.id,
-            repo_id=repo.id,
-            commit_sha=s.commit_sha,
-            commit_message=s.commit_message,
-            branch=s.branch or "main",
-            status=s.status or "complete",
-            action_taken=s.action_taken or "ALLOW",
-            started_at=s.started_at or s.created_at,
-            created_at=s.created_at,
-            duration=s.scan_duration or 45
+            id=run_id, run_number=s.id, repo_id=repo.id,
+            commit_sha=s.commit_sha, commit_message=s.commit_message,
+            branch=s.branch or "main", status=pipeline_computed,
+            action_taken=action_taken, started_at=s.started_at or s.created_at,
+            created_at=s.created_at, duration=s.scan_duration or 45
         )
         db.add(run)
         await db.commit()
         await db.refresh(run)
     else:
-        run.status = s.status or "complete"
-        run.action_taken = s.action_taken or "ALLOW"
+        run.status = pipeline_computed
+        run.action_taken = action_taken
         run.started_at = s.started_at or s.created_at
         run.duration = s.scan_duration or 45
         run.commit_message = s.commit_message
         await db.commit()
 
-    # Idempotent deletion of existing child records for this run
+    # Idempotent replacement of child records
     await db.execute(delete(PipelineStage).filter(PipelineStage.run_id == run_id))
     await db.execute(delete(PipelineStep).filter(PipelineStep.id.like(f"step-{s.id}-%")))
     await db.execute(delete(SecurityFinding).filter(SecurityFinding.pipeline_run_id == run_id))
     await db.execute(delete(Deployment).filter(Deployment.pipeline_run_id == run_id))
     await db.commit()
 
-    # Monotonic stage sequence — each stage must pass before the next can run
-    STAGE_ORDER = ["checkout", "code_scan", "docker", "trivy", "policy", "deploy_staging", "zap", "zap_gate", "deploy_prod"]
-    stage_definitions = [
-        ("checkout", "Checkout"),
-        ("code_scan", "Code Scan"),
-        ("docker", "Docker Build"),
-        ("trivy", "Trivy CVE"),
-        ("policy", "Policy Gate"),
-        ("deploy_staging", "Deploy Staging"),
-        ("zap", "OWASP ZAP"),
-        ("zap_gate", "ZAP Gate"),
-        ("deploy_prod", "Deploy Prod")
-    ]
-
     steps_data = s.pipeline_steps or {}
-    failed_upstream = False
 
-    for idx, (stage_key, stage_name) in enumerate(stage_definitions):
-        # Monotonic check: ensure current stage index reflects pipeline progression
-        current_stage_idx = STAGE_ORDER.index(stage_key) if stage_key in STAGE_ORDER else idx
-
+    # Compute stage statuses deterministically
+    for idx, stage_key in enumerate(STAGE_ORDER):
         step_val = steps_data.get(stage_key) or {}
-        raw_result = (step_val.get("result") or "").upper()
+        if isinstance(step_val, str):
+            step_val = {"result": step_val}
+        raw_result = step_val.get("result") if isinstance(step_val, dict) else ""
 
-        # If a prior stage has a result, this stage is already past in timeline
-        prior_stage_key = STAGE_ORDER[current_stage_idx - 1] if current_stage_idx > 0 else None
-        prior_raw = None
-        if prior_stage_key:
-            prior_raw = (steps_data.get(prior_stage_key, {}).get("result") or "").upper()
+        status = PipelineStateMachine.compute_stage_status(
+            stage_key=stage_key,
+            raw_result=raw_result,
+            all_steps=steps_data,
+            pipeline_status=s.status,
+            action_taken=action_taken,
+        )
 
-        # Enforce monotonic ordering: skip stages before the current pipeline position
-        if prior_stage_key and not raw_result and prior_raw in ("", "PENDING"):
-            raw_result = "PENDING"
-
-        if failed_upstream and not raw_result:
-            raw_result = "SKIPPED"
-
-        status = "pending"
-        duration = "0s"
-        detail = "Pending step"
-        exit_code = 0
-
-        if raw_result in ("PASS", "ALLOW", "SCANNED"):
-            status = "passed"
-            duration = "4.5s" if stage_key != "docker" else "15.4s"
-            detail = step_val.get("detail") or f"{stage_name} completed successfully."
-        elif raw_result in ("FAILED", "BLOCK"):
-            status = "failed"
-            duration = "2.3s"
-            detail = step_val.get("detail") or f"{stage_name} blocked or failed."
-            exit_code = 1
-            failed_upstream = True
-        elif raw_result in ("RUNNING", "QUEUED"):
-            status = "running"
-            duration = "0.5s"
-            detail = step_val.get("detail") or f"{stage_name} currently executing."
-        elif raw_result == "SKIPPED":
-            status = "skipped"
-            duration = "0s"
-            detail = "Step skipped."
-        else:
-            if s.status in ("complete", "failed") or s.action_taken == "BLOCK":
-                status = "skipped"
-                detail = "Step skipped."
+        if not isinstance(step_val, dict):
+            step_val = {}
+        detail = step_val.get("detail", "")
+        if not detail:
+            status_label = STAGE_DEFINITIONS[stage_key]["label"]
+            if status == StageStatus.PASSED.value:
+                detail = f"{status_label} completed successfully."
+            elif status == StageStatus.FAILED.value:
+                detail = f"{status_label} failed."
+            elif status == StageStatus.BLOCKED.value:
+                detail = f"{status_label} blocked by security policy."
+            elif status == StageStatus.SKIPPED.value:
+                detail = f"{status_label} skipped — dependency not met."
+            elif status == StageStatus.RUNNING.value:
+                detail = f"{status_label} currently executing."
+            elif status == StageStatus.CANCELLED.value:
+                detail = f"{status_label} cancelled."
             else:
-                if idx == 0:
-                    status = "passed"
-                    detail = "Checkout completed."
-                else:
-                    status = "pending"
-                    detail = "Awaiting execution."
+                detail = f"Awaiting execution of {status_label}."
 
-        if stage_key == "zap":
-            if s.dast_status == "completed":
-                status = "passed"
-                duration = f"{s.scan_duration or 30}s"
-                detail = f"OWASP ZAP DAST scan completed in {duration}"
-            elif s.dast_status in ("failed", "queue_failed"):
-                status = "failed"
-                duration = f"{s.scan_duration or 10}s"
-                detail = s.queue_error or "ZAP DAST scan failed."
-                exit_code = 1
-                failed_upstream = True
-            elif s.dast_status in ("queued", "running"):
-                status = "running"
-                detail = "DAST scan actively running."
-
-        if stage_key == "deploy_prod" and s.action_taken == "BLOCK":
-            status = "skipped"
-            detail = "Production deployment blocked by security policies."
+        exit_code = 1 if StageStatus.is_failure(status) else 0
 
         stage_id = f"stage-{s.id}-{stage_key}"
         stage_obj = PipelineStage(
-            id=stage_id,
-            run_id=run.id,
-            name=stage_name,
+            id=stage_id, run_id=run.id,
+            name=STAGE_DEFINITIONS[stage_key]["label"],
+            stage_key=stage_key, order_index=idx,
             status=status,
-            duration=duration,
+            detail=detail, exit_code=exit_code,
             started_at=s.created_at,
-            ended_at=s.created_at
+            ended_at=s.created_at if StageStatus.is_terminal(status) else None,
         )
         db.add(stage_obj)
 
-        step_id = f"step-{s.id}-{stage_key}"
         step_obj = PipelineStep(
-            id=step_id,
-            stage_id=stage_id,
-            name=stage_name,
-            status=status,
-            duration=duration,
-            exit_code=exit_code,
-            logs=f"=== STAGE: {stage_name} ===\nStatus: {status}\nDuration: {duration}\nLogs:\n{detail}\n"
+            id=f"step-{s.id}-{stage_key}", stage_id=stage_id,
+            name=STAGE_DEFINITIONS[stage_key]["label"],
+            status=status, exit_code=exit_code,
+            logs=build_stage_log(stage_key, status, detail)
         )
         db.add(step_obj)
 
-    # Ingest Gitleaks, Semgrep, Trivy, and ZAP security findings
+    # Ingest findings
     f = s.findings or {}
     for gl in f.get("gitleaks", []):
-        finding = SecurityFinding(
-            repo_id=repo.id,
-            pipeline_run_id=run.id,
-            scanner="gitleaks",
-            category="Secret / Credential Exposure",
+        db.add(SecurityFinding(
+            repo_id=repo.id, pipeline_run_id=run.id,
+            scanner="gitleaks", category="Secret / Credential Exposure",
             title=f"Exposed Secret: {gl.get('Description') or gl.get('RuleID') or 'API Key'}",
             severity="CRITICAL" if "secret" in str(gl).lower() else "HIGH",
             file=gl.get("File") or gl.get("file") or "codebase",
             line=gl.get("StartLine") or gl.get("startLine") or 1,
             cve_cwe="CWE-798 (Hardcoded Credentials)",
             owasp="A07:2021-Identification and Authentication Failures",
-            status="open",
-            created_at=s.created_at,
+            status="open", created_at=s.created_at,
             ai_explanation=s.ai_explanation or "Gitleaks detected plain-text secret inside repository history.",
             ai_fix=s.ai_fix or "Rotate exposed credential immediately and remove from Git history."
-        )
-        db.add(finding)
+        ))
 
     for sg in f.get("semgrep", []):
-        finding = SecurityFinding(
-            repo_id=repo.id,
-            pipeline_run_id=run.id,
-            scanner="semgrep",
-            category="SAST Flaw",
+        db.add(SecurityFinding(
+            repo_id=repo.id, pipeline_run_id=run.id,
+            scanner="semgrep", category="SAST Flaw",
             title=sg.get("extra", {}).get("message") or sg.get("check_id") or "Code vulnerability",
             severity=(sg.get("extra", {}).get("severity") or "HIGH").upper(),
             file=sg.get("path") or "src/",
             line=(sg.get("start") or {}).get("line") or 1,
             cve_cwe=f"CWE-{sg.get('check_id', '89')}",
-            owasp="A03:2021-Injection",
-            status="open",
-            created_at=s.created_at,
+            owasp="A03:2021-Injection", status="open", created_at=s.created_at,
             ai_explanation=s.ai_explanation or "Semgrep detected insecure pattern in source code.",
             ai_fix=s.ai_fix or "Enforce sanitized input parameters and parameterized queries."
-        )
-        db.add(finding)
+        ))
 
     for res in f.get("Results", []):
         for vul in res.get("Vulnerabilities", []):
-            finding = SecurityFinding(
-                repo_id=repo.id,
-                pipeline_run_id=run.id,
-                scanner="trivy",
-                category="Container CVE",
+            db.add(SecurityFinding(
+                repo_id=repo.id, pipeline_run_id=run.id,
+                scanner="trivy", category="Container CVE",
                 title=f"{vul.get('VulnerabilityID')} in {vul.get('PkgName')}",
                 severity=(vul.get("Severity") or "MEDIUM").upper(),
-                file=res.get("Target") or "Dockerfile",
-                line=1,
+                file=res.get("Target") or "Dockerfile", line=1,
                 cve_cwe=vul.get("VulnerabilityID") or "CVE-2026-0001",
                 owasp="A06:2021-Vulnerable and Outdated Components",
-                status="open",
-                created_at=s.created_at,
+                status="open", created_at=s.created_at,
                 ai_explanation=s.ai_explanation or f"Trivy detected vulnerable package {vul.get('PkgName')}.",
                 ai_fix=f"Upgrade {vul.get('PkgName')} to version {vul.get('FixedVersion') or 'latest'}."
-            )
-            db.add(finding)
+            ))
 
     zap_alerts = (f.get("zap") or {}).get("alerts") or (s.zap_findings or {}).get("alerts") or []
     for za in zap_alerts if isinstance(zap_alerts, list) else []:
-        finding = SecurityFinding(
-            repo_id=repo.id,
-            pipeline_run_id=run.id,
-            scanner="zap",
-            category="DAST Dynamic Alert",
+        db.add(SecurityFinding(
+            repo_id=repo.id, pipeline_run_id=run.id,
+            scanner="zap", category="DAST Dynamic Alert",
             title=za.get("alert") or "OWASP ZAP Dynamic Finding",
             severity=(za.get("risk") or "MEDIUM").upper(),
-            file=za.get("url") or s.target_url or "staging",
-            line=1,
+            file=za.get("url") or s.target_url or "staging", line=1,
             cve_cwe=f"CWE-{za.get('pluginId', '693')}",
             owasp="A05:2021-Security Misconfiguration",
-            status="open",
-            created_at=s.created_at,
+            status="open", created_at=s.created_at,
             ai_explanation="OWASP ZAP detected security header misconfiguration or active endpoint flaw.",
             ai_fix="Add missing security headers and enforce strict CORS / CSP policies."
-        )
-        db.add(finding)
+        ))
 
-    if s.deployment_url or (s.pipeline_steps or {}).get("deploy_prod"):
-        deployment = Deployment(
-            id=f"dep-{s.id}",
-            revision_name=f"secureflow-backend-{(s.commit_sha or 'v1')[:7]}",
-            service="secureflow-backend",
-            environment="production",
-            url=s.deployment_url or s.target_url or "https://secureflow-production.run.app",
-            status="active" if s.action_taken == "ALLOW" else "blocked",
-            commit_sha=s.commit_sha,
-            pipeline_run_id=run.id,
-            created_at=s.created_at,
-            duration=s.scan_duration or 45
-        )
-        db.add(deployment)
+    # Deployment
+    if s.deployment_url or (steps_data or {}).get("deploy_prod"):
+        dep_exists = await db.execute(select(Deployment).filter(Deployment.pipeline_run_id == run.id))
+        if not dep_exists.scalars().first():
+            db.add(Deployment(
+                id=f"dep-{s.id}",
+                revision_name=f"secureflow-backend-{(s.commit_sha or 'v1')[:7]}",
+                service="secureflow-backend", environment="production",
+                url=s.deployment_url or s.target_url or "https://secureflow-production.run.app",
+                status="active" if action_taken == "ALLOW" else "blocked",
+                commit_sha=s.commit_sha, pipeline_run_id=run.id,
+                created_at=s.created_at, duration=s.scan_duration or 45
+            ))
 
-    # Create Events for the activity feed
-    event_start = Event(
-        id=f"evt-start-{s.id}",
-        type="pipeline.started",
-        message=f"Pipeline run #{s.id} started for {repo_name} (branch: {s.branch})",
-        source_link=f"/pipelines/{run.id}",
-        severity="info",
-        created_at=s.started_at or s.created_at
-    )
-    db.add(event_start)
-
-    event_end = Event(
-        id=f"evt-end-{s.id}",
-        type="pipeline.failed" if s.action_taken == "BLOCK" else "deploy.success",
-        message=f"Pipeline run #{s.id} completed: {s.action_taken}",
-        source_link=f"/pipelines/{run.id}",
-        severity="warning" if s.action_taken == "BLOCK" else "info",
-        created_at=s.created_at
-    )
-    db.add(event_end)
+    # Deduped events
+    for evt_type, evt_id_suffix, msg, sev in [
+        ("pipeline.started", "start",
+         f"Pipeline run #{s.id} started for {repo_name} (branch: {s.branch})", "info"),
+        ("pipeline.failed" if action_taken == "BLOCK" else "deploy.success", "end",
+         f"Pipeline run #{s.id} completed: {action_taken}",
+         "warning" if action_taken == "BLOCK" else "info"),
+    ]:
+        dedup_key = f"{evt_type}:{s.id}"
+        existing = await db.execute(select(Event).filter(Event.dedup_key == dedup_key))
+        if not existing.scalars().first():
+            db.add(Event(
+                type=evt_type, message=msg,
+                source_link=f"/pipelines/{run.id}",
+                severity=sev, dedup_key=dedup_key,
+                event_version=1,
+                created_at=s.started_at or s.created_at
+            ))
 
     await db.commit()
+
+    # Broadcast via WebSocket
+    stage_statuses = {}
+    for k in STAGE_ORDER:
+        sv = steps_data.get(k) or {}
+        stage_statuses[k] = StageStatus.normalize(sv.get("result") if isinstance(sv, dict) else sv if isinstance(sv, str) else "")
+
+    await manager.broadcast({
+        "type": "pipeline.synced",
+        "run_id": run.id,
+        "repo_name": repo_name,
+        "status": pipeline_computed,
+        "action_taken": action_taken,
+        "stages": stage_statuses,
+        "timestamp": datetime.utcnow().isoformat(),
+    })
 
 
 @asynccontextmanager
@@ -2822,7 +2810,7 @@ async def get_v1_pipelines(db: AsyncSession = Depends(get_db), limit: int = 100)
         
         stages_res = await db.execute(select(PipelineStage).filter(PipelineStage.run_id == r.id))
         stages = stages_res.scalars().all()
-        stage_summary = [{"name": s.name, "status": s.status} for s in stages]
+        stage_summary = [{"name": s.name, "stage_key": s.stage_key, "order_index": s.order_index, "status": s.status} for s in stages]
         
         results.append({
             "id": r.id,
@@ -2856,6 +2844,8 @@ async def get_v1_pipeline_latest(db: AsyncSession = Depends(get_db)):
         stages_detail.append({
             "id": s.id,
             "name": s.name,
+            "stage_key": s.stage_key,
+            "order_index": s.order_index,
             "status": s.status,
             "duration": s.duration,
             "steps": [{"id": st.id, "name": st.name, "status": st.status, "duration": st.duration} for st in steps]
@@ -2893,8 +2883,14 @@ async def get_v1_pipeline_detail(run_id: str, db: AsyncSession = Depends(get_db)
         stages_detail.append({
             "id": s.id,
             "name": s.name,
+            "stage_key": s.stage_key,
+            "order_index": s.order_index,
             "status": s.status,
             "duration": s.duration,
+            "detail": s.detail,
+            "exit_code": s.exit_code,
+            "started_at": utc_iso(s.started_at) if s.started_at else None,
+            "ended_at": utc_iso(s.ended_at) if s.ended_at else None,
             "steps": [
                 {
                     "id": st.id,

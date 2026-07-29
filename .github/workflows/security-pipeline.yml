@@ -162,12 +162,15 @@ jobs:
               scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
               run_id: $run_id, findings: {},
               pipeline_steps: {
-                checkout:  { result: "PASS",   detail: "code checked out" },
-                code_scan: { result: "FAILED", detail: "gitleaks install failed after 3 retries — infra/network issue" },
-                docker:    { result: "skipped", detail: "pipeline stopped before code scan completed" },
-                trivy:     { result: "skipped", detail: "pipeline stopped before code scan completed" },
-                policy:    { result: "skipped", detail: "pipeline stopped before code scan completed" },
-                deploy_staging: { result: "skipped", detail: "pipeline stopped before code scan completed" }
+                checkout:       { result: "PASS",   detail: "code checked out" },
+                code_scan:      { result: "FAILED", detail: "gitleaks install failed after 3 retries — infra/network issue" },
+                docker:         { result: "SKIPPED", detail: "pipeline stopped at code scan failure" },
+                trivy:          { result: "SKIPPED", detail: "pipeline stopped at code scan failure" },
+                policy:         { result: "SKIPPED", detail: "pipeline stopped at code scan failure" },
+                deploy_staging: { result: "SKIPPED", detail: "pipeline stopped at code scan failure" },
+                zap:            { result: "SKIPPED", detail: "pipeline stopped at code scan failure" },
+                zap_gate:       { result: "SKIPPED", detail: "pipeline stopped at code scan failure" },
+                deploy_prod:    { result: "SKIPPED", detail: "pipeline stopped at code scan failure" }
               }
             }')
           curl -sS -X POST "$BACKEND_URL/api/scan-results" \
@@ -323,12 +326,15 @@ jobs:
               semgrep: $semgrep,
               findings: {},
               pipeline_steps: {
-                checkout:  { result: "PASS",    detail: "code checked out" },
-                code_scan: { result: "BLOCK",   detail: $code_detail },
-                docker:    { result: "skipped", detail: "pipeline stopped at code scan" },
-                trivy:     { result: "skipped", detail: "pipeline stopped at code scan" },
-                policy:    { result: "skipped", detail: "pipeline stopped at code scan" },
-                deploy_staging: { result: "skipped", detail: "pipeline stopped at code scan" }
+                checkout:       { result: "PASS",    detail: "code checked out" },
+                code_scan:      { result: "BLOCK",   detail: $code_detail },
+                docker:         { result: "SKIPPED", detail: "pipeline stopped at code scan" },
+                trivy:          { result: "SKIPPED", detail: "pipeline stopped at code scan" },
+                policy:         { result: "SKIPPED", detail: "pipeline stopped at code scan" },
+                deploy_staging: { result: "SKIPPED", detail: "pipeline stopped at code scan" },
+                zap:            { result: "SKIPPED", detail: "pipeline stopped at code scan" },
+                zap_gate:       { result: "SKIPPED", detail: "pipeline stopped at code scan" },
+                deploy_prod:    { result: "SKIPPED", detail: "pipeline stopped at code scan" }
               }
             }' > block-payload.json
 
@@ -450,12 +456,15 @@ jobs:
               scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
               run_id: $run_id, findings: {},
               pipeline_steps: {
-                checkout:  { result: "PASS",    detail: "code checked out" },
-                code_scan: { result: "PASS",    detail: "no secrets or bad patterns found" },
-                docker:    { result: "skipped", detail: "no backend or docker files changed" },
-                trivy:     { result: "skipped", detail: "no backend or docker files changed" },
-                policy:    { result: "PASS",    detail: "no image changes — auto allow" },
-                deploy_staging: { result: "skipped", detail: "no backend changes to deploy" }
+                checkout:       { result: "PASS",    detail: "code checked out" },
+                code_scan:      { result: "PASS",    detail: "no secrets or bad patterns found" },
+                docker:         { result: "SKIPPED", detail: "no backend or docker files changed" },
+                trivy:          { result: "SKIPPED", detail: "no backend or docker files changed" },
+                policy:         { result: "PASS",    detail: "no image changes — auto allow" },
+                deploy_staging: { result: "SKIPPED", detail: "no backend changes to deploy" },
+                zap:            { result: "SKIPPED", detail: "no backend changes to deploy" },
+                zap_gate:       { result: "SKIPPED", detail: "no backend changes to deploy" },
+                deploy_prod:    { result: "SKIPPED", detail: "no backend changes to deploy" }
               }
             }')
 
@@ -547,12 +556,15 @@ jobs:
               scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
               run_id: $run_id, findings: {},
               pipeline_steps: {
-                checkout:  { result: "PASS",   detail: "code checked out" },
-                code_scan: { result: "PASS",   detail: "no secrets or bad patterns found" },
-                docker:    { result: "FAILED", detail: $fail_detail },
-                trivy:     { result: "skipped", detail: "pipeline stopped at docker build/push" },
-                policy:    { result: "skipped", detail: "pipeline stopped at docker build/push" },
-                deploy_staging: { result: "skipped", detail: "pipeline stopped at docker build/push" }
+                checkout:       { result: "PASS",   detail: "code checked out" },
+                code_scan:      { result: "PASS",   detail: "no secrets or bad patterns found" },
+                docker:         { result: "FAILED", detail: $fail_detail },
+                trivy:          { result: "SKIPPED", detail: "pipeline stopped at docker build/push" },
+                policy:         { result: "SKIPPED", detail: "pipeline stopped at docker build/push" },
+                deploy_staging: { result: "SKIPPED", detail: "pipeline stopped at docker build/push" },
+                zap:            { result: "SKIPPED", detail: "pipeline stopped at docker build/push" },
+                zap_gate:       { result: "SKIPPED", detail: "pipeline stopped at docker build/push" },
+                deploy_prod:    { result: "SKIPPED", detail: "pipeline stopped at docker build/push" }
               }
             }')
 
@@ -640,13 +652,15 @@ jobs:
               repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
               scan_type: $scan_type, run_id: $run_id, status: "running", findings: $findings[0], policy_raw: $policy_raw,
               pipeline_steps: {
-                checkout:  { result: "PASS",    detail: "code checked out" },
-                code_scan: { result: "PASS",    detail: "no secrets or bad patterns found" },
-                docker:    { result: "PASS",    detail: "image built and pushed" },
-                trivy:     { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" },
-                policy:    { result: "RUNNING", detail: "evaluating policy rules..." },
+                checkout:       { result: "PASS",    detail: "code checked out" },
+                code_scan:      { result: "PASS",    detail: "no secrets or bad patterns found" },
+                docker:         { result: "PASS",    detail: "image built and pushed" },
+                trivy:          { result: "SCANNED", detail: "\($vuln_count) vulnerabilities found" },
+                policy:         { result: "RUNNING", detail: "evaluating policy rules..." },
                 deploy_staging: { result: "PENDING", detail: "Awaiting policy gate decision..." },
-                zap:       { result: "PENDING", detail: "Awaiting staging Cloud Run deployment..." }
+                zap:            { result: "PENDING", detail: "Awaiting staging Cloud Run deployment..." },
+                zap_gate:       { result: "PENDING", detail: "Awaiting OWASP ZAP results..." },
+                deploy_prod:    { result: "WAITING", detail: "Awaiting ZAP gate pass..." }
               }
             }')
 
@@ -1108,7 +1122,18 @@ jobs:
             '{
               repo_name: $repo, commit_sha: $sha, branch: $branch, commit_message: $commit_msg,
               scan_type: $scan_type, severity: $severity, action: $action, reason: $reason,
-              run_id: $run_id, findings: {}
+              run_id: $run_id, findings: {},
+              pipeline_steps: {
+                checkout:       { result: "PASS",    detail: "code checked out" },
+                code_scan:      { result: "SKIPPED", detail: "pipeline cancelled before completion" },
+                docker:         { result: "SKIPPED", detail: "pipeline cancelled before completion" },
+                trivy:          { result: "SKIPPED", detail: "pipeline cancelled before completion" },
+                policy:         { result: "SKIPPED", detail: "pipeline cancelled before completion" },
+                deploy_staging: { result: "SKIPPED", detail: "pipeline cancelled before completion" },
+                zap:            { result: "SKIPPED", detail: "pipeline cancelled before completion" },
+                zap_gate:       { result: "SKIPPED", detail: "pipeline cancelled before completion" },
+                deploy_prod:    { result: "SKIPPED", detail: "pipeline cancelled before completion" }
+              }
             }')
           curl -sS -X POST "$BACKEND_URL/api/scan-results" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \

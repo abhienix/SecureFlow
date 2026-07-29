@@ -95,7 +95,7 @@ class PipelineRun(Base):
     commit_sha = Column(String, index=True)
     commit_message = Column(Text, nullable=True)
     branch = Column(String)
-    status = Column(String, default="pending")  # success, running, failed, cancelled, pending
+    status = Column(String, default="WAITING")  # WAITING, RUNNING, PASSED, FAILED, BLOCKED, SKIPPED, CANCELLED
     action_taken = Column(String, default="ALLOW") # ALLOW or BLOCK
     started_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -106,10 +106,15 @@ class PipelineStage(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     run_id = Column(String, index=True)
     name = Column(String)
-    status = Column(String, default="pending")  # passed, running, failed, skipped, pending
+    stage_key = Column(String, index=True)
+    order_index = Column(Integer, default=0)
+    status = Column(String, default="WAITING")  # WAITING, RUNNING, PASSED, FAILED, BLOCKED, SKIPPED, CANCELLED
     duration = Column(String, nullable=True)
     started_at = Column(DateTime, nullable=True)
     ended_at = Column(DateTime, nullable=True)
+    exit_code = Column(Integer, nullable=True)
+    detail = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0)
 
 class PipelineStep(Base):
     __tablename__ = "pipeline_steps"
@@ -197,6 +202,8 @@ class Event(Base):
     message = Column(Text)
     source_link = Column(String, nullable=True)
     severity = Column(String, default="info")
+    event_version = Column(Integer, default=1)
+    dedup_key = Column(String, index=True, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class MetricSnapshot(Base):
