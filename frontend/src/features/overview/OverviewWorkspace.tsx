@@ -196,6 +196,12 @@ export default function OverviewWorkspace() {
   const highCount = secSummary?.high || 0;
   const healthScore = obsOverview?.security_score ?? Math.max(0, 100 - (criticalCount * 15 + highCount * 5));
 
+  // Deployment success — guard against misleading 0% when no deployments exist
+  const totalDeployments = obsOverview?.total_deployments ?? 0;
+  const deploymentSuccessRate = totalDeployments > 0
+    ? (obsOverview?.deployment_success_rate ?? 100.0)
+    : null;
+
   // Custom Active Pipelines rendering
   const renderActivePipelinesVal = () => {
     const count = obsOverview?.active_pipelines ?? runningPipelines.length;
@@ -337,7 +343,6 @@ export default function OverviewWorkspace() {
           title="Security Health"
           value={`${healthScore}`}
           unit="%"
-          change={healthScore >= 90 ? 1.5 : -2.3}
           icon={<Shield size={16} />}
           isLoading={secLoading || obsLoading}
           isError={reposError || secError || obsError}
@@ -354,8 +359,8 @@ export default function OverviewWorkspace() {
         />
         <MetricCard
           title="Deployment Success"
-          value={`${obsOverview?.deployment_success_rate ?? 100.0}`}
-          unit="%"
+          value={deploymentSuccessRate !== null ? `${deploymentSuccessRate}` : 'N/A'}
+          unit={deploymentSuccessRate !== null ? '%' : ''}
           icon={<Rocket size={16} />}
           isLoading={obsLoading}
           isError={obsError}
