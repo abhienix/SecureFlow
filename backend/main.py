@@ -1154,8 +1154,7 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         scan.target_url = resolved_target
         if req_deploy_url:
             scan.deployment_url = req_deploy_url
-        if scan.dast_status not in ("running", "completed"):
-            scan.dast_status = "not_queued"
+        scan.dast_status = "not_queued"
     else:
         # Idempotent: check for existing scan with same parameters
         existing_scan = None
@@ -1225,8 +1224,8 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         f"dast_status='{scan.dast_status}', "
         f"skip_condition_met={scan.dast_status in ('running', 'completed')}"
     )
-    if scan.dast_status in ("running", "completed"):
-        logger.info(f"[start_scan_run] SKIPPING dispatch — dast_status='{scan.dast_status}' already in progress/completed")
+    if scan.dast_status in ("queued", "completed"):
+        logger.info(f"[start_scan_run] SKIPPING dispatch — dast_status='{scan.dast_status}' already queued/completed")
     else:
         logger.info(
             f"[start_scan_run] EXECUTING dispatch — scan_id={scan.id}, "
