@@ -2170,6 +2170,7 @@ async def get_observability_metrics(db: AsyncSession = Depends(get_db)):
         "total_repositories": total_repos,
         "security_score": health_score,
         "active_pipelines": active_pipelines,
+        "total_deployments": total_deps,
         "deployment_success_rate": round(deploy_success_rate, 1),
         "mean_pipeline_duration_seconds": mean_duration,
         "open_findings": {

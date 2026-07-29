@@ -360,15 +360,40 @@ export default function PipelineDetailPage() {
         </div>
       </div>
 
-      {/* Logs Drawer */}
+      {/* Logs Drawer with inline remediation for blocked/failed stages */}
       <DrawerPanel isOpen={!!selectedStage} onClose={() => setSelectedStage(null)} title={`${selectedStage?.name || 'Stage'} Console Logs`}>
-        <div style={{ height: '400px' }}>
+        <div style={{ height: '400px', marginBottom: selectedStage && isFailure(selectedStage.status) ? '16px' : '0' }}>
           {logsLoading ? (
             <div className="skeleton" style={{ height: '100%', borderRadius: '8px' }} />
           ) : (
             <LogViewer logs={logsData?.logs || 'No logs recorded.'} fileName={`${selectedStage?.name || 'stage'}.log`} />
           )}
         </div>
+        {selectedStage && isFailure(selectedStage.status) && (
+          <div style={{ borderTop: '1px solid var(--sf-border)', paddingTop: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <AlertTriangle size={16} color="#EF4444" />
+              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#EF4444', margin: 0 }}>
+                Remediation for {selectedStage.name}
+              </h4>
+            </div>
+            <div style={{ fontSize: '12px', color: '#94A3B8', lineHeight: 1.6 }}>
+              {selectedStage.detail && (
+                <p style={{ margin: '0 0 8px 0' }}><strong>Root cause:</strong> {selectedStage.detail}</p>
+              )}
+              {selectedStage.exit_code !== null && selectedStage.exit_code !== undefined && (
+                <p style={{ margin: '0 0 8px 0' }}><strong>Exit code:</strong> {selectedStage.exit_code}</p>
+              )}
+              <p style={{ margin: '0 0 8px 0' }}><strong>Recommended steps:</strong></p>
+              <ol style={{ margin: '0 0 12px 0', paddingLeft: '16px' }}>
+                <li>Review the scan findings for {selectedStage.name} in Security Center</li>
+                <li>Fix the identified vulnerabilities or update policy rules</li>
+                <li>Re-run the pipeline from the Pipelines page</li>
+                <li>Verify the fix passes all stages before deploying to production</li>
+              </ol>
+            </div>
+          </div>
+        )}
       </DrawerPanel>
 
       <style>{`
