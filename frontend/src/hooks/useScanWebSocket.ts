@@ -95,6 +95,7 @@ export function useScanWebSocket() {
               data.type === 'scan_reanalyzed'
             ) {
               qc.invalidateQueries({ queryKey: queryKeys.scans });
+              qc.invalidateQueries({ queryKey: queryKeys.pipelines });
 
               if (data.type === 'scan_complete') {
                 addNotification({

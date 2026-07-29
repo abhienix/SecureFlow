@@ -30,4 +30,5 @@ export const queryKeys = {
   findings: (params?: Record<string, string>) => ['findings', params] as const,
   metrics: ['metrics'] as const,
   policies: ['policies'] as const,
+  pipelines: ['pipelines'] as const,
 };

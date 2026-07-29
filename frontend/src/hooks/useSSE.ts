@@ -9,7 +9,11 @@ export function useSSE() {
   useEffect(() => {
     const BACKEND_URL =
       process.env.REACT_APP_API_URL ||
-      'http://localhost:8000';
+      (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+        ? 'http://localhost:8000'
+        : typeof window !== 'undefined'
+        ? window.location.origin.replace('frontend', 'backend')
+        : 'http://localhost:8000');
 
     const eventSource = new EventSource(`${BACKEND_URL}/events/stream`);
 

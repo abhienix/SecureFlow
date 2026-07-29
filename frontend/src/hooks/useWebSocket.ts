@@ -17,7 +17,11 @@ export function useWebSocket() {
 
     const BACKEND_URL =
       process.env.REACT_APP_API_URL ||
-      'http://localhost:8000';
+      (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+        ? 'http://localhost:8000'
+        : typeof window !== 'undefined'
+        ? window.location.origin.replace('frontend', 'backend')
+        : 'http://localhost:8000');
     
     const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/events';
 
