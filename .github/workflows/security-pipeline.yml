@@ -1022,21 +1022,18 @@ jobs:
 
             DAST_STATUS=$(echo "$RESPONSE" | jq -r '.dast_status // "running"' 2>/dev/null || echo "running")
             ZAP_RESULT=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap.result // "PENDING"' 2>/dev/null || echo "PENDING")
+            ZAP_GATE=$(echo "$RESPONSE" | jq -r '.pipeline_steps.zap_gate.result // .pipeline_steps.zap.result // "PENDING"' 2>/dev/null || echo "PENDING")
 
-            echo "Poll $((retry + 1))/$MAX_RETRIES — dast_status=$DAST_STATUS  zap.result=$ZAP_RESULT"
+            echo "Poll $((retry + 1))/$MAX_RETRIES — dast_status=$DAST_STATUS zap.result=$ZAP_RESULT zap_gate=$ZAP_GATE"
 
-            if [ "$DAST_STATUS" = "completed" ] || [ "$DAST_STATUS" = "passed" ] || [ "$ZAP_RESULT" = "PASS" ]; then
-              echo "DAST completed."
-              if [ "$ZAP_RESULT" = "PASS" ] || [ "$DAST_STATUS" = "completed" ] || [ "$DAST_STATUS" = "passed" ]; then
+            if [ "$DAST_STATUS" = "completed" ] || [ "$DAST_STATUS" = "passed" ] || [ "$ZAP_RESULT" = "PASS" ] || [ "$ZAP_RESULT" = "FAIL" ] || [ "$ZAP_GATE" = "BLOCK" ]; then
+              echo "DAST scan finished on backend."
+              if [ "$ZAP_GATE" = "PASS" ] || ([ "$ZAP_RESULT" = "PASS" ] && [ "$ZAP_GATE" != "BLOCK" ]); then
                 echo "ZAP DAST passed — proceeding to production deploy."
                 echo "zap_passed=true" >> "$GITHUB_OUTPUT"
                 exit 0
               else
-                echo "ZAP DAST FAILED (result=$ZAP_RESULT) — blocking production deploy."
-                curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
-                  -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
-                  -H "Content-Type: application/json" \
-                  -d '{ "status": "complete", "pipeline_steps": { "zap": { "result": "BLOCK", "detail": "ZAP DAST failed on staging — production deploy blocked" } } }' || true
+                echo "ZAP DAST gate blocked (zap_result=$ZAP_RESULT, zap_gate=$ZAP_GATE) — blocking production deploy."
                 echo "zap_passed=false" >> "$GITHUB_OUTPUT"
                 exit 1
               fi
