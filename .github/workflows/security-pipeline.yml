@@ -37,6 +37,7 @@ jobs:
   security-pipeline:
     name: Full Security Check
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
 
@@ -825,11 +826,19 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{ "pipeline_steps": { "deploy_staging": { "result": "RUNNING", "detail": "Deploying frontend to staging Cloud Run..." } } }' || true
 
+      # ── FIX D: tolerate skipped backend deploy ──────────────────────────
+      # THE BUG: on a frontend-only push, deploy_staging (backend) is
+      # skipped because image_changed == 'false'. The old condition required
+      # steps.deploy_staging.outcome == 'success', which excluded 'skipped',
+      # so deploy_frontend_staging never ran and the dashboard row hung at
+      # "deploy_staging: RUNNING" forever.
+      # THE FIX: use != 'failure' so a skipped (or successful) backend deploy
+      # still allows the frontend deploy to proceed.
       - name: Deploy Frontend to Staging Cloud Run
         id: deploy_frontend_staging
         if: >
           steps.changes.outputs.frontend_changed == 'true' &&
-          steps.deploy_staging.outcome == 'success'
+          steps.deploy_staging.outcome != 'failure'
         run: |
           gcloud run deploy secureflow-frontend-staging \
             --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }} \
@@ -838,7 +847,7 @@ jobs:
             --port 8080
 
       - name: Notify Staging Deploy Complete
-        if: steps.deploy_staging.outcome == 'success'
+        if: steps.deploy_staging.outcome == 'success' || steps.deploy_frontend_staging.outcome == 'success'
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
