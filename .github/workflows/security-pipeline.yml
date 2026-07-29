@@ -405,23 +405,23 @@ jobs:
           if [ "$FORCE_BACKEND" = "true" ] || [ "$DEPLOY_ALL" = "true" ] || [ "$DEPLOY_BACKEND_ONLY" = "true" ]; then
             echo "image_changed=true" >> "$GITHUB_OUTPUT"
             echo "Force override active: backend deploy enabled"
-          elif echo "$CHANGED" | grep -qE '(^|/)backend/|(^|/)docker/|policy\.yaml|requirements.*\.txt|Dockerfile'; then
+          elif echo "$CHANGED" | grep -qE '(^|/)backend/|(^|/)docker/|(^|/)\.github/|policy\.yaml|requirements.*\.txt|Dockerfile'; then
             echo "image_changed=true" >> "$GITHUB_OUTPUT"
-            echo "Backend/docker files changed — full image scan required"
+            echo "Backend/docker/workflow files changed — full image scan required"
           else
             echo "image_changed=false" >> "$GITHUB_OUTPUT"
-            echo "No backend/docker files in push — skipping backend image scan"
+            echo "No backend/docker/workflow files in push — skipping backend image scan"
           fi
 
           if [ "$FORCE_FRONTEND" = "true" ] || [ "$DEPLOY_ALL" = "true" ] || [ "$DEPLOY_FRONTEND_ONLY" = "true" ]; then
             echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
             echo "Force override active: frontend deploy enabled"
-          elif echo "$CHANGED" | grep -qE '(^|/)frontend/'; then
+          elif echo "$CHANGED" | grep -qE '(^|/)frontend/|(^|/)\.github/'; then
             echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
-            echo "Frontend files changed — frontend rebuild required"
+            echo "Frontend/workflow files changed — frontend rebuild required"
           else
             echo "frontend_changed=false" >> "$GITHUB_OUTPUT"
-            echo "No frontend files in push — skipping frontend build"
+            echo "No frontend/workflow files in push — skipping frontend build"
           fi
 
       # ── Step 8: Report clean (no image changes) ─────────────────────────────
