@@ -763,6 +763,12 @@ jobs:
             --set-secrets="GROQ_API_KEY=GROQ_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
             --allow-unauthenticated
 
+          gcloud run deploy secureflow-backend \
+            --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
+            --region us-central1 \
+            --set-secrets="GROQ_API_KEY=GROQ_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
+            --allow-unauthenticated
+
       - name: Get Staging URL
         id: staging_url
         if: steps.deploy_staging.outcome == 'success'
@@ -772,13 +778,12 @@ jobs:
             --format 'value(status.url)')
           echo "staging_url=$STAGING_URL" >> "$GITHUB_OUTPUT"
           echo "Staging URL: $STAGING_URL"
-          sleep 30
-          sleep 30
+          sleep 5
 
       - name: Notify Staging Deploy Success
         if: steps.deploy_staging.outcome == 'success'
         env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          BACKEND_URL: ${{ steps.staging_url.outputs.staging_url || secrets.BACKEND_URL }}
           BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
         run: |
@@ -790,7 +795,7 @@ jobs:
       - name: Notify Staging Deploy Failure
         if: failure() && steps.changes.outputs.image_changed == 'true' && steps.gate.outputs.action == 'ALLOW'
         env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          BACKEND_URL: ${{ steps.staging_url.outputs.staging_url || secrets.BACKEND_URL }}
           BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
         run: |
@@ -817,7 +822,7 @@ jobs:
           steps.changes.outputs.frontend_changed == 'true' &&
           (steps.changes.outputs.image_changed == 'false' || steps.gate.outputs.action == 'ALLOW')
         env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          BACKEND_URL: ${{ steps.staging_url.outputs.staging_url || secrets.BACKEND_URL }}
           BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
         run: |
@@ -849,7 +854,7 @@ jobs:
       - name: Notify Staging Deploy Complete
         if: steps.deploy_staging.outcome == 'success' || steps.deploy_frontend_staging.outcome == 'success'
         env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          BACKEND_URL: ${{ steps.staging_url.outputs.staging_url || secrets.BACKEND_URL }}
           BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
         run: |
@@ -858,35 +863,25 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{ "pipeline_steps": { "deploy_staging": { "result": "PASS", "detail": "Staging Cloud Run deployment completed" } } }' || true
 
-      - name: Build DAST Target URL
+      # ── Step 16a: Determine DAST Scan Target ────────────────────────────────
+      - name: Determine DAST Target URL
         id: dast_target
         if: steps.deploy_staging.outcome == 'success' || steps.deploy_frontend_staging.outcome == 'success'
-        env:
-          STAGING_URL: ${{ steps.staging_url.outputs.staging_url }}
-          RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
         run: |
-          if [ -n "$STAGING_URL" ]; then
-            DAST_TARGET="$STAGING_URL"
-            echo "dast_target=$DAST_TARGET" >> "$GITHUB_OUTPUT"
-            echo "DAST target URL from staging deploy: $DAST_TARGET"
+          if [ -n "${{ steps.staging_url.outputs.staging_url }}" ]; then
+            TARGET="${{ steps.staging_url.outputs.staging_url }}"
           else
-            echo "Backend staging deploy was skipped — querying GCP for active secureflow-backend-staging URL..."
-            DAST_TARGET=$(gcloud run services describe secureflow-backend-staging --region us-central1 --format 'value(status.url)' 2>/dev/null || echo "")
-            if [ -n "$DAST_TARGET" ]; then
-              echo "dast_target=$DAST_TARGET" >> "$GITHUB_OUTPUT"
-              echo "Resolved DAST target URL from GCP: $DAST_TARGET"
-            else
-              echo "::error::Staging URL is empty — cannot build valid DAST target endpoint."
-              exit 1
-            fi
+            TARGET="${{ secrets.BACKEND_URL }}"
           fi
+          echo "dast_target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Selected DAST scan target: $TARGET"
 
       # ── Step 16b: Trigger Distributed DAST Pipeline ─────────────────────────
       - name: Trigger Automated Distributed DAST Pipeline
         id: trigger_dast
         if: steps.deploy_staging.outcome == 'success' || steps.deploy_frontend_staging.outcome == 'success'
         env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          BACKEND_URL: ${{ steps.staging_url.outputs.staging_url || secrets.BACKEND_URL }}
           BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
           RUN_ID: ${{ steps.pipeline_start.outputs.run_id }}
           REPO_NAME: ${{ github.repository }}
@@ -958,7 +953,7 @@ jobs:
         id: zap_gate
         if: steps.deploy_staging.outcome == 'success' || steps.deploy_frontend_staging.outcome == 'success'
         env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          BACKEND_URL: ${{ steps.staging_url.outputs.staging_url || secrets.BACKEND_URL }}
           BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
           TRIGGER_RUN_ID: ${{ steps.trigger_dast.outputs.dast_run_id }}
           DAST_TRIGGERED: ${{ steps.trigger_dast.outputs.dast_triggered }}
