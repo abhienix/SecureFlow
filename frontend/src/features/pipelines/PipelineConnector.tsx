@@ -13,14 +13,9 @@ export function PipelineConnector({ sourceResult, forcedSkipped = false }: Pipel
   let opacity = 1;
   let animate = false;
 
-  if (r === 'PASS' || r === 'ALLOW') {
+  if (['PASS', 'PASSED', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'COMPLETED'].includes(r)) {
     color = '#10B981';
-  } else if (r === 'SCANNED') {
-    color = '#3B82F6';
-  } else if (r === 'BLOCK') {
-    color = '#F59E0B';
-    dasharray = '6,4';
-  } else if (r === 'FAILED') {
+  } else if (['BLOCK', 'BLOCKED', 'FAIL', 'FAILED', 'FAILURE', 'ERROR'].includes(r)) {
     color = '#EF4444';
     dasharray = '6,4';
   } else if (r === 'RUNNING') {

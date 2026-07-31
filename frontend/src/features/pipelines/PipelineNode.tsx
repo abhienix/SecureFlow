@@ -48,15 +48,7 @@ export function PipelineNode({
   if (['PASS', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'COMPLETED', 'PASSED'].includes(r)) {
     gradientBackground = 'radial-gradient(circle at 30% 30%, #34D399, #064E3B)';
     glowColor = 'rgba(16, 185, 129, 0.5)';
-  } else if (['BLOCK', 'BLOCKED'].includes(r)) {
-    if (stage === 'code_scan') {
-      gradientBackground = 'radial-gradient(circle at 30% 30%, #F87171, #7F1D1D)';
-      glowColor = 'rgba(239, 68, 68, 0.5)';
-    } else {
-      gradientBackground = 'radial-gradient(circle at 30% 30%, #FBBF24, #78350F)';
-      glowColor = 'rgba(245, 158, 11, 0.5)';
-    }
-  } else if (['FAIL', 'FAILED', 'FAILURE', 'ERROR'].includes(r)) {
+  } else if (['BLOCK', 'BLOCKED', 'FAIL', 'FAILED', 'FAILURE', 'ERROR'].includes(r)) {
     gradientBackground = 'radial-gradient(circle at 30% 30%, #F87171, #7F1D1D)';
     glowColor = 'rgba(239, 68, 68, 0.5)';
   } else if (['RUN', 'RUNNING', 'QUEUED', 'IN_PROGRESS', 'INPROGRESS'].includes(r)) {
