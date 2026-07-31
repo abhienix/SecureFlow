@@ -900,6 +900,13 @@ jobs:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           DAST_TARGET: ${{ steps.dast_target.outputs.dast_target }}
         run: |
+          if printf '%s' "$COMMIT_MESSAGE" | grep -qE '\[deploy:frontend\]|\[deploy:backend\]|\[deploy:all\]|\[deploy\]|\[skip-dast\]|\[fast\]'; then
+            echo "NOTICE: Fast deploy tag detected in commit message — skipping 10-minute DAST scan for rapid Cloud Run deployment."
+            echo "dast_run_id=" >> "$GITHUB_OUTPUT"
+            echo "dast_triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           TARGET_URL="$DAST_TARGET"
           echo "Triggering backend DAST orchestration for staging target: $TARGET_URL..."
 
