@@ -14,6 +14,7 @@ import TopBar from "./components/layout/TopBar";
 import CommandPalette from "./components/layout/CommandPalette";
 import NotificationDrawer from "./components/layout/NotificationDrawer";
 import GlobalAICopilot from "./components/GlobalAICopilot";
+import CyberLoader from "./components/shared/CyberLoader";
 
 // Primary Enterprise Workspaces & Pages
 const OverviewWorkspace = lazy(() => import("./features/overview/OverviewWorkspace"));
@@ -54,7 +55,7 @@ function PageError({ C }) {
 }
 
 function RouteFallback() {
-  return <div className="sf-route-loading" aria-live="polite">Loading workspace…</div>;
+  return <CyberLoader size="md" />;
 }
 
 function AppShell() {
