@@ -252,7 +252,7 @@ Current page: ${ctx.current_page}
         setStreaming(false);
         addMessage({
           role: 'assistant',
-          content: 'I could not connect to the AI service. Check that GROQ_API_KEY is set in Cloud Run secrets.'
+          content: 'I could not connect to the AI service. Verify that the required AI secret is configured.',
         });
         return;
       }
