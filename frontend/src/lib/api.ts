@@ -1,67 +1,107 @@
-const API_BASE = process.env.REACT_APP_API_URL ?? "";
+/**
+ * SecureFlow — API Client
+ * Centralized fetch wrapper with typed responses and error handling.
+ */
 
-export class ApiError extends Error {
-  status: number;
+const BACKEND_URL =
+  process.env.REACT_APP_API_URL ||
+  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:8000'
+    : typeof window !== 'undefined'
+    ? window.location.origin.replace('frontend', 'backend')
+    : 'https://secureflow-backend-1083585992526.us-central1.run.app');
 
-  constructor(message: string, status: number) {
+export const API_BASE = BACKEND_URL;
+export const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'wss://') + '/ws/scans';
+
+class ApiError extends Error {
+  constructor(public status: number, message: string) {
     super(message);
-    this.name = "ApiError";
-    this.status = status;
+    this.name = 'ApiError';
   }
 }
 
-async function parseResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let message = `${res.status} ${res.statusText}`;
-    try {
-      const body = await res.json();
-      if (typeof body.detail === "string") message = body.detail;
-      else if (body.detail) message = JSON.stringify(body.detail);
-    } catch {
-      // ignore body parse failure
-    }
-    throw new ApiError(message, res.status);
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.headers || {}),
+      },
+    });
+  } catch {
+    throw new ApiError(0, 'Unable to reach the SecureFlow backend. Check your network connection and try again.');
   }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = typeof body?.detail === 'string' ? body.detail : res.statusText;
+    throw new ApiError(res.status, `API ${res.status}: ${detail}`);
+  }
+
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return res.json() as Promise<T>;
 }
 
 export const api = {
-  get: async <T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> => {
-    const url = new URL(`${API_BASE}${path}`, window.location.origin);
-    if (params) {
-      for (const [k, v] of Object.entries(params)) {
-        if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
-      }
-    }
-    const res = await fetch(url.toString(), {
-      headers: { Accept: "application/json" },
-    });
-    return parseResponse<T>(res);
+  getScans: (limit = 200) =>
+    apiFetch<{ total: number; limit: number; scans: any[] }>(`/api/scan-results?limit=${limit}`),
+
+  getRepositories: () =>
+    apiFetch<{ repositories: any[]; total: number }>(`/api/repositories`),
+
+  getDeployments: () =>
+    apiFetch<{ deployments: any[]; total: number }>(`/api/deployments`),
+
+  getFindings: (params?: { severity?: string; scanner?: string; repo?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.severity) qs.set('severity', params.severity);
+    if (params?.scanner) qs.set('scanner', params.scanner);
+    if (params?.repo) qs.set('repo', params.repo);
+    const query = qs.toString();
+    return apiFetch<{ findings: any[]; total: number }>(`/api/findings${query ? `?${query}` : ''}`);
   },
 
-  post: async <T>(path: string, body?: unknown): Promise<T> => {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    return parseResponse<T>(res);
-  },
+  getMetrics: () =>
+    apiFetch<any>(`/api/observability/metrics`),
 
-  patch: async <T>(path: string, body?: unknown): Promise<T> => {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    return parseResponse<T>(res);
-  },
+  getCopilotAnswer: (question: string, scanId?: number, context?: Record<string, unknown>) =>
+    apiFetch<{ answer: string }>(`/api/copilot/ask`, {
+      method: 'POST',
+      body: JSON.stringify({ question, scan_id: scanId, context }),
+    }),
 
-  websocketUrl: (path: string): string => {
-    const base = API_BASE.replace(/^http/, "ws").replace(/\/$/, "");
-    return `${base}${path}`;
-  },
+  submitFeedback: (scanId: number, feedback: string) =>
+    apiFetch<{ status: string }>(`/api/scan-results/${scanId}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ feedback }),
+    }),
+
+  getPolicies: () =>
+    apiFetch<any>(`/api/policies`),
+
+  registerRepository: (repoName: string, owner: string, defaultBranch = 'main') =>
+    apiFetch<{ repository: any }>(`/api/repositories`, {
+      method: 'POST',
+      body: JSON.stringify({ repo_name: repoName, owner, default_branch: defaultBranch }),
+    }),
+
+  exportReport: (reportType: string, format: string) =>
+    apiFetch<any>(`/api/reports/export`, {
+      method: 'POST',
+      body: JSON.stringify({ report_type: reportType, format }),
+    }),
+
+  getSystemHealth: () =>
+    apiFetch<any>(`/api/health/system`),
+
+  getSystemInfo: () =>
+    apiFetch<any>(`/api/system/info`),
+
+  searchGlobal: (query: string) =>
+    apiFetch<{ query: string; results: any[] }>(`/api/search?q=${encodeURIComponent(query)}`),
 };
 
-export const API_BASE_URL = API_BASE;
+export { ApiError };
