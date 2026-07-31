@@ -278,7 +278,7 @@ export default function RepositoriesPage() {
               </label>
               <input
                 type="password"
-                placeholder="Enter password (Abhi@8476)"
+                placeholder="Enter security password"
                 value={addPassword}
                 onChange={(e) => setAddPassword(e.target.value)}
                 style={{
@@ -350,7 +350,7 @@ export default function RepositoriesPage() {
               </label>
               <input
                 type="password"
-                placeholder="Enter password (Abhi@8476)"
+                placeholder="Enter security password"
                 value={deletePassword}
                 onChange={(e) => setDeletePassword(e.target.value)}
                 autoFocus
