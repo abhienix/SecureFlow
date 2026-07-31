@@ -11,6 +11,7 @@ import { Skeleton } from '../ui/Skeleton';
 import { useScans } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import CyberLoader from '../shared/CyberLoader';
 
 export interface PipelineStage {
   id: string;
@@ -530,13 +531,7 @@ export default function PipelinesWorkspace() {
   }, [scans, searchQuery]);
 
   if (isLoading) {
-    return (
-      <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <Skeleton width={300} height={32} />
-        <Skeleton height={140} />
-        <Skeleton height={400} />
-      </div>
-    );
+    return <CyberLoader label="Synchronizing CI/CD Pipeline Telemetry..." />;
   }
 
   const activeGitleaks = activeScan.findings?.gitleaks || [];

@@ -9,6 +9,7 @@ import { Button } from '../ui/Button';
 import { Skeleton } from '../ui/Skeleton';
 import { useFindings } from '../../hooks/useApi';
 import { useUIStore } from '../../stores/uiStore';
+import CyberLoader from '../shared/CyberLoader';
 
 export interface FindingRow {
   id: string;
@@ -156,13 +157,7 @@ export default function SecurityCenterWorkspace() {
   };
 
   if (isLoading) {
-    return (
-      <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <Skeleton width={300} height={32} />
-        <Skeleton height={50} />
-        <Skeleton height={400} />
-      </div>
-    );
+    return <CyberLoader label="Analyzing Security Center Findings..." />;
   }
 
   return (

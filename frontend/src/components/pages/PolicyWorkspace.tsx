@@ -5,6 +5,7 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Skeleton } from '../ui/Skeleton';
 import { usePolicies, useFindings } from '../../hooks/useApi';
+import CyberLoader from '../shared/CyberLoader';
 
 export default function PolicyWorkspace() {
   const { isLoading } = usePolicies();
@@ -114,12 +115,7 @@ notifications:
   };
 
   if (isLoading) {
-    return (
-      <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <Skeleton width={300} height={32} />
-        <Skeleton height={400} />
-      </div>
-    );
+    return <CyberLoader label="Evaluating Security Policies..." />;
   }
 
   return (
