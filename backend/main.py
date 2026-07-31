@@ -3064,7 +3064,10 @@ async def get_v1_repo_security(repo_id: str, db: AsyncSession = Depends(get_db))
 
 # 3. Pipelines
 @v1_router.get("/pipelines")
-async def get_v1_pipelines(db: AsyncSession = Depends(get_db), limit: int = 100):
+async def get_v1_pipelines(db: AsyncSession = Depends(get_db), limit: int = 200):
+    total_res = await db.execute(select(func.count()).select_from(ScanResult))
+    total_count = total_res.scalar() or 0
+
     res = await db.execute(select(PipelineRun).order_by(PipelineRun.created_at.desc()).limit(limit))
     runs = res.scalars().all()
     

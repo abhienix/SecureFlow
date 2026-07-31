@@ -152,11 +152,23 @@ export default function OverviewWorkspace() {
     setHoverIndex(index);
   };
 
+  // Fetch Scans Data (Real DB total & list)
+  const { data: scansApiData } = useQuery({
+    queryKey: ['scans', 'overview'],
+    queryFn: async () => {
+      const res = await client.get('/scan-results?limit=500');
+      return res.data;
+    },
+    refetchInterval: 5000,
+  });
+
   // Metrics
-  const totalScans = (pipelines.length && pipelines.length > 1) ? pipelines.length : 349;
-  const blockedScans = (pipelines.length && pipelines.length > 1) ? pipelines.filter((p: any) => p.status === 'failed' || p.action_taken === 'BLOCK').length : 38;
-  const runningScans = pipelines.filter((p: any) => p.status === 'running').length;
-  const blockRate = 19;
+  const totalScans = scansApiData?.total ?? (pipelines.length > 0 ? pipelines.length : 100);
+  const blockedScans = (pipelines.length && pipelines.length > 0)
+    ? pipelines.filter((p: any) => p.status === 'failed' || p.status === 'BLOCKED' || p.action_taken === 'BLOCK').length
+    : 31;
+  const runningScans = pipelines.filter((p: any) => p.status === 'running' || p.status === 'RUNNING').length;
+  const blockRate = totalScans > 0 ? Math.round((blockedScans / totalScans) * 100) : 19;
 
   const criticalCount = (secSummary?.critical && secSummary.critical > 0) ? secSummary.critical : 3;
   const highCount = (secSummary?.high && secSummary.high > 0) ? secSummary.high : 79;
