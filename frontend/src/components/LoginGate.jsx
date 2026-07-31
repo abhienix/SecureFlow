@@ -118,7 +118,7 @@ export function LoginGate({ onAuthenticate, C }) {
               fontSize: 12, color: "#ef4444", fontWeight: 600, background: "rgba(239,68,68,0.12)",
               padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.25)"
             }}>
-              ⚠️ {error}
+              ⚠️ {error?.message || String(error)}
             </div>
           )}
 
