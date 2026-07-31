@@ -500,6 +500,9 @@ jobs:
           (steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true')
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
+      - name: Set IMAGE env
+        run: echo "IMAGE=us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}" >> $GITHUB_ENV
+
       # ── Step 10: Build and push backend image ───────────────────────────────
       - name: Notify Docker Build Starting
         if: >
@@ -515,19 +518,22 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{ "pipeline_steps": { "docker": { "result": "RUNNING", "detail": "building backend Docker image..." } } }' || true
 
+      - name: Set IMAGE env
+        run: echo "IMAGE=us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}" >> $GITHUB_ENV
+
       - name: Build Backend Image
         id: docker_build
         if: steps.changes.outputs.image_changed == 'true'
         run: |
           docker build \
-            -t us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
+            -t "$IMAGE" \
             -f docker/Dockerfile .
 
       - name: Push Backend Image
         id: docker_push
         if: steps.changes.outputs.image_changed == 'true'
         run: |
-          docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}
+          docker push "$IMAGE"
 
       # ── Step 10a: Notify dashboard on Docker build/push failure ─────────────
       - name: Notify Docker Build/Push Failure
@@ -811,11 +817,13 @@ jobs:
           steps.changes.outputs.frontend_changed == 'true' &&
           (steps.changes.outputs.image_changed == 'false' || steps.gate.outputs.action == 'ALLOW')
         run: |
+          echo "IMAGE=us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}" >> $GITHUB_ENV
           docker build \
-            -t us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }} \
+            -t "$IMAGE" \
             --build-arg REACT_APP_API_URL=${{ secrets.BACKEND_URL }} \
             -f frontend/Dockerfile frontend/
-          docker push us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}
+          docker push "$IMAGE"
+
 
       # ── Step 15: Deploy frontend to staging ─────────────────────────────────
       - name: Notify Deploying Frontend to Staging

@@ -12,7 +12,7 @@ const BACKEND_URL =
     : 'https://secureflow-backend-1083585992526.us-central1.run.app');
 
 export const API_BASE = BACKEND_URL;
-export const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/scans';
+export const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'wss://') + '/ws/scans';
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {

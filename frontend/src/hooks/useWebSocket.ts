@@ -32,7 +32,7 @@ export function useWebSocket() {
       ? window.location.origin.replace('frontend', 'backend')
       : 'http://localhost:8000');
 
-  const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/events';
+  const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'wss://') + '/ws/events';
 
   const startHealthPoll = () => {
     if (fallbackActive.current) return;

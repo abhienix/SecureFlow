@@ -52,9 +52,11 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
+      - name: Set IMAGE env
+        run: echo "IMAGE=us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}" >> $GITHUB_ENV
+
       - name: Build & Push Frontend Image
         run: |
-          IMAGE="us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}"
           docker build \
             --build-arg REACT_APP_API_URL=${{ secrets.BACKEND_URL }} \
             -t "$IMAGE" \

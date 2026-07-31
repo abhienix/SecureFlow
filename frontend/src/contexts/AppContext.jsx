@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { normaliseScan } from "../utils/formatters";
 
 const BACKEND = "https://secureflow-backend-1083585992526.us-central1.run.app";
-const WS_URL = BACKEND.replace("https://", "wss://").replace("http://", "ws://") + "/ws/scans";
+const WS_URL = BACKEND.replace('https://', 'wss://').replace('http://', 'wss://') + '/ws/scans';
 
 const AppContext = createContext();
 
