@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ShieldCheck, ArrowRight } from "lucide-react";
+import CyberLoader from "./shared/CyberLoader";
 
 export function LoginGate({ onAuthenticate, C }) {
   const [username, setUsername] = useState("");
@@ -17,11 +18,15 @@ export function LoginGate({ onAuthenticate, C }) {
     setError("");
     setLoading(true);
 
-    // Fast 300ms transition into platform
+    // Fast transition into platform
     setTimeout(() => {
       onAuthenticate(username, password);
-    }, 300);
+    }, 450);
   };
+
+  if (loading) {
+    return <CyberLoader fullScreen label="Authenticating SecureFlow Session..." />;
+  }
 
   return (
     <div style={{

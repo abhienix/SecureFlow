@@ -1,5 +1,5 @@
-import React, { lazy, Suspense, useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import React, { lazy, Suspense, useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useScanWebSocket } from "./hooks/useScanWebSocket";
@@ -61,8 +61,19 @@ function RouteFallback() {
 function AppShell() {
   const { C } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [isNavigating, setIsNavigating] = useState(false);
   const { error, refetch } = useScans();
   const { isCmdPaletteOpen, setCmdPaletteOpen, isCopilotOpen, setCopilotOpen, toggleCmdPalette } = useUIStore();
+
+  // Trigger cyber loader animation on every route/page change
+  useEffect(() => {
+    setIsNavigating(true);
+    const timer = setTimeout(() => {
+      setIsNavigating(false);
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [location.pathname]);
 
   // New TanStack Query-powered WebSocket (exponential backoff + cache invalidation)
   useScanWebSocket();
@@ -109,9 +120,12 @@ function AppShell() {
           </div>
         )}
 
-        <main style={{ flex: 1, padding: 24, overflowY: "auto", background: C.bg }}>
-          <Suspense fallback={<RouteFallback />}>
-            <Routes>
+        <main style={{ flex: 1, padding: 24, overflowY: "auto", background: C.bg, position: "relative" }}>
+          {isNavigating ? (
+            <CyberLoader size="md" />
+          ) : (
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
               <Route path="/" element={<Navigate to="/overview" replace />} />
               <Route path="/overview" element={<ErrorBoundary><OverviewWorkspace /></ErrorBoundary>} />
               <Route path="/repositories" element={<ErrorBoundary><RepositoriesPage /></ErrorBoundary>} />
@@ -134,6 +148,7 @@ function AppShell() {
               <Route path="*" element={<PageError C={C} />} />
             </Routes>
           </Suspense>
+          )}
         </main>
       </div>
 
