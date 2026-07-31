@@ -670,7 +670,7 @@ async def sync_single_scan_result_to_new_tables(scan_id: int, db: AsyncSession):
     pipeline_raw = StageStatus.normalize(s.status)
     if action_taken == "BLOCK":
         pipeline_computed = StageStatus.BLOCKED.value
-    elif pipeline_raw == StageStatus.RUNNING.value or s.status in ("running", "deploying"):
+    elif pipeline_raw == StageStatus.RUNNING.value or s.status == "running":
         pipeline_computed = StageStatus.RUNNING.value
     elif pipeline_raw == StageStatus.CANCELLED.value or s.status == "timeout":
         pipeline_computed = StageStatus.CANCELLED.value
@@ -1133,6 +1133,55 @@ async def github_polling_watchdog():
         except Exception as e:
             logger.error(f"[github_watchdog loop] error: {e}")
 
+
+
+# ---------------------------------------------------------------------------
+# GitHub Real-Time Webhook Handler (Instant WebSocket Push)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/webhooks/github")
+async def github_webhook_handler(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Real-time GitHub Webhook event receiver for workflow_run events.
+    Pushes live WebSocket updates instantly when GitHub workflow completes or changes state.
+    """
+    event_type = request.headers.get("X-GitHub-Event")
+    if event_type != "workflow_run":
+        return {"status": "ignored", "event": event_type}
+
+    try:
+        payload = await request.json()
+        workflow_run = payload.get("workflow_run", {})
+        gh_run_id = str(workflow_run.get("id"))
+        gh_status = workflow_run.get("status")
+        gh_conclusion = workflow_run.get("conclusion")
+
+        if not gh_run_id:
+            return {"status": "ignored", "reason": "missing run id"}
+
+        res = await db.execute(select(ScanResult).filter(ScanResult.github_run_id == gh_run_id))
+        scan = res.scalars().first()
+
+        if scan:
+            if gh_status == "completed":
+                if gh_conclusion == "success":
+                    scan.status = "complete"
+                    scan.action_taken = scan.action_taken or "ALLOW"
+                elif gh_conclusion in ("failure", "cancelled", "timed_out"):
+                    scan.status = "complete" if gh_conclusion == "failure" else "timeout"
+                    scan.action_taken = "BLOCK"
+                    scan.severity = scan.severity or "HIGH"
+                    scan.ai_explanation = scan.ai_explanation or f"GitHub Actions run completed with conclusion: {gh_conclusion}"
+                
+                await db.commit()
+                await db.refresh(scan)
+                await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_update"))
+                return {"status": "updated", "scan_id": scan.id, "run_status": scan.status}
+
+        return {"status": "received", "gh_run_id": gh_run_id}
+    except Exception as ex:
+        logger.error(f"[github_webhook_handler] error handling webhook: {ex}")
+        return {"status": "error", "message": str(ex)}
 
 
 # ---------------------------------------------------------------------------
