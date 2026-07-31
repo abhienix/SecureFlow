@@ -173,18 +173,34 @@ export function PipelineNode({
       >
         {/* Spinning border overlay for running */}
         {baseStyle.animate === 'spin' && (
-          <div style={{
-            boxSizing: 'border-box',
-            border: '3px solid transparent',
-            borderTopColor: '#818CF8',
-            borderRadius: '50%',
-            width: '52px',
-            height: '52px',
-            position: 'absolute',
-            top: '-3px',
-            left: '-3px',
-            animation: 'sf-spin 1s linear infinite'
-          }} />
+          <>
+            <div style={{
+              boxSizing: 'border-box',
+              border: '3px solid transparent',
+              borderTopColor: '#818CF8',
+              borderRightColor: '#06B6D4',
+              borderRadius: '50%',
+              width: '56px',
+              height: '56px',
+              position: 'absolute',
+              top: '-5px',
+              left: '-5px',
+              animation: 'sfCyberSpin 1.2s linear infinite',
+              filter: 'drop-shadow(0 0 6px #818CF8)'
+            }} />
+            <div style={{
+              boxSizing: 'border-box',
+              border: '2px dashed #06B6D4',
+              borderRadius: '50%',
+              width: '62px',
+              height: '62px',
+              position: 'absolute',
+              top: '-8px',
+              left: '-8px',
+              animation: 'sfCyberSpinReverse 3s linear infinite',
+              opacity: 0.6
+            }} />
+          </>
         )}
 
         {/* Diagonal line for skipped */}
@@ -200,14 +216,35 @@ export function PipelineNode({
           }} />
         )}
 
-        <IconComponent size={20} />
+        <IconComponent
+          size={20}
+          style={{
+            animation: ['RUN', 'RUNNING', 'QUEUED', 'IN_PROGRESS'].includes(r)
+              ? 'sfIconPulse 1.2s infinite ease-in-out'
+              : ['BLOCK', 'BLOCKED', 'FAIL', 'FAILED'].includes(r)
+              ? 'sfShake 2.5s infinite ease-in-out'
+              : 'none',
+            filter: ['PASS', 'ALLOW', 'COMPLETE', 'PASSED'].includes(r)
+              ? 'drop-shadow(0 0 4px rgba(52, 211, 153, 0.7))'
+              : ['BLOCK', 'BLOCKED', 'FAIL', 'FAILED'].includes(r)
+              ? 'drop-shadow(0 0 6px rgba(248, 113, 113, 0.8))'
+              : 'none',
+            transition: 'transform 300ms ease'
+          }}
+        />
         {renderOverlay()}
       </div>
 
       <span style={{
         fontSize: '11px',
-        fontWeight: 600,
-        color: C.textSecondary,
+        fontWeight: 700,
+        color: ['RUN', 'RUNNING', 'QUEUED', 'IN_PROGRESS'].includes(r)
+          ? '#818CF8'
+          : ['PASS', 'ALLOW', 'COMPLETE', 'PASSED'].includes(r)
+          ? '#10B981'
+          : ['BLOCK', 'BLOCKED', 'FAIL', 'FAILED'].includes(r)
+          ? '#EF4444'
+          : C.textSecondary,
         textAlign: 'center',
         lineHeight: '1.2',
         maxHeight: '26px',
@@ -224,15 +261,31 @@ export function PipelineNode({
 
       <style>{`
         @keyframes sf-pulse-amber {
-          0%, 100% { box-shadow: 0 0 0 0px rgba(245, 158, 11, 0.4); }
-          50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.15); }
+          0%, 100% { box-shadow: 0 0 0 0px rgba(245, 158, 11, 0.5); }
+          50% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
         }
         @keyframes sf-pulse-red {
-          0%, 100% { box-shadow: 0 0 0 0px rgba(239, 68, 68, 0.4); }
-          50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.15); }
+          0%, 100% { box-shadow: 0 0 0 0px rgba(239, 68, 68, 0.6); }
+          50% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
         }
-        @keyframes sf-spin {
-          to { transform: rotate(360deg); }
+        @keyframes sfCyberSpin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes sfCyberSpinReverse {
+          0% { transform: rotate(360deg); }
+          100% { transform: rotate(0deg); }
+        }
+        @keyframes sfIconPulse {
+          0%, 100% { transform: scale(1); opacity: 0.9; }
+          50% { transform: scale(1.22); opacity: 1; filter: drop-shadow(0 0 8px #818CF8); }
+        }
+        @keyframes sfShake {
+          0%, 100% { transform: translateX(0); }
+          20% { transform: translateX(-2px); }
+          40% { transform: translateX(2px); }
+          60% { transform: translateX(-1px); }
+          80% { transform: translateX(1px); }
         }
         .sf-node-pulse-amber {
           animation: sf-pulse-amber 1.5s infinite ease-in-out;

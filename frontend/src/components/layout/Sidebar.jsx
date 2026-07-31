@@ -182,20 +182,40 @@ export default function Sidebar({ C }) {
                   )}
 
                   {!collapsed && count > 0 && (
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10,
-                      background: item.path === "/pipelines"
-                        ? C.bgElevated
-                        : openFindingsCount > 0
-                        ? "#dc2626"
-                        : C.bgElevated,
-                      color: item.path === "/pipelines"
-                        ? C.inkMid
-                        : openFindingsCount > 0
-                        ? "#ffffff"
-                        : C.inkMid,
-                      minWidth: 20, textAlign: "center",
-                    }}>{count}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      {item.path === "/pipelines" && scansCount > 0 && (
+                        <span style={{
+                          width: 6, height: 6, borderRadius: "50%",
+                          background: "#06b6d4",
+                          boxShadow: "0 0 8px #06b6d4",
+                          animation: "sfDotPulse 1.2s infinite ease-in-out"
+                        }} title="Pipeline active in real-time" />
+                      )}
+                      <span style={{
+                        fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 10,
+                        background: item.path === "/pipelines" && scansCount > 0
+                          ? "linear-gradient(135deg, rgba(6,182,212,0.25), rgba(99,102,241,0.25))"
+                          : item.path === "/pipelines"
+                          ? C.bgElevated
+                          : openFindingsCount > 0
+                          ? "#dc2626"
+                          : C.bgElevated,
+                        color: item.path === "/pipelines" && scansCount > 0
+                          ? "#06b6d4"
+                          : item.path === "/pipelines"
+                          ? C.inkMid
+                          : openFindingsCount > 0
+                          ? "#ffffff"
+                          : C.inkMid,
+                        border: item.path === "/pipelines" && scansCount > 0
+                          ? "1px solid rgba(6,182,212,0.45)"
+                          : "none",
+                        boxShadow: item.path === "/pipelines" && scansCount > 0
+                          ? "0 0 10px rgba(6,182,212,0.35)"
+                          : "none",
+                        minWidth: 20, textAlign: "center",
+                      }}>{count}</span>
+                    </div>
                   )}
                 </NavLink>
               );
