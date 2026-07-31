@@ -1719,11 +1719,16 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
                         alerts = zap_f.get("alerts", [])
                     elif isinstance(zap_f, list):
                         alerts = zap_f
-                    has_alerts = len(alerts) > 0
-                    
+
+                    blocking_alerts = [
+                        a for a in alerts
+                        if isinstance(a, dict) and str(a.get("risk", "")).upper() in ("HIGH", "CRITICAL", "FAIL")
+                    ]
+                    has_blocking = len(blocking_alerts) > 0
+
                     merged_steps["zap_gate"] = {
-                        "result": "BLOCK" if has_alerts else "PASS",
-                        "detail": f"ZAP Security Gate blocked: {len(alerts)} alerts." if has_alerts else "ZAP Security Gate passed with 0 alerts."
+                        "result": "BLOCK" if has_blocking else "PASS",
+                        "detail": f"ZAP Security Gate blocked: {len(blocking_alerts)} critical/high alerts found." if has_blocking else f"ZAP Security Gate passed ({len(alerts)} non-blocking informational/medium findings)."
                     }
                 elif scan.dast_status in ("failed", "queue_failed"):
                     merged_steps["zap"] = {
