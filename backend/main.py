@@ -1367,18 +1367,13 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
     await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_started"))
 
     # -----------------------------------------------------------------------
-    # Idempotent DAST Enqueueing via Celery Producer
+    # Idempotent DAST Enqueueing via Celery Producer (Only after staging deploy)
     # -----------------------------------------------------------------------
-    logger.info(
-        f"[start_scan_run] DAST STATUS CHECK — scan_id={scan.id}, "
-        f"dast_status='{scan.dast_status}', "
-        f"skip_condition_met={scan.dast_status in ('running', 'completed')}"
-    )
-    if scan.dast_status in ("queued", "completed"):
-        logger.info(f"[start_scan_run] SKIPPING dispatch — dast_status='{scan.dast_status}' already queued/completed")
-    else:
+    should_trigger_dast = data.get("trigger_dast") is True or data.get("environment") in ("staging", "production") or (req_target_url and req_target_url != DEFAULT_TARGET_URL)
+
+    if should_trigger_dast and scan.dast_status not in ("queued", "completed"):
         logger.info(
-            f"[start_scan_run] EXECUTING dispatch — scan_id={scan.id}, "
+            f"[start_scan_run] EXECUTING DAST dispatch — scan_id={scan.id}, "
             f"target={resolved_target}, current_dast_status='{scan.dast_status}'"
         )
         pub_res = await asyncio.to_thread(publish_dast_task, scan.id, resolved_target, req_deploy_url)
@@ -1410,11 +1405,10 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
         scan.pipeline_steps = steps
         await db.commit()
         await db.refresh(scan)
-        logger.info(
-            f"[start_scan_run] POST-DISPATCH STATE — scan_id={scan.id}, "
-            f"dast_status='{scan.dast_status}', "
-            f"zap.result='{(scan.pipeline_steps or {}).get('zap', {}).get('result', '?')}'"
-        )
+        await sync_single_scan_result_to_new_tables(scan.id, db)
+        await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_update"))
+    else:
+        logger.info(f"[start_scan_run] Pipeline start registered — DAST trigger deferred until staging deploy completes.")
 
     logger.info(
         f"[start_scan_run] RETURN — scan_id={scan.id}, dast_status='{scan.dast_status}', "
@@ -3733,55 +3727,68 @@ async def get_v1_events(db: AsyncSession = Depends(get_db)):
     events = res.scalars().all()
     return events
 
+async def process_copilot_query(question: str, db: AsyncSession) -> str:
+    """
+    Core reasoning function: fetches real database context via SQLAlchemy
+    and processes the user's question using answer_copilot_question / smart_fallback.
+    """
+    try:
+        count_res = await db.execute(select(func.count()).select_from(ScanResult))
+        total_count = count_res.scalar() or 0
+
+        scans_res = await db.execute(select(ScanResult).order_by(ScanResult.id.desc()).limit(20))
+        scans_rows = scans_res.scalars().all()
+        
+        findings_res = await db.execute(select(SecurityFinding).order_by(SecurityFinding.id.desc()).limit(200))
+        findings_rows = findings_res.scalars().all()
+    except Exception as ex:
+        logger.error(f"[copilot db fetch error]: {ex}")
+        total_count, scans_rows, findings_rows = 0, [], []
+
+    recent_scans = [
+        {
+            "id": r.id,
+            "repo_name": r.repo_name,
+            "branch": r.branch,
+            "commit_sha": str(r.commit_sha)[:7] if r.commit_sha else "unknown",
+            "commit_message": r.commit_message or "",
+            "status": r.status or "unknown",
+            "action_taken": r.action_taken or "ALLOW",
+            "ai_explanation": r.ai_explanation or "",
+            "created_at": str(r.created_at)[:19] if r.created_at else ""
+        }
+        for r in scans_rows
+    ]
+    sev_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    for f in findings_rows:
+        sev = (f.severity or "").upper()
+        if sev in sev_counts:
+            sev_counts[sev] += 1
+
+    db_context = {
+        "total_scans": total_count,
+        "recent_scans": recent_scans,
+        "findings_summary": sev_counts,
+    }
+
+    try:
+        ans_text = await asyncio.to_thread(answer_copilot_question, question, db_context)
+        if not ans_text:
+            ans_text = smart_fallback(question, db_context)
+    except Exception as e:
+        logger.error(f"[copilot chat] error: {e}")
+        ans_text = smart_fallback(question, db_context)
+
+    return ans_text
+
+
 @v1_router.post("/copilot/chat")
 async def copilot_chat_streaming(data: dict, db: AsyncSession = Depends(get_db)):
     messages = data.get("messages", [])
 
     async def token_generator():
         question = messages[-1]["content"] if messages else "Hello"
-
-        # ── Pull real DB data so both LLM and fallback have rich context ──
-        try:
-            scans_rows = (await db.execute(
-                text("SELECT id, repo_name, branch, commit_sha, commit_message, status, action_taken, ai_explanation, created_at FROM scan_results ORDER BY id DESC LIMIT 20")
-            )).fetchall()
-            findings_rows = (await db.execute(
-                text("SELECT severity, title, scanner FROM findings ORDER BY id DESC LIMIT 200")
-            )).fetchall()
-        except Exception:
-            scans_rows, findings_rows = [], []
-
-        # Build context from real DB
-        recent_scans = [
-            {
-                "id": r[0], "repo_name": r[1], "branch": r[2],
-                "commit_sha": str(r[3])[:7] if r[3] else "unknown",
-                "commit_message": r[4] or "",
-                "status": r[5] or "unknown",
-                "action_taken": r[6] or "ALLOW",
-                "ai_explanation": r[7] or "",
-                "created_at": str(r[8])[:19] if r[8] else ""
-            }
-            for r in scans_rows
-        ]
-        sev_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
-        for f in findings_rows:
-            sev = (f[0] or "").upper()
-            if sev in sev_counts:
-                sev_counts[sev] += 1
-
-        db_context = {
-            "total_scans": len(scans_rows),
-            "recent_scans": recent_scans,
-            "findings_summary": sev_counts,
-        }
-
-        try:
-            response = await asyncio.to_thread(answer_copilot_question, question, db_context)
-            ans_text = response or smart_fallback(question, db_context)
-        except Exception as e:
-            logger.error(f"[copilot chat] error: {e}")
-            ans_text = smart_fallback(question, db_context)
+        ans_text = await process_copilot_query(question, db)
 
         words = ans_text.split(" ")
         for i, word in enumerate(words):
@@ -3803,8 +3810,24 @@ async def websocket_events(ws: WebSocket):
     try:
         while True:
             try:
-                await asyncio.wait_for(ws.receive_text(), timeout=WEBSOCKET_PING_INTERVAL)
+                data_text = await asyncio.wait_for(ws.receive_text(), timeout=WEBSOCKET_PING_INTERVAL)
                 missed_pongs = 0
+                if data_text:
+                    try:
+                        msg_obj = json.loads(data_text)
+                        if msg_obj.get("type") == "copilot_ask":
+                            question = msg_obj.get("question") or "Hello"
+                            async with AsyncSessionLocal() as db:
+                                ans_text = await process_copilot_query(question, db)
+
+                            words = ans_text.split(" ")
+                            for i, word in enumerate(words):
+                                chunk_str = word + (" " if i < len(words) - 1 else "")
+                                await ws.send_text(json.dumps({"type": "copilot_token", "token": chunk_str, "done": False}))
+                                await asyncio.sleep(0.015)
+                            await ws.send_text(json.dumps({"type": "copilot_token", "token": "", "done": True}))
+                    except json.JSONDecodeError:
+                        pass
             except asyncio.TimeoutError:
                 if missed_pongs >= MAX_MISSED_PINGS:
                     break
@@ -3812,8 +3835,8 @@ async def websocket_events(ws: WebSocket):
                 await ws.send_text(json.dumps({"type": "ping"}))
     except WebSocketDisconnect:
         pass
-    except Exception:
-        pass
+    except Exception as ex:
+        logger.error(f"[ws events exception]: {ex}")
     finally:
         manager.disconnect(ws)
 
