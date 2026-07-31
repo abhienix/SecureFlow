@@ -172,7 +172,9 @@ export default function OverviewWorkspace() {
   const blockedScans = (pipelines.length && pipelines.length > 0)
     ? pipelines.filter((p: any) => p.status === 'failed' || p.status === 'BLOCKED' || p.action_taken === 'BLOCK').length
     : 31;
-  const runningScans = pipelines.filter((p: any) => p.status === 'running' || p.status === 'RUNNING').length;
+  const runningScans = scansApiData?.scans
+    ? scansApiData.scans.filter((p: any) => p.status === 'running' || p.status === 'RUNNING').length
+    : pipelines.filter((p: any) => p.status === 'running' || p.status === 'RUNNING').length;
   const blockRate = totalScans > 0 ? Math.round((blockedScans / totalScans) * 100) : 19;
 
   const criticalCount = (secSummary?.critical && secSummary.critical > 0) ? secSummary.critical : 3;
