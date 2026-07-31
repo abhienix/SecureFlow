@@ -1081,7 +1081,7 @@ jobs:
             echo "Extracted values: dast_status=$DAST_STATUS zap.result=$ZAP_RESULT zap_gate=$ZAP_GATE"
             echo "===================================================="
 
-            if [ "$DAST_STATUS" = "completed" ] || [ "$DAST_STATUS" = "passed" ] || [ "$ZAP_RESULT" = "PASS" ] || [ "$ZAP_RESULT" = "FAIL" ] || [ "$ZAP_GATE" = "BLOCK" ]; then
+            if [ "$DAST_STATUS" = "completed" ] || [ "$DAST_STATUS" = "passed" ] || [ "$ZAP_RESULT" = "PASS" ] || [ "$ZAP_RESULT" = "FAIL" ]; then
               echo "DAST scan finished on backend."
               if [ "$ZAP_GATE" = "PASS" ] || ([ "$ZAP_RESULT" = "PASS" ] && [ "$ZAP_GATE" != "BLOCK" ]); then
                 echo "ZAP DAST passed — proceeding to production deploy."
