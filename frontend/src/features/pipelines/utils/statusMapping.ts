@@ -58,26 +58,38 @@ export function getNodeStyle(result: string | undefined, stage: string) {
 
 export function getOverallBadge(run: PipelineRun) {
   const steps = run.pipeline_steps || {};
-  const action = run.action || run.action_taken;
+  const action = String(run.action || run.action_taken || '').toUpperCase();
+  const runStatusUpper = String(run.status || '').toUpperCase();
 
-  if (action === 'BLOCK' || run.status === 'BLOCKED') {
-    if (steps.code_scan?.result === 'BLOCK') return { label: 'SECURITY BLOCK', color: 'red' };
-    if (steps.policy?.result === 'BLOCK')    return { label: 'POLICY BLOCKED', color: 'amber' };
-    if (steps.zap_gate?.result === 'BLOCK')  return { label: 'ZAP BLOCKED',    color: 'red' };
-    return { label: 'BLOCKED', color: 'amber' };
+  // 1. Prioritize explicit step blocks/failures FIRST (so superseded/skipped status doesn't hide a block!)
+  const zapGateRes = String(steps.zap_gate?.result || '').toUpperCase();
+  const codeScanRes = String(steps.code_scan?.result || '').toUpperCase();
+  const policyRes = String(steps.policy?.result || '').toUpperCase();
+
+  if (zapGateRes === 'BLOCK' || zapGateRes === 'FAIL' || zapGateRes === 'FAILED') {
+    return { label: 'ZAP BLOCKED', color: 'red' };
   }
-
-  if (run.status === 'CANCELLED' || run.status === 'timeout') return { label: 'CANCELLED', color: 'gray' };
-  if (run.status === 'SKIPPED' || run.status === 'superseded') return { label: 'SKIPPED', color: 'gray' };
-
-  const statusUpper = (run.status || '').toUpperCase();
-  if (statusUpper === 'PASSED' || statusUpper === 'COMPLETE') return { label: 'PASSED', color: 'green' };
+  if (codeScanRes === 'BLOCK' || codeScanRes === 'FAIL' || codeScanRes === 'FAILED') {
+    return { label: 'SECURITY BLOCK', color: 'red' };
+  }
+  if (policyRes === 'BLOCK' || policyRes === 'FAIL' || policyRes === 'FAILED') {
+    return { label: 'POLICY BLOCKED', color: 'red' };
+  }
+  if (action === 'BLOCK' || runStatusUpper === 'BLOCKED') {
+    return { label: 'BLOCKED', color: 'red' };
+  }
 
   const allSteps = Object.values(steps);
-  if (allSteps.some(s => s?.result?.toUpperCase() === 'FAILED' || s?.result?.toUpperCase() === 'BLOCK')) {
+  if (allSteps.some(s => ['FAILED', 'FAIL', 'BLOCK', 'BLOCKED'].includes(String(s?.result || '').toUpperCase()))) {
     return { label: 'FAILED', color: 'red' };
   }
-  if (statusUpper === 'RUNNING' || allSteps.some(s => s?.result?.toUpperCase() === 'RUNNING')) {
+
+  // 2. Then check status
+  if (runStatusUpper === 'CANCELLED' || runStatusUpper === 'TIMEOUT') return { label: 'CANCELLED', color: 'gray' };
+  if (runStatusUpper === 'SKIPPED' || runStatusUpper === 'SUPERSEDED') return { label: 'SKIPPED', color: 'gray' };
+  if (runStatusUpper === 'PASSED' || runStatusUpper === 'COMPLETE' || runStatusUpper === 'SUCCESS') return { label: 'PASSED', color: 'green' };
+
+  if (runStatusUpper === 'RUNNING' || runStatusUpper === 'IN_PROGRESS' || allSteps.some(s => String(s?.result || '').toUpperCase() === 'RUNNING')) {
     return { label: 'RUNNING', color: 'indigo' };
   }
   return { label: 'WAITING', color: 'gray' };

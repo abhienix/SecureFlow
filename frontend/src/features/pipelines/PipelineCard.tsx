@@ -148,18 +148,35 @@ export function PipelineCard({ run, isLatest, onNodeClick }: PipelineCardProps) 
 
           {/* Overall Badge & Collapse Chevron */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              padding: '4px 8px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontWeight: 700,
-              backgroundColor: colors.bg,
-              color: colors.text,
-              letterSpacing: '0.5px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}>
+            <div 
+              onClick={(e) => {
+                if (badgeInfo.color === 'red') {
+                  e.stopPropagation();
+                  let blockedStage = 'zap_gate';
+                  const steps = run.pipeline_steps || {};
+                  if (steps.code_scan?.result === 'BLOCK' || steps.code_scan?.result === 'FAILED') blockedStage = 'code_scan';
+                  else if (steps.policy?.result === 'BLOCK' || steps.policy?.result === 'FAILED') blockedStage = 'policy';
+                  else if (steps.zap_gate?.result === 'BLOCK' || steps.zap_gate?.result === 'FAILED') blockedStage = 'zap_gate';
+                  onNodeClick(blockedStage, run, false);
+                }
+              }}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 800,
+                backgroundColor: badgeInfo.color === 'red' ? 'rgba(239, 68, 68, 0.15)' : colors.bg,
+                color: badgeInfo.color === 'red' ? '#EF4444' : colors.text,
+                border: badgeInfo.color === 'red' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid transparent',
+                letterSpacing: '0.5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: badgeInfo.color === 'red' ? 'pointer' : 'default',
+                boxShadow: badgeInfo.color === 'red' ? '0 0 10px rgba(239, 68, 68, 0.2)' : 'none'
+              }}
+              title={badgeInfo.color === 'red' ? 'Click to view block reason details' : undefined}
+            >
               {isRunning && (
                 <div style={{
                   width: '6px',
