@@ -53,7 +53,9 @@ jobs:
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       - name: Set IMAGE env
-        run: echo "IMAGE=us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}" >> $GITHUB_ENV
+        env:
+          COMMIT_SHA: "${{ github.sha }}"
+        run: echo "IMAGE=us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:$COMMIT_SHA" >> $GITHUB_ENV
 
       - name: Build & Push Frontend Image
         run: |
@@ -83,8 +85,11 @@ jobs:
             --port 8080
 
       - name: Summary
+        env:
+          COMMIT_SHA: "${{ github.sha }}"
+          TARGET: "${{ inputs.target || 'both' }}"
         run: |
           echo "### ⚡ Frontend Deploy Complete" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Target:** ${{ inputs.target || 'both' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`$COMMIT_SHA\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** $TARGET" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`$IMAGE\`" >> $GITHUB_STEP_SUMMARY
