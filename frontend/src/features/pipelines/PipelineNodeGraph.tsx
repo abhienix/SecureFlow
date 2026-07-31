@@ -11,8 +11,30 @@ interface PipelineNodeGraphProps {
 
 export function PipelineNodeGraph({ run, onNodeClick }: PipelineNodeGraphProps) {
   const steps = run.pipeline_steps || {};
+  const runStatusUpper = String(run.status || '').toUpperCase();
 
-  // Track if pipeline flow has terminated (on BLOCK or FAILED)
+  const isCompletedSuccess = runStatusUpper === 'PASSED' || runStatusUpper === 'COMPLETE' || runStatusUpper === 'SUCCESS';
+
+  // Find the first explicitly failed/blocked stage, if any
+  let firstFailedIndex = -1;
+  STAGE_ORDER.forEach((key, idx) => {
+    const res = String(steps[key]?.result || '').toUpperCase();
+    if ((res === 'BLOCK' || res === 'FAILED' || res === 'FAIL') && firstFailedIndex === -1) {
+      firstFailedIndex = idx;
+    }
+  });
+
+  // Find the first running/active stage, if any
+  let firstRunningIndex = -1;
+  if (!isCompletedSuccess && firstFailedIndex === -1) {
+    STAGE_ORDER.forEach((key, idx) => {
+      const res = String(steps[key]?.result || '').toUpperCase();
+      if ((res === 'RUNNING' || res === 'IN_PROGRESS' || res === 'QUEUED') && firstRunningIndex === -1) {
+        firstRunningIndex = idx;
+      }
+    });
+  }
+
   let isTerminated = false;
 
   return (
@@ -28,37 +50,50 @@ export function PipelineNodeGraph({ run, onNodeClick }: PipelineNodeGraphProps) 
       {STAGE_ORDER.map((stageKey, index) => {
         const step = steps[stageKey];
         const meta = STAGE_META[stageKey];
-        let result = step?.result || 'PENDING';
-        
-        // Seamless GitHub Action Flow mapping:
-        // 1. If deploy_staging was skipped non-blockingly (or omitted when subsequent steps like zap ran),
-        // treat deploy_staging as PASS so nodes connect in a continuous green flow.
-        if (stageKey === 'deploy_staging' && (result === 'PENDING' || result === 'SKIPPED' || result === 'WAITING' || !step)) {
-          const statusStr = String(run.status || '').toUpperCase();
-          if (steps.zap || steps.zap_gate || steps.deploy_prod || statusStr === 'COMPLETE' || statusStr === 'PASSED' || statusStr === 'FAILED') {
+        const rawResult = String(step?.result || 'PENDING').toUpperCase();
+        let result = rawResult;
+
+        if (isCompletedSuccess) {
+          // In a successful run, all steps up to zap_gate passed!
+          if (stageKey === 'deploy_prod') {
+            result = ['PASS', 'ALLOW', 'SUCCESS', 'COMPLETE', 'PASSED'].includes(rawResult) ? 'PASS' : 'SKIPPED';
+          } else {
+            result = (rawResult === 'BLOCK' || rawResult === 'FAILED' || rawResult === 'FAIL') ? rawResult : 'PASS';
+          }
+        } else if (firstFailedIndex !== -1) {
+          // If a step failed/blocked:
+          if (index < firstFailedIndex) {
+            result = 'PASS';
+          } else if (index === firstFailedIndex) {
+            result = (rawResult === 'BLOCK' || rawResult === 'BLOCKED' || rawResult === 'FAIL') ? 'BLOCK' : 'FAILED';
+          } else {
+            result = 'SKIPPED';
+          }
+        } else if (firstRunningIndex !== -1) {
+          // In an in-progress run, steps run sequentially:
+          if (index < firstRunningIndex) {
+            result = 'PASS';
+          } else if (index === firstRunningIndex) {
+            result = 'RUNNING';
+          } else {
+            result = 'PENDING';
+          }
+        } else {
+          // Default fallback resolution
+          if (['PASS', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'COMPLETED', 'PASSED'].includes(rawResult)) {
             result = 'PASS';
           }
         }
 
-        // 2. If checkout/code_scan/docker/trivy/policy passed, and they don't have explicit result, mark PASS
-        if (['checkout', 'code_scan', 'docker', 'trivy', 'policy'].includes(stageKey) && (result === 'PENDING' || !step)) {
-          const laterSteps = STAGE_ORDER.slice(index + 1);
-          if (laterSteps.some(k => steps[k] && ['PASS', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'COMPLETED', 'PASSED', 'BLOCK', 'FAIL', 'FAILED'].includes((steps[k]?.result || '').toUpperCase()))) {
-            result = 'PASS';
-          }
-        }
-        
         // Save current termination state for this node
-        const forceThisNodeSkipped = isTerminated;
+        const forceThisNodeSkipped = isTerminated || (firstFailedIndex !== -1 && index > firstFailedIndex);
         
-        const resUpper = (result || '').toString().toUpperCase();
+        const resUpper = result.toUpperCase();
         const isCurrentBlockOrFailed = resUpper === 'BLOCK' || resUpper === 'FAILED' || resUpper === 'FAIL';
         
-        // Connectors are drawn between nodes. The connector after node N depends on node N
         const drawConnector = index < STAGE_ORDER.length - 1;
-        const forceThisConnectorSkipped = isTerminated || isCurrentBlockOrFailed;
+        const forceThisConnectorSkipped = forceThisNodeSkipped || isCurrentBlockOrFailed;
 
-        // If this node was a BLOCK or FAILED, terminate the flow for ALL subsequent stages
         if (isCurrentBlockOrFailed) {
           isTerminated = true;
         }
@@ -85,4 +120,5 @@ export function PipelineNodeGraph({ run, onNodeClick }: PipelineNodeGraphProps) 
     </div>
   );
 }
+
 export default PipelineNodeGraph;
