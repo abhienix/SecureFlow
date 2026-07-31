@@ -163,7 +163,7 @@ export default function CyberLoader({ fullScreen = false, label, size = "md" }) 
         }}
       >
         <Cpu size={13} style={{ color: "#06B6D4" }} />
-        <span>SecureFlow Kernel v2.0</span>
+        <span>SecureFlow Kernel</span>
       </div>
 
       {/* Dynamic Animated Status Subtitle */}
