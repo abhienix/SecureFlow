@@ -28,12 +28,30 @@ export function PipelineNodeGraph({ run, onNodeClick }: PipelineNodeGraphProps) 
       {STAGE_ORDER.map((stageKey, index) => {
         const step = steps[stageKey];
         const meta = STAGE_META[stageKey];
-        const result = step?.result || 'PENDING';
+        let result = step?.result || 'PENDING';
         
-        // Save current termination state for this node, but check *after* if we set it for future
+        // Seamless GitHub Action Flow mapping:
+        // 1. If deploy_staging was skipped non-blockingly (or omitted when subsequent steps like zap ran),
+        // treat deploy_staging as PASS so nodes connect in a continuous green flow.
+        if (stageKey === 'deploy_staging' && (result === 'PENDING' || result === 'SKIPPED' || result === 'WAITING' || !step)) {
+          if (steps.zap || steps.zap_gate || steps.deploy_prod || run.status === 'complete' || run.status === 'PASSED' || run.status === 'FAILED' || run.status === 'complete') {
+            result = 'PASS';
+          }
+        }
+
+        // 2. If checkout/code_scan/docker/trivy/policy passed, and they don't have explicit result, mark PASS
+        if (['checkout', 'code_scan', 'docker', 'trivy', 'policy'].includes(stageKey) && (result === 'PENDING' || !step)) {
+          const laterSteps = STAGE_ORDER.slice(index + 1);
+          if (laterSteps.some(k => steps[k] && ['PASS', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'COMPLETED', 'PASSED', 'BLOCK', 'FAIL', 'FAILED'].includes((steps[k]?.result || '').toUpperCase()))) {
+            result = 'PASS';
+          }
+        }
+        
+        // Save current termination state for this node
         const forceThisNodeSkipped = isTerminated;
         
-        const isCurrentBlockOrFailed = result === 'BLOCK' || result === 'FAILED';
+        const resUpper = (result || '').toString().toUpperCase();
+        const isCurrentBlockOrFailed = resUpper === 'BLOCK' || resUpper === 'FAILED' || resUpper === 'FAIL';
         
         // Connectors are drawn between nodes. The connector after node N depends on node N
         const drawConnector = index < STAGE_ORDER.length - 1;

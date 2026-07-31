@@ -33,10 +33,10 @@ export function getNodeStyle(result: string | undefined, stage: string) {
     return STATUSES.PASSED;
   }
   if (['BLOCK', 'BLOCKED'].includes(r)) {
-    if (stage === 'code_scan') {
+    if (stage === 'code_scan' || stage === 'zap_gate' || stage === 'policy') {
       return { ...STATUSES.FAILED, overlay: 'shield-alert' };
     }
-    return STATUSES.BLOCKED;
+    return STATUSES.FAILED;
   }
   if (['FAIL', 'FAILED', 'FAILURE', 'ERROR'].includes(r)) {
     return STATUSES.FAILED;
