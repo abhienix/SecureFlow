@@ -336,44 +336,107 @@ def answer_copilot_question(question, context):
     try:
         return _call_ai(prompt)
     except Exception as e:
-        print(f"answer_copilot_question cloud LLM call failed: {e} — returning Void heuristic security fallback response")
-        recent_scans = context.get("recent_scans", [])
-        total_scans = len(recent_scans)
-        blocked_scans = [s for s in recent_scans if s.get("action_taken") == "BLOCK" or s.get("status") == "blocked"]
-        blocked_count = len(blocked_scans)
-        latest_scan = recent_scans[0] if recent_scans else {}
+        print(f"answer_copilot_question cloud LLM call failed: {e} — using smart_fallback")
+        return smart_fallback(question, context)
 
-        q_lower = question.lower()
-        if any(w in q_lower for w in ["hi", "hello", "hey", "greetings", "who are you"]):
-            return (
-                "Hey there! 👋 I am **Void** — SecureFlow's Autonomous DevSecOps Core AI. "
-                "I am actively monitoring your pipeline runs, Gitleaks secret scans, Semgrep SAST rules, Trivy container CVEs, and OWASP ZAP DAST probes. "
-                f"Currently tracking **{total_scans} recent scan(s)** (**{blocked_count} blocked**). "
-                "How can I assist you with your security assessments today?"
-            )
 
-        if any(w in q_lower for w in ["root cause", "failure", "fail", "why"]):
-            if blocked_scans:
-                target = blocked_scans[0]
-                return (
-                    f"### 🛡️ **Root Cause Analysis (Scan #{target.get('id', 'N/A')})**\n\n"
-                    f"- **Repository**: `{target.get('repo_name', 'SecureFlow')}`\n"
-                    f"- **Commit**: `{target.get('commit_sha', 'HEAD')}`\n"
-                    f"- **Status**: **{target.get('action_taken', 'BLOCKED')}**\n\n"
-                    f"**Analysis Summary**:\n{target.get('ai_explanation') or 'Security scanners detected insecure code patterns, unhandled CVEs, or policy gate violations.'}\n\n"
-                    "💡 *Recommendation*: Upgrade vulnerable base packages and ensure secret tokens are stored in Secret Manager."
-                )
-            return (
-                "### 💚 **Pipeline Analysis**: All recent pipelines are in a **CLEAN** or **PASSING** state. "
-                "No critical security policy blocks detected across active commit checks!"
-            )
+def smart_fallback(question: str, context: dict) -> str:
+    """
+    Data-driven fallback when LLM is unavailable.
+    Reads the real DB context and answers common questions directly.
+    Never echoes the question back or gives empty boilerplate.
+    """
+    q = question.lower().strip()
+    recent_scans = context.get("recent_scans", [])
+    sev = context.get("findings_summary", {})
+    total = context.get("total_scans", len(recent_scans))
 
+    blocked = [s for s in recent_scans if s.get("action_taken") == "BLOCK" or s.get("status") in ("failed", "blocked")]
+    passed  = [s for s in recent_scans if s.get("action_taken") == "ALLOW" and s.get("status") not in ("failed", "blocked")]
+    latest  = recent_scans[0] if recent_scans else {}
+
+    # ── Greeting / who are you ──────────────────────────────────────────────
+    if any(w in q for w in ["hi", "hello", "hey", "who are you", "what are you"]):
         return (
-            f"### 🛡️ **Void Core Security Intel**\n\n"
-            f"- **Question**: *\"{question}\"*\n"
-            f"- **Monitored Workspaces**: 6 Active Repositories\n"
-            f"- **Active Pipeline Runs**: {total_scans} scans ({blocked_count} blocked)\n\n"
-            "**Diagnostic Assessment**:\n"
-            f"Latest commit `{latest_scan.get('commit_sha', 'HEAD')}` evaluated under `policy.yaml` rules. "
-            "All Gitleaks secret scanners and Semgrep SAST gates are actively enforcing zero-trust default-deny policies."
+            f"Hey! 👋 I'm **Void** — your SecureFlow security assistant.\n"
+            f"I have access to your live pipeline data. Right now:\n"
+            f"- **{total}** total scans tracked\n"
+            f"- **{len(blocked)}** blocked in the last 20 runs\n"
+            f"- **{sev.get('CRITICAL', 0)} critical** / **{sev.get('HIGH', 0)} high** findings\n\n"
+            f"Ask me about specific pipelines, commits, CVEs, or scan results."
         )
+
+    # ── Last N commits / pipeline results ───────────────────────────────────
+    if any(w in q for w in ["commit", "last", "recent", "pipeline", "result"]):
+        if not recent_scans:
+            return "No recent scan data found in the database right now."
+        lines = ["Here are the last scan runs:\n"]
+        for s in recent_scans[:20]:
+            icon = "🔴" if s.get("action_taken") == "BLOCK" else "🟢"
+            sha  = s.get("commit_sha", "?")[:7]
+            msg  = (s.get("commit_message") or "no message")[:60]
+            branch = s.get("branch", "main")
+            action = s.get("action_taken", "ALLOW")
+            lines.append(f"{icon} **#{s['id']}** `{sha}` — {msg} _(branch: {branch}, {action})_")
+        return "\n".join(lines)
+
+    # ── Blocked / failed ────────────────────────────────────────────────────
+    if any(w in q for w in ["block", "fail", "why", "reason", "issue"]):
+        if not blocked:
+            return "✅ No blocked pipelines in the last 20 runs. Everything is passing."
+        b = blocked[0]
+        explanation = b.get("ai_explanation") or "Security scanner thresholds exceeded."
+        return (
+            f"**Pipeline #{b['id']} was BLOCKED**\n"
+            f"- Commit: `{b.get('commit_sha', '?')[:7]}` on `{b.get('branch', 'main')}`\n"
+            f"- Message: _{b.get('commit_message', '') or 'n/a'}_\n"
+            f"- Reason: {explanation}\n\n"
+            f"In total, **{len(blocked)}** of the last {len(recent_scans)} runs were blocked."
+        )
+
+    # ── CVE / findings / severity ────────────────────────────────────────────
+    if any(w in q for w in ["cve", "finding", "vuln", "critical", "high", "severity", "security"]):
+        c, h, m, lo = sev.get("CRITICAL", 0), sev.get("HIGH", 0), sev.get("MEDIUM", 0), sev.get("LOW", 0)
+        if c + h + m + lo == 0:
+            return "No findings data available right now. Run a scan to populate security findings."
+        return (
+            f"**Current Security Findings (last 200 entries):**\n"
+            f"- 🔴 Critical: **{c}**\n"
+            f"- 🟠 High: **{h}**\n"
+            f"- 🟡 Medium: **{m}**\n"
+            f"- 🟢 Low: **{lo}**\n\n"
+            f"Focus on the **{c} critical** issues first — these can cause immediate risk."
+        )
+
+    # ── Health / status ──────────────────────────────────────────────────────
+    if any(w in q for w in ["health", "status", "overview", "summary"]):
+        block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
+        return (
+            f"**SecureFlow System Health**\n"
+            f"- Total scans tracked: **{total}**\n"
+            f"- Last 20 runs: **{len(passed)} passed**, **{len(blocked)} blocked** ({block_rate}% block rate)\n"
+            f"- Findings: **{sev.get('CRITICAL', 0)}** critical, **{sev.get('HIGH', 0)}** high\n"
+            f"- Latest run: **#{latest.get('id', 'N/A')}** — {latest.get('action_taken', 'ALLOW')}"
+        )
+
+    # ── Latest / most recent scan ────────────────────────────────────────────
+    if any(w in q for w in ["latest", "newest", "most recent"]):
+        if not latest:
+            return "No scans found yet."
+        return (
+            f"**Latest scan: #{latest['id']}**\n"
+            f"- Branch: `{latest.get('branch', 'main')}`\n"
+            f"- Commit: `{latest.get('commit_sha', '?')[:7]}` — _{latest.get('commit_message', '') or 'no message'}_\n"
+            f"- Result: **{latest.get('action_taken', 'ALLOW')}**\n"
+            + (f"- Note: {latest['ai_explanation']}" if latest.get('ai_explanation') else "")
+        )
+
+    # ── Default: give real stats instead of echoing back ─────────────────────
+    block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
+    return (
+        f"Here's what I can see right now:\n"
+        f"- **{total}** total pipeline scans\n"
+        f"- Last 20: **{len(passed)} passed**, **{len(blocked)} blocked** ({block_rate}% block rate)\n"
+        f"- Findings: **{sev.get('CRITICAL', 0)}** critical, **{sev.get('HIGH', 0)}** high, **{sev.get('MEDIUM', 0)}** medium\n\n"
+        f"Try asking: _'show last 20 commits'_, _'why was the last pipeline blocked?'_, or _'how many critical CVEs?'_"
+    )

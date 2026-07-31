@@ -383,8 +383,9 @@ Current page: ${ctx.current_page}
     }
 
     return [
-      { label: `⚡ What is the current health of the system?`, prompt: `What is the current health of the system?` },
-      { label: `⚡ Are there any active security issues?`, prompt: `Are there any active security issues?` }
+      { label: `⚡ Show last 20 commits`, prompt: `Show last 20 commits and results` },
+      { label: `⚡ Any blocked pipelines?`, prompt: `Are there any blocked pipelines and why?` },
+      { label: `⚡ How many critical CVEs?`, prompt: `How many critical CVEs do we have?` }
     ];
   };
 

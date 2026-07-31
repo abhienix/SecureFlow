@@ -40,7 +40,7 @@ from models import (
 )
 from redis_pubsub import RedisPubSubManager, REDIS_BROADCAST_CHANNEL
 from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label, load_policy_file
-from ai_analysis import analyze_scan, analyze_code_scan_failure, answer_copilot_question
+from ai_analysis import analyze_scan, analyze_code_scan_failure, answer_copilot_question, smart_fallback
 from pipeline_engine import (
     PipelineStateMachine, StageStatus, STAGE_ORDER, STAGE_DEFINITIONS, build_stage_log,
 )
@@ -3587,24 +3587,60 @@ async def get_v1_events(db: AsyncSession = Depends(get_db)):
     return events
 
 @v1_router.post("/copilot/chat")
-async def copilot_chat_streaming(data: dict):
+async def copilot_chat_streaming(data: dict, db: AsyncSession = Depends(get_db)):
     messages = data.get("messages", [])
-    context = data.get("context", {})
-    
+
     async def token_generator():
         question = messages[-1]["content"] if messages else "Hello"
+
+        # ── Pull real DB data so both LLM and fallback have rich context ──
         try:
-            response = await asyncio.to_thread(answer_copilot_question, question, context)
-            ans_text = response or "I'm SecureFlow Copilot, how can I help you today?"
+            scans_rows = (await db.execute(
+                text("SELECT id, repo_name, branch, commit_sha, commit_message, status, action_taken, ai_explanation, created_at FROM scan_results ORDER BY id DESC LIMIT 20")
+            )).fetchall()
+            findings_rows = (await db.execute(
+                text("SELECT severity, title, scanner FROM findings ORDER BY id DESC LIMIT 200")
+            )).fetchall()
+        except Exception:
+            scans_rows, findings_rows = [], []
+
+        # Build context from real DB
+        recent_scans = [
+            {
+                "id": r[0], "repo_name": r[1], "branch": r[2],
+                "commit_sha": str(r[3])[:7] if r[3] else "unknown",
+                "commit_message": r[4] or "",
+                "status": r[5] or "unknown",
+                "action_taken": r[6] or "ALLOW",
+                "ai_explanation": r[7] or "",
+                "created_at": str(r[8])[:19] if r[8] else ""
+            }
+            for r in scans_rows
+        ]
+        sev_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        for f in findings_rows:
+            sev = (f[0] or "").upper()
+            if sev in sev_counts:
+                sev_counts[sev] += 1
+
+        db_context = {
+            "total_scans": len(scans_rows),
+            "recent_scans": recent_scans,
+            "findings_summary": sev_counts,
+        }
+
+        try:
+            response = await asyncio.to_thread(answer_copilot_question, question, db_context)
+            ans_text = response or smart_fallback(question, db_context)
         except Exception as e:
             logger.error(f"[copilot chat] error: {e}")
-            ans_text = f"SecureFlow Copilot (Heuristics): Evaluation indicates action taken is ALLOW. No critical blocker found."
+            ans_text = smart_fallback(question, db_context)
 
         words = ans_text.split(" ")
         for i, word in enumerate(words):
             chunk = {"token": word + (" " if i < len(words) - 1 else "")}
             yield f"data: {json.dumps(chunk)}\n\n"
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(0.018)
         yield "data: [DONE]\n\n"
 
     return responses.StreamingResponse(token_generator(), media_type="text/event-stream")
