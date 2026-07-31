@@ -1,0 +1,88 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Quick Deploy — Frontend Only
+#
+# Builds and pushes the frontend Docker image, then deploys it to BOTH
+# secureflow-frontend (prod) and secureflow-frontend-staging Cloud Run
+# services. Skips ALL security scans.
+#
+# Trigger:
+#   - Manually from GitHub Actions → "Run workflow"
+#   - OR push to a branch named  deploy/frontend-*
+# ─────────────────────────────────────────────────────────────────────────────
+name: "⚡ Quick Deploy — Frontend"
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Deploy target"
+        required: false
+        default: "both"
+        type: choice
+        options:
+          - both
+          - prod-only
+          - staging-only
+  push:
+    branches:
+      - "deploy/frontend-*"
+
+concurrency:
+  group: quick-deploy-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-frontend:
+    name: "⚡ Build & Deploy Frontend"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build & Push Frontend Image
+        run: |
+          IMAGE="us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}"
+          docker build \
+            --build-arg REACT_APP_API_URL=${{ secrets.BACKEND_URL }} \
+            -t "$IMAGE" \
+            ./frontend
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy to Staging
+        if: inputs.target != 'prod-only'
+        run: |
+          gcloud run deploy secureflow-frontend-staging \
+            --image "$IMAGE" \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --port 8080
+
+      - name: Deploy to Production
+        if: inputs.target != 'staging-only'
+        run: |
+          gcloud run deploy secureflow-frontend \
+            --image "$IMAGE" \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --port 8080
+
+      - name: Summary
+        run: |
+          echo "### ⚡ Frontend Deploy Complete" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** ${{ inputs.target || 'both' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`$IMAGE\`" >> $GITHUB_STEP_SUMMARY
