@@ -293,14 +293,18 @@ def analyze_code_scan_failure(failure_info):
 # decisions entirely outside this function's reach.
 
 COPILOT_SYSTEM_INSTRUCTIONS = (
-    "You are SecureFlow's security companion named Void — a sharp, highly intelligent, interactive assistant engineered by Abhimanyu. Never refer to yourself as an 'AI Copilot' or 'generic bot'. Always speak with authority and security expertise as Void.\n\n"
+    "You are SecureFlow's security companion named Void — a sharp, highly intelligent, interactive DevSecOps assistant engineered by Abhimanyu.\n\n"
+    "STRICT DOMAIN BOUNDARIES & SECURITY GUARDRAILS:\n"
+    "1. DOMAIN SCOPE:\n"
+    "   - You MUST ONLY answer questions related to SecureFlow, DevSecOps, CI/CD pipelines, security scans (Gitleaks, Semgrep, Trivy, OWASP ZAP), CVEs, code vulnerabilities, policy gates, cloud security, and software safety.\n"
+    "2. OFF-TOPIC REJECTION:\n"
+    "   - If the user asks ANY off-topic, non-security, or non-technical question (e.g. weather, sports, cooking, general trivia, stories, non-software topics), you MUST politely decline with:\n"
+    "     '🔒 **Security Boundary**: I am Void, your SecureFlow security companion. I can only assist with DevSecOps pipelines, security scans, vulnerability remediation, and codebase safety. How can I help with your security posture today?'\n\n"
     "RESPONSE STYLE & INTERACTIVE CONVERSATION PRINCIPLES:\n"
-    "1. CASUAL GREETINGS & SMALL TALK:\n"
-    "   - If the user says 'hi', 'hello', 'hey', 'good morning', 'thanks', or any casual greeting, respond warmly, conversationally, and briefly (e.g. 'Hey there! 👋 How can I assist you with your pipeline security or code scans today?').\n"
-    "   - Do NOT dump scan history summaries for simple greetings unless specifically asked!\n"
-    "2. HIGHLY INTERACTIVE & ENGAGING:\n"
-    "   - Always structure your technical responses cleanly with emojis, bold headers, and bullet points.\n"
-    "   - End technical responses with a relevant follow-up suggestion or question (e.g., 'Would you like a step-by-step code patch to fix this vulnerability?').\n"
+    "1. CASUAL GREETINGS:\n"
+    "   - For standalone greetings ('hi', 'hello', 'hey'), respond warmly and briefly without dumping scan lists unless requested.\n"
+    "2. NUMERIC & RANGE PRECISION:\n"
+    "   - If the user asks for 'first 10', 'last 5', 'top 3', or specific counts, respect the exact count requested.\n"
     "3. TECHNICAL INTEL:\n"
     "   - Provide sharp, expert guidance on OWASP Top 10, CVE fixes, Docker hardening, Gitleaks secrets, and pipeline policy gate rules with code fix snippets.\n"
     "4. CREATOR KNOWLEDGE:\n"
@@ -317,10 +321,6 @@ def answer_copilot_question(question, context):
     context:  dict of recent scan data (see main.py's /api/copilot/ask),
               kept small/bounded so the prompt stays cheap regardless of
               how much scan history has accumulated overall
-
-    Read-only by design — this function has no DB access and no ability
-    to call back into the policy engine, scanners, or deploy pipeline.
-    It only ever returns text for the chat panel to display.
     """
     question = _sanitize(question, max_len=500)
     context_json = _sanitize(json.dumps(context, default=str), max_len=6000)
@@ -355,8 +355,28 @@ def smart_fallback(question: str, context: dict) -> str:
     passed  = [s for s in recent_scans if s.get("action_taken") == "ALLOW" and s.get("status") not in ("failed", "blocked")]
     latest  = recent_scans[0] if recent_scans else {}
 
-    # ── Greeting / who are you ──────────────────────────────────────────────
-    if any(w in q for w in ["hi", "hello", "hey", "who are you", "what are you"]):
+    # ── 0. Strict Security Domain Boundary Guardrail ───────────────────────
+    OFF_TOPIC_TERMS = [
+        "weather", "recipe", "cook", "bake", "sports", "football", "cricket", "basketball",
+        "movie", "actor", "song", "sing", "joke", "capital of", "who is the president",
+        "president of", "tell me a story", "game", "horoscope", "car", "travel", "food"
+    ]
+    if any(term in q for term in OFF_TOPIC_TERMS):
+        return (
+            "🔒 **Security Boundary**: I am Void, your SecureFlow security companion. "
+            "I can only assist with DevSecOps pipelines, security scans, vulnerability remediation, "
+            "and codebase safety. How can I help with your security posture today?"
+        )
+
+    # Extract numeric count if user asked for specific limit (e.g. "first 10", "1st 10", "last 5")
+    match_num = re.search(r'\b(\d+)\b', q) or re.search(r'\b(\d+)(st|nd|rd|th)\b', q)
+    requested_limit = int(match_num.group(1)) if match_num else 20
+    requested_limit = min(max(requested_limit, 1), 50)
+
+    is_earliest = any(w in q for w in ["from the start", "earliest", "oldest", "1st 10", "first 10", "start"])
+
+    # ── 1. Standalone Greeting Check (Exact word boundary & short prompt) ──
+    if re.search(r'\b(hi|hello|hey|greetings|who are you|what are you)\b', q) and len(q.split()) <= 4:
         return (
             f"Hey! 👋 I'm **Void** — your SecureFlow security assistant.\n"
             f"I have access to your live pipeline data. Right now:\n"
@@ -366,24 +386,11 @@ def smart_fallback(question: str, context: dict) -> str:
             f"Ask me about specific pipelines, commits, CVEs, or scan results."
         )
 
-    # ── Last N commits / pipeline results ───────────────────────────────────
-    if any(w in q for w in ["commit", "last", "recent", "pipeline", "result"]):
-        if not recent_scans:
-            return "No recent scan data found in the database right now."
-        lines = ["Here are the last scan runs:\n"]
-        for s in recent_scans[:20]:
-            icon = "🔴" if s.get("action_taken") == "BLOCK" else "🟢"
-            sha  = s.get("commit_sha", "?")[:7]
-            msg  = (s.get("commit_message") or "no message")[:60]
-            branch = s.get("branch", "main")
-            action = s.get("action_taken", "ALLOW")
-            lines.append(f"{icon} **#{s['id']}** `{sha}` — {msg} _(branch: {branch}, {action})_")
-        return "\n".join(lines)
-
-    # ── Blocked / failed ────────────────────────────────────────────────────
-    if any(w in q for w in ["block", "fail", "why", "reason", "issue"]):
+    # ── 2. Blocked / Failed Queries ─────────────────────────────────────────
+    if any(w in q for w in ["block", "fail", "which one", "why", "reason", "issue", "how many are blocked"]):
         if not blocked:
             return "✅ No blocked pipelines in the last 20 runs. Everything is passing."
+        
         b = blocked[0]
         explanation = b.get("ai_explanation") or "Security scanner thresholds exceeded."
         return (
@@ -394,7 +401,29 @@ def smart_fallback(question: str, context: dict) -> str:
             f"In total, **{len(blocked)}** of the last {len(recent_scans)} runs were blocked."
         )
 
-    # ── CVE / findings / severity ────────────────────────────────────────────
+    # ── 3. Commits / Scan Results Listing (With Range & Direction Parsing) ──
+    if any(w in q for w in ["commit", "last", "recent", "pipeline", "result", "1st", "first", "start"]):
+        if not recent_scans:
+            return "No recent scan data found in the database right now."
+
+        display_scans = list(recent_scans)
+        if is_earliest:
+            display_scans.sort(key=lambda s: s.get("id", 0))
+            heading = f"Here are the first {min(requested_limit, len(display_scans))} scan runs (from the start):\n"
+        else:
+            heading = f"Here are the last {min(requested_limit, len(display_scans))} scan runs:\n"
+
+        lines = [heading]
+        for s in display_scans[:requested_limit]:
+            icon = "🔴" if s.get("action_taken") == "BLOCK" else "🟢"
+            sha  = s.get("commit_sha", "?")[:7]
+            msg  = (s.get("commit_message") or "no message")[:60]
+            branch = s.get("branch", "main")
+            action = s.get("action_taken", "ALLOW")
+            lines.append(f"{icon} **#{s['id']}** `{sha}` — {msg} _(branch: {branch}, {action})_")
+        return "\n".join(lines)
+
+    # ── 4. CVE / findings / severity ────────────────────────────────────────
     if any(w in q for w in ["cve", "finding", "vuln", "critical", "high", "severity", "security"]):
         c, h, m, lo = sev.get("CRITICAL", 0), sev.get("HIGH", 0), sev.get("MEDIUM", 0), sev.get("LOW", 0)
         if c + h + m + lo == 0:
@@ -408,7 +437,7 @@ def smart_fallback(question: str, context: dict) -> str:
             f"Focus on the **{c} critical** issues first — these can cause immediate risk."
         )
 
-    # ── Health / status ──────────────────────────────────────────────────────
+    # ── 5. Health / status ──────────────────────────────────────────────────
     if any(w in q for w in ["health", "status", "overview", "summary"]):
         block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
         return (
@@ -419,7 +448,7 @@ def smart_fallback(question: str, context: dict) -> str:
             f"- Latest run: **#{latest.get('id', 'N/A')}** — {latest.get('action_taken', 'ALLOW')}"
         )
 
-    # ── Latest / most recent scan ────────────────────────────────────────────
+    # ── 6. Latest / most recent scan ────────────────────────────────────────
     if any(w in q for w in ["latest", "newest", "most recent"]):
         if not latest:
             return "No scans found yet."
@@ -431,12 +460,12 @@ def smart_fallback(question: str, context: dict) -> str:
             + (f"- Note: {latest['ai_explanation']}" if latest.get('ai_explanation') else "")
         )
 
-    # ── Default: give real stats instead of echoing back ─────────────────────
+    # ── 7. Default Fallback ─────────────────────────────────────────────────
     block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
     return (
         f"Here's what I can see right now:\n"
         f"- **{total}** total pipeline scans\n"
         f"- Last 20: **{len(passed)} passed**, **{len(blocked)} blocked** ({block_rate}% block rate)\n"
         f"- Findings: **{sev.get('CRITICAL', 0)}** critical, **{sev.get('HIGH', 0)}** high, **{sev.get('MEDIUM', 0)}** medium\n\n"
-        f"Try asking: _'show last 20 commits'_, _'why was the last pipeline blocked?'_, or _'how many critical CVEs?'_"
+        f"Try asking: _'show last 10 commits'_, _'which pipeline was blocked?'_, or _'show 1st 10 from start'_."
     )
