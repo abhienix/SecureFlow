@@ -484,7 +484,7 @@ jobs:
         if: |
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
           (steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true')
-        uses: google-github-actions/auth@c200f36113b2d6a591e13e0513e9a4f48139556d # nosemgrep
+        uses: google-github-actions/auth@v2 # nosemgrep
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
@@ -492,7 +492,7 @@ jobs:
         if: |
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
           (steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true')
-        uses: google-github-actions/setup-gcloud@e427ad8 # nosemgrep
+        uses: google-github-actions/setup-gcloud@v2 # nosemgrep
 
       - name: Configure Docker for Artifact Registry
         if: |
