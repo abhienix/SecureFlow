@@ -2373,22 +2373,28 @@ async def get_repositories(db: AsyncSession = Depends(get_db)):
     return {"repositories": list(repos_map.values()), "total": len(repos_map)}
 
 
-@app.post("/api/repositories")
-async def register_repository(data: dict, db: AsyncSession = Depends(get_db)):
-    name = data.get("name") or f"{data.get('owner', 'abhienix')}/{data.get('repo_name', 'new-repo')}"
-    return {
-        "status": "registered",
-        "repository": {
-            "id": int(datetime.utcnow().timestamp()),
-            "name": name,
-            "owner": data.get("owner", "abhienix"),
-            "repo_name": data.get("repo_name", "new-repo"),
-            "default_branch": data.get("default_branch", "main"),
-            "url": data.get("url", f"https://github.com/{name}"),
-            "status": "active",
-            "created_at": utc_iso(datetime.utcnow())
-        }
-    }
+@app.delete("/api/repositories/{repo_id}")
+async def delete_repository_legacy(repo_id: str, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(Repository).filter((Repository.id == repo_id) | (Repository.name.like(f"%{repo_id}%")) | (Repository.repo_name.like(f"%{repo_id}%"))))
+    target_repos = res.scalars().all()
+    
+    deleted_count = 0
+    for r in target_repos:
+        r_name = r.name
+        await db.delete(r)
+        await db.execute(delete(ScanResult).filter(ScanResult.repo_name.like(f"%{r_name}%")))
+        deleted_count += 1
+        
+    if deleted_count == 0:
+        res_scans = await db.execute(select(ScanResult).filter(ScanResult.repo_name.like(f"%{repo_id}%")))
+        scans_to_delete = res_scans.scalars().all()
+        for s in scans_to_delete:
+            await db.delete(s)
+            deleted_count += 1
+
+    await db.commit()
+    return {"status": "deleted", "deleted_count": deleted_count, "repo_id": repo_id}
+
 
 
 @app.get("/api/deployments")
@@ -2946,6 +2952,10 @@ async def get_v1_repositories(db: AsyncSession = Depends(get_db)):
 
 @v1_router.post("/repositories")
 async def register_v1_repository(data: dict, db: AsyncSession = Depends(get_db)):
+    pwd = data.get("password")
+    if pwd and pwd != "Abhi@8476":
+        raise HTTPException(status_code=403, detail="Invalid admin security password. Password 'Abhi@8476' is required.")
+        
     name = data.get("repo_name") or f"{data.get('owner', 'abhienix')}/{data.get('name', 'new-repo')}"
     res = await db.execute(select(Repository).filter(Repository.name == name))
     existing = res.scalars().first()
@@ -2966,6 +2976,28 @@ async def register_v1_repository(data: dict, db: AsyncSession = Depends(get_db))
     await db.commit()
     await db.refresh(repo)
     return {"status": "registered", "repository": repo}
+
+@v1_router.delete("/repositories/{repo_id}")
+async def delete_v1_repository(repo_id: str, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(Repository).filter((Repository.id == repo_id) | (Repository.name.like(f"%{repo_id}%")) | (Repository.repo_name.like(f"%{repo_id}%"))))
+    target_repos = res.scalars().all()
+    
+    deleted_count = 0
+    for r in target_repos:
+        r_name = r.name
+        await db.delete(r)
+        await db.execute(delete(ScanResult).filter(ScanResult.repo_name.like(f"%{r_name}%")))
+        deleted_count += 1
+        
+    if deleted_count == 0:
+        res_scans = await db.execute(select(ScanResult).filter(ScanResult.repo_name.like(f"%{repo_id}%")))
+        scans_to_delete = res_scans.scalars().all()
+        for s in scans_to_delete:
+            await db.delete(s)
+            deleted_count += 1
+
+    await db.commit()
+    return {"status": "deleted", "deleted_count": deleted_count, "repo_id": repo_id}
 
 @v1_router.get("/repositories/{repo_id}")
 async def get_v1_repository_detail(repo_id: str, db: AsyncSession = Depends(get_db)):
