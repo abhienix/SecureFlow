@@ -163,7 +163,7 @@ export default function OverviewWorkspace() {
   });
 
   // Metrics
-  const totalScans = scansApiData?.total ?? (pipelines.length > 0 ? pipelines.length : 100);
+  const totalScans = secSummary?.total_scans ?? scansApiData?.total ?? (pipelines.length > 0 ? pipelines.length : 100);
   const blockedScans = (pipelines.length && pipelines.length > 0)
     ? pipelines.filter((p: any) => p.status === 'failed' || p.status === 'BLOCKED' || p.action_taken === 'BLOCK').length
     : 31;

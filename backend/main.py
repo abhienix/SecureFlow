@@ -3263,6 +3263,9 @@ async def ingest_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
 
 @v1_router.get("/security/summary")
 async def get_v1_security_summary(db: AsyncSession = Depends(get_db)):
+    scans_count_res = await db.execute(select(func.count()).select_from(ScanResult))
+    total_scans_count = scans_count_res.scalar() or 0
+
     res = await db.execute(select(SecurityFinding))
     findings = res.scalars().all()
     
@@ -3279,8 +3282,13 @@ async def get_v1_security_summary(db: AsyncSession = Depends(get_db)):
         "low": counts["LOW"],
         "info": counts["INFO"],
         "total": len(findings),
+        "total_scans": total_scans_count,
         "last_scan_at": utc_iso(datetime.utcnow())
     }
+
+@v1_router.get("/scan-results")
+async def get_v1_scan_results(db: AsyncSession = Depends(get_db), limit: int = 500):
+    return await get_scan_results(db, limit)
 
 @v1_router.get("/security/trends")
 async def get_v1_security_trends(days: int = 30, db: AsyncSession = Depends(get_db)):

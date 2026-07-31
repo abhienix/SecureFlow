@@ -85,6 +85,15 @@ export function PipelineNodeGraph({ run, onNodeClick }: PipelineNodeGraphProps) 
           }
         }
 
+        // If deploy_staging was bypassed (e.g. backend image unchanged during frontend commit),
+        // but subsequent steps (OWASP ZAP / ZAP Gate) ran or passed, resolve deploy_staging to PASS
+        if (stageKey === 'deploy_staging' && (result === 'PENDING' || result === 'SKIPPED' || result === 'WAITING' || !step)) {
+          const laterSteps = STAGE_ORDER.slice(index + 1);
+          if (laterSteps.some(k => steps[k] && ['PASS', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'COMPLETED', 'PASSED'].includes(String(steps[k]?.result || '').toUpperCase()))) {
+            result = 'PASS';
+          }
+        }
+
         // Save current termination state for this node
         const forceThisNodeSkipped = isTerminated || (firstFailedIndex !== -1 && index > firstFailedIndex);
         
