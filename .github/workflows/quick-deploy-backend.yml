@@ -52,14 +52,16 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
+      - name: Set IMAGE env
+        env:
+          COMMIT_SHA: "${{ github.sha }}"
+        run: echo "IMAGE=us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:$COMMIT_SHA" >> $GITHUB_ENV
       - name: Build & Push Backend Image
         run: |
-          IMAGE="us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}"
           docker build -f ./backend/Dockerfile \
             -t "$IMAGE" \
             ./backend
           docker push "$IMAGE"
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 
       - name: Deploy to Staging
         if: inputs.target != 'prod-only'
@@ -82,8 +84,11 @@ jobs:
             --allow-unauthenticated
 
       - name: Summary
+        env:
+          COMMIT_SHA: "${{ github.sha }}"
+          TARGET: "${{ inputs.target || 'both' }}"
         run: |
           echo "### ⚡ Backend Deploy Complete" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Target:** ${{ inputs.target || 'both' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`$COMMIT_SHA\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** $TARGET" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`$IMAGE\`" >> $GITHUB_STEP_SUMMARY
