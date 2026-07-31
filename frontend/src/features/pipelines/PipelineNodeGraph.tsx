@@ -34,7 +34,8 @@ export function PipelineNodeGraph({ run, onNodeClick }: PipelineNodeGraphProps) 
         // 1. If deploy_staging was skipped non-blockingly (or omitted when subsequent steps like zap ran),
         // treat deploy_staging as PASS so nodes connect in a continuous green flow.
         if (stageKey === 'deploy_staging' && (result === 'PENDING' || result === 'SKIPPED' || result === 'WAITING' || !step)) {
-          if (steps.zap || steps.zap_gate || steps.deploy_prod || run.status === 'complete' || run.status === 'PASSED' || run.status === 'FAILED' || run.status === 'complete') {
+          const statusStr = String(run.status || '').toUpperCase();
+          if (steps.zap || steps.zap_gate || steps.deploy_prod || statusStr === 'COMPLETE' || statusStr === 'PASSED' || statusStr === 'FAILED') {
             result = 'PASS';
           }
         }
