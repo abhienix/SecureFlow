@@ -2253,58 +2253,64 @@ SCAN_RESULTS_LIMIT = int(os.getenv("SCAN_RESULTS_LIMIT", "200"))
 
 @app.get("/api/scan-results")
 async def get_scan_results(db: AsyncSession = Depends(get_db), limit: int = SCAN_RESULTS_LIMIT):
-    limit = max(1, min(limit, 500))
-    
-    count_res = await db.execute(select(func.count()).select_from(ScanResult))
-    total = count_res.scalar()
-    
-    result = await db.execute(
-        select(ScanResult)
-        .order_by(ScanResult.created_at.desc())
-        .limit(limit)
-    )
-    rows = result.scalars().all()
-    
-    scans = [
-        {
-            "id": r.id,
-            "commit_sha": r.commit_sha,
-            "commit_message": r.commit_message,
-            "repo_name": r.repo_name,
-            "branch": r.branch,
-            "scan_type": r.scan_type,
-            "severity": r.severity,
-            "ai_explanation": r.ai_explanation,
-            "ai_fix": r.ai_fix,
-            "risk_score": r.risk_score,
-            "action_taken": r.action_taken,
-            "findings": r.findings or {},
-            "pipeline_steps": r.pipeline_steps or {},
-            "status": r.status or "complete",
-            "started_at": utc_iso(r.started_at),
-            "created_at": utc_iso(r.created_at),
-            "ai_confidence": min(99, max(60, int((r.risk_score or 0) * 10))) if r.risk_score is not None else None,
-            "ai_feedback": r.ai_feedback,
-            # DAST Telemetry
-            "dast_status": r.dast_status or "not_queued",
-            "target_url": r.target_url,
-            "deployment_url": r.deployment_url,
-            "zap_findings": r.zap_findings or (r.findings or {}).get("zap"),
-            "zap_summary": r.zap_summary,
-            "queued_at": utc_iso(r.queued_at),
-            "dast_started_at": utc_iso(r.dast_started_at),
-            "dast_completed_at": utc_iso(r.dast_completed_at),
-            "scan_duration": r.scan_duration,
-            "worker_name": r.worker_name,
-            "worker_id": r.worker_id,
-            "queue_error": r.queue_error,
-            "zap_report_path": r.zap_report_path,
-            "github_run_id": getattr(r, "github_run_id", None),
-            "github_repo": getattr(r, "github_repo", None),
-        }
-        for r in rows
-    ]
-    return {"total": total, "limit": limit, "scans": scans}
+    try:
+        limit = max(1, min(limit, 500))
+        
+        count_res = await db.execute(select(func.count()).select_from(ScanResult))
+        total = count_res.scalar()
+        
+        result = await db.execute(
+            select(ScanResult)
+            .order_by(ScanResult.created_at.desc())
+            .limit(limit)
+        )
+        rows = result.scalars().all()
+        
+        scans = [
+            {
+                "id": r.id,
+                "commit_sha": r.commit_sha,
+                "commit_message": r.commit_message,
+                "repo_name": r.repo_name,
+                "branch": r.branch,
+                "scan_type": r.scan_type,
+                "severity": r.severity,
+                "ai_explanation": r.ai_explanation,
+                "ai_fix": r.ai_fix,
+                "risk_score": r.risk_score,
+                "action_taken": r.action_taken,
+                "findings": r.findings or {},
+                "pipeline_steps": r.pipeline_steps or {},
+                "status": r.status or "complete",
+                "started_at": utc_iso(r.started_at),
+                "created_at": utc_iso(r.created_at),
+                "ai_confidence": min(99, max(60, int((r.risk_score or 0) * 10))) if r.risk_score is not None else None,
+                "ai_feedback": r.ai_feedback,
+                # DAST Telemetry
+                "dast_status": r.dast_status or "not_queued",
+                "target_url": r.target_url,
+                "deployment_url": r.deployment_url,
+                "zap_findings": r.zap_findings or (r.findings or {}).get("zap"),
+                "zap_summary": r.zap_summary,
+                "queued_at": utc_iso(r.queued_at),
+                "dast_started_at": utc_iso(r.dast_started_at),
+                "dast_completed_at": utc_iso(r.dast_completed_at),
+                "scan_duration": r.scan_duration,
+                "worker_name": r.worker_name,
+                "worker_id": r.worker_id,
+                "queue_error": r.queue_error,
+                "zap_report_path": r.zap_report_path,
+                "github_run_id": getattr(r, "github_run_id", None),
+                "github_repo": getattr(r, "github_repo", None),
+            }
+            for r in rows
+        ]
+        return {"total": total, "limit": limit, "scans": scans}
+    except Exception as ex:
+        import traceback
+        err_msg = f"Database error: {str(ex)}"
+        logger.error(f"[get_scan_results] {err_msg}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=err_msg)
 
 
 async def calculate_security_score(db: AsyncSession) -> int:
