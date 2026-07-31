@@ -926,8 +926,10 @@ async def lifespan(app: FastAPI):
     redis_pubsub_manager.start_listener(manager.on_redis_message)
 
     watchdog_task = asyncio.create_task(stale_run_watchdog())
+    gh_watchdog_task = asyncio.create_task(github_polling_watchdog())
     yield
     watchdog_task.cancel()
+    gh_watchdog_task.cancel()
     await redis_pubsub_manager.disconnect()
 
 
@@ -1060,6 +1062,77 @@ async def stale_run_watchdog():
             break
         except Exception as e:
             print(f"[watchdog loop] error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# GitHub Actions API Polling Watchdog (Background Task)
+# ---------------------------------------------------------------------------
+
+async def github_polling_watchdog():
+    """
+    Polls GitHub Actions API every 10 seconds for any active 'running' pipeline runs.
+    Automatically updates scan status to complete/ALLOW or complete/BLOCK when GitHub run finishes.
+    """
+    gh_token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "SecureFlow-Backend"}
+    if gh_token:
+        headers["Authorization"] = f"Bearer {gh_token}"
+
+    while True:
+        try:
+            await asyncio.sleep(10)
+            async with AsyncSessionLocal() as db:
+                try:
+                    result = await db.execute(
+                        select(ScanResult)
+                        .filter(ScanResult.status == "running")
+                        .filter(ScanResult.github_run_id != None)  # noqa: E711
+                    )
+                    active_scans = result.scalars().all()
+                    if not active_scans:
+                        continue
+
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        for scan in active_scans:
+                            repo = scan.github_repo or scan.repo_name or "abhienix/SecureFlow"
+                            run_id = scan.github_run_id
+                            url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
+
+                            try:
+                                resp = await client.get(url, headers=headers)
+                                if resp.status_code == 200:
+                                    run_data = resp.json()
+                                    gh_status = run_data.get("status")
+                                    gh_conclusion = run_data.get("conclusion")
+
+                                    logger.info(f"[github_watchdog] scan {scan.id} (GH run {run_id}): status='{gh_status}', conclusion='{gh_conclusion}'")
+
+                                    if gh_status == "completed":
+                                        if gh_conclusion == "success":
+                                            scan.status = "complete"
+                                            scan.action_taken = scan.action_taken or "ALLOW"
+                                            logger.info(f"[github_watchdog] scan {scan.id} marked COMPLETE (success)")
+                                        elif gh_conclusion in ("failure", "cancelled", "timed_out"):
+                                            scan.status = "complete" if gh_conclusion == "failure" else "timeout"
+                                            scan.action_taken = "BLOCK"
+                                            scan.severity = scan.severity or "HIGH"
+                                            scan.ai_explanation = scan.ai_explanation or f"GitHub Actions run completed with conclusion: {gh_conclusion}"
+                                            logger.info(f"[github_watchdog] scan {scan.id} marked {scan.status} ({gh_conclusion})")
+
+                                        await db.commit()
+                                        await db.refresh(scan)
+                                        await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_update"))
+                            except Exception as req_ex:
+                                logger.warning(f"[github_watchdog] failed fetching GH run {run_id}: {req_ex}")
+
+                except Exception as ex:
+                    await db.rollback()
+                    logger.error(f"[github_watchdog db transaction] error: {ex}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"[github_watchdog loop] error: {e}")
+
 
 
 # ---------------------------------------------------------------------------
@@ -1220,9 +1293,17 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
                 started_at=datetime.utcnow(),
                 target_url=resolved_target,
                 deployment_url=req_deploy_url,
-                dast_status="not_queued"
+                dast_status="not_queued",
+                github_run_id=str(data.get("github_run_id")) if data.get("github_run_id") else None,
+                github_repo=data.get("github_repo") or repo_name
             )
             db.add(scan)
+
+    if scan:
+        if data.get("github_run_id"):
+            scan.github_run_id = str(data.get("github_run_id"))
+        if data.get("github_repo"):
+            scan.github_repo = data.get("github_repo")
 
     await db.commit()
     await db.refresh(scan)

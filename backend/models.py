@@ -50,6 +50,10 @@ class ScanResult(Base):
     status = Column(String, default="complete")
     started_at = Column(DateTime, nullable=True)
 
+    # GitHub Actions run ID — used to poll the GitHub API for real-time status
+    github_run_id = Column(String, nullable=True, index=True)
+    github_repo   = Column(String, nullable=True)   # e.g. "abhienix/SecureFlow"
+
     # ---------------------------------------------------------------------------
     # Distributed DAST Lifecycle Tracking Fields
     # ---------------------------------------------------------------------------
