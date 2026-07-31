@@ -759,7 +759,7 @@ jobs:
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \
-            -d '{ "status": "deploying", "pipeline_steps": { "deploy_staging": { "result": "RUNNING", "detail": "Deploying backend to staging Cloud Run..." } } }' || true
+            -d '{ "pipeline_steps": { "deploy_staging": { "result": "RUNNING", "detail": "Deploying backend to staging Cloud Run..." } } }' || true
 
       - name: Deploy Backend to Staging Cloud Run
         id: deploy_staging
@@ -810,7 +810,7 @@ jobs:
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \
-            -d '{ "status": "complete", "pipeline_steps": { "deploy_staging": { "result": "FAILED", "detail": "Staging deploy failed" } } }' || true
+            -d '{ "pipeline_steps": { "deploy_staging": { "result": "FAILED", "detail": "Staging deploy failed" } } }' || true
 
       # ── Step 14: Build and push frontend image ──────────────────────────────
       - name: Build and Push Frontend
@@ -873,7 +873,7 @@ jobs:
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \
-            -d '{ "status": "deploying", "pipeline_steps": { "deploy_staging": { "result": "PASS", "detail": "Staging Cloud Run deployment completed" } } }' || true
+            -d '{ "pipeline_steps": { "deploy_staging": { "result": "PASS", "detail": "Staging Cloud Run deployment completed" } } }' || true
 
       # ── Step 16a: Determine DAST Scan Target ────────────────────────────────
       - name: Determine DAST Target URL
@@ -908,7 +908,7 @@ jobs:
             curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
               -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
               -H "Content-Type: application/json" \
-              -d '{ "status": "deploying", "pipeline_steps": { "zap": { "result": "SKIPPED", "detail": "DAST skipped — fast deploy tag" }, "zap_gate": { "result": "PASS", "detail": "ZAP gate auto-passed — fast deploy tag" } } }' || true
+              -d '{ "pipeline_steps": { "zap": { "result": "SKIPPED", "detail": "DAST skipped — fast deploy tag" }, "zap_gate": { "result": "PASS", "detail": "ZAP gate auto-passed — fast deploy tag" } } }' || true
             echo "dast_run_id=" >> "$GITHUB_OUTPUT"
             echo "dast_triggered=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -1174,7 +1174,7 @@ jobs:
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \
-            -d '{ "status": "complete", "pipeline_steps": { "deploy_prod": { "result": "PASS", "detail": "Production Cloud Run deployment finished successfully" } } }' || true
+            -d '{ "pipeline_steps": { "deploy_prod": { "result": "PASS", "detail": "Production Cloud Run deployment finished successfully" } } }' || true
 
       - name: Notify Production Deploy Failure
         if: failure() && steps.zap_gate.outcome == 'success'
@@ -1186,7 +1186,7 @@ jobs:
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \
-            -d '{ "status": "complete", "pipeline_steps": { "deploy_prod": { "result": "FAILED", "detail": "Production gcloud run deploy command failed" } } }' || true
+            -d '{ "pipeline_steps": { "deploy_prod": { "result": "FAILED", "detail": "Production gcloud run deploy command failed" } } }' || true
 
       - name: Deploy Summary
         if: always() && steps.changes.outcome == 'success'

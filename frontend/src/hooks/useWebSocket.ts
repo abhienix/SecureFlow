@@ -179,7 +179,7 @@ export function useWebSocket() {
             qc.invalidateQueries({ queryKey: ['deployments'] });
           }
 
-          if (data.type === 'scan_complete' || data.type === 'scan_started' || data.type === 'scan_timeout' || data.type === 'scan_progress' || data.type === 'scan_reanalyzed') {
+          if (data.type === 'scan_complete' || data.type === 'scan_started' || data.type === 'scan_timeout' || data.type === 'scan_progress' || data.type === 'scan_reanalyzed' || data.type === 'scan_update') {
             qc.invalidateQueries({ queryKey: queryKeys.scans });
             qc.invalidateQueries({ queryKey: queryKeys.pipelines });
             qc.invalidateQueries({ queryKey: ['notifications'] });
