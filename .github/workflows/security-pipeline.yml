@@ -815,13 +815,15 @@ jobs:
         if: >
           steps.changes.outputs.frontend_changed == 'true' &&
           (steps.changes.outputs.image_changed == 'false' || steps.gate.outputs.action == 'ALLOW')
+        env:
+          FRONTEND_IMAGE: us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}
         run: |
-          echo "IMAGE=us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/frontend:${{ github.sha }}" >> $GITHUB_ENV
           docker build \
-            -t "$IMAGE" \
+            -t "$FRONTEND_IMAGE" \
             --build-arg REACT_APP_API_URL=${{ secrets.BACKEND_URL }} \
             -f frontend/Dockerfile frontend/
-          docker push "$IMAGE"
+          docker push "$FRONTEND_IMAGE"
+          echo "IMAGE=$FRONTEND_IMAGE" >> $GITHUB_ENV
 
 
       # ── Step 15: Deploy frontend to staging ─────────────────────────────────
