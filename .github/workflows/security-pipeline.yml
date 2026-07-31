@@ -757,7 +757,7 @@ jobs:
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \
-            -d '{ "status": "running", "pipeline_steps": { "deploy_staging": { "result": "RUNNING", "detail": "Deploying backend to staging Cloud Run..." } } }' || true
+            -d '{ "status": "deploying", "pipeline_steps": { "deploy_staging": { "result": "RUNNING", "detail": "Deploying backend to staging Cloud Run..." } } }' || true
 
       - name: Deploy Backend to Staging Cloud Run
         id: deploy_staging
@@ -871,7 +871,7 @@ jobs:
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \
-            -d '{ "pipeline_steps": { "deploy_staging": { "result": "PASS", "detail": "Staging Cloud Run deployment completed" } } }' || true
+            -d '{ "status": "deploying", "pipeline_steps": { "deploy_staging": { "result": "PASS", "detail": "Staging Cloud Run deployment completed" } } }' || true
 
       # ── Step 16a: Determine DAST Scan Target ────────────────────────────────
       - name: Determine DAST Target URL
@@ -902,6 +902,11 @@ jobs:
         run: |
           if printf '%s' "$COMMIT_MESSAGE" | grep -qE '\[deploy:frontend\]|\[deploy:backend\]|\[deploy:all\]|\[deploy\]|\[skip-dast\]|\[fast\]'; then
             echo "NOTICE: Fast deploy tag detected in commit message — skipping 10-minute DAST scan for rapid Cloud Run deployment."
+            # Mark ZAP stages as bypassed (not pending) so dashboard shows accurate state
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
+              -H "Content-Type: application/json" \
+              -d '{ "status": "deploying", "pipeline_steps": { "zap": { "result": "SKIPPED", "detail": "DAST skipped — fast deploy tag" }, "zap_gate": { "result": "PASS", "detail": "ZAP gate auto-passed — fast deploy tag" } } }' || true
             echo "dast_run_id=" >> "$GITHUB_OUTPUT"
             echo "dast_triggered=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -1135,7 +1140,7 @@ jobs:
           curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \
-            -d '{ "pipeline_steps": { "deploy_prod": { "result": "RUNNING", "detail": "Deploying to production Cloud Run..." } } }' || true
+            -d '{ "status": "deploying", "pipeline_steps": { "deploy_prod": { "result": "RUNNING", "detail": "Deploying to production Cloud Run..." } } }' || true
 
       - name: Deploy Backend to Production Cloud Run
         if: steps.changes.outputs.image_changed == 'true' && steps.zap_gate.outcome == 'success'

@@ -670,7 +670,7 @@ async def sync_single_scan_result_to_new_tables(scan_id: int, db: AsyncSession):
     pipeline_raw = StageStatus.normalize(s.status)
     if action_taken == "BLOCK":
         pipeline_computed = StageStatus.BLOCKED.value
-    elif pipeline_raw == StageStatus.RUNNING.value:
+    elif pipeline_raw == StageStatus.RUNNING.value or s.status in ("running", "deploying"):
         pipeline_computed = StageStatus.RUNNING.value
     elif pipeline_raw == StageStatus.CANCELLED.value or s.status == "timeout":
         pipeline_computed = StageStatus.CANCELLED.value

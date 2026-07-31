@@ -87,9 +87,18 @@ export function getOverallBadge(run: PipelineRun) {
   // 2. Then check status
   if (runStatusUpper === 'CANCELLED' || runStatusUpper === 'TIMEOUT') return { label: 'CANCELLED', color: 'gray' };
   if (runStatusUpper === 'SKIPPED' || runStatusUpper === 'SUPERSEDED') return { label: 'SKIPPED', color: 'gray' };
-  if (runStatusUpper === 'PASSED' || runStatusUpper === 'COMPLETE' || runStatusUpper === 'SUCCESS') return { label: 'PASSED', color: 'green' };
+  if (runStatusUpper === 'PASSED' || runStatusUpper === 'SUCCESS') return { label: 'PASSED', color: 'green' };
 
-  if (runStatusUpper === 'RUNNING' || runStatusUpper === 'IN_PROGRESS' || allSteps.some(s => String(s?.result || '').toUpperCase() === 'RUNNING')) {
+  // "complete" is only PASSED if no steps are still deploying/running
+  if (runStatusUpper === 'COMPLETE') {
+    const hasRunningStep = Object.values(steps).some(s =>
+      ['RUNNING', 'PENDING', 'WAITING', 'DEPLOYING'].includes(String((s as any)?.result || '').toUpperCase())
+    );
+    if (hasRunningStep) return { label: 'RUNNING', color: 'indigo' };
+    return { label: 'PASSED', color: 'green' };
+  }
+
+  if (runStatusUpper === 'DEPLOYING' || runStatusUpper === 'RUNNING' || runStatusUpper === 'IN_PROGRESS' || allSteps.some(s => String(s?.result || '').toUpperCase() === 'RUNNING')) {
     return { label: 'RUNNING', color: 'indigo' };
   }
   return { label: 'WAITING', color: 'gray' };
