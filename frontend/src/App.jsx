@@ -112,7 +112,7 @@ function AppShell() {
             padding: "10px 24px", background: C.redSoft, borderBottom: `1px solid ${C.redBorder}`,
             color: C.red, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
           }}>
-            <span>⚠️</span> {error}
+            <span>⚠️</span> {error?.message || String(error)}
             <button onClick={() => refetch()} style={{
               marginLeft: "auto", padding: "4px 12px", borderRadius: 6, border: `1px solid ${C.redBorder}`,
               background: "transparent", color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer",
