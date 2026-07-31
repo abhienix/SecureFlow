@@ -65,14 +65,15 @@ export default function OverviewWorkspace() {
     };
   }, [qc]);
 
-  // Fetch Security Summary
-  const { data: secSummary } = useQuery({
+  // Fetch Security Summary (staleTime so cached value shows instantly on remount)
+  const { data: secSummary, isLoading: summaryLoading } = useQuery({
     queryKey: ['security', 'summary'],
     queryFn: async () => {
       const res = await client.get('/security/summary');
       return res.data;
     },
     refetchInterval: 10000,
+    staleTime: 30000,
   });
 
   // Fetch Pipelines History
@@ -162,8 +163,12 @@ export default function OverviewWorkspace() {
     refetchInterval: 5000,
   });
 
-  // Metrics
-  const totalScans = secSummary?.total_scans ?? scansApiData?.total ?? (pipelines.length > 0 ? pipelines.length : 100);
+  // Metrics — null until at least one source resolves (prevents wrong fallback flash)
+  const totalScans = (secSummary?.total_scans != null)
+    ? secSummary.total_scans
+    : (scansApiData?.total != null)
+    ? scansApiData.total
+    : null;
   const blockedScans = (pipelines.length && pipelines.length > 0)
     ? pipelines.filter((p: any) => p.status === 'failed' || p.status === 'BLOCKED' || p.action_taken === 'BLOCK').length
     : 31;
@@ -316,7 +321,10 @@ export default function OverviewWorkspace() {
             </div>
           </div>
           <div style={{ fontFamily: C.display, fontSize: '24px', fontWeight: 900, color: textPrimary, lineHeight: 1, letterSpacing: '-0.02em' }}>
-            {totalScans}
+            {totalScans == null
+              ? <span style={{ display: 'inline-block', width: '48px', height: '24px', borderRadius: '4px', background: 'rgba(255,255,255,0.07)', animation: 'sf-pulse 1.2s infinite' }} />
+              : totalScans
+            }
           </div>
           <div style={{ fontSize: '10px', color: '#3B82F6', marginTop: '4px', fontWeight: 700 }}>
             {runningScans} Running Live
