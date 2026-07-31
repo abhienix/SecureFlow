@@ -1051,6 +1051,7 @@ async def stale_run_watchdog():
                                "the pipeline likely crashed, was cancelled, or failed before "
                                "reporting back. Check the GitHub Actions run logs for this commit."
                         )
+                        await sync_single_scan_result_to_new_tables(scan.id, db)
 
                     if stale_runs:
                         await db.commit()
@@ -1121,6 +1122,7 @@ async def github_polling_watchdog():
                                             scan.ai_explanation = scan.ai_explanation or f"GitHub Actions run completed with conclusion: {gh_conclusion}"
                                             logger.info(f"[github_watchdog] scan {scan.id} marked {scan.status} ({gh_conclusion})")
 
+                                        await sync_single_scan_result_to_new_tables(scan.id, db)
                                         await db.commit()
                                         await db.refresh(scan)
                                         await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_update"))
@@ -1175,6 +1177,7 @@ async def github_webhook_handler(request: Request, db: AsyncSession = Depends(ge
                     scan.severity = scan.severity or "HIGH"
                     scan.ai_explanation = scan.ai_explanation or f"GitHub Actions run completed with conclusion: {gh_conclusion}"
                 
+                await sync_single_scan_result_to_new_tables(scan.id, db)
                 await db.commit()
                 await db.refresh(scan)
                 await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_update"))
@@ -1317,10 +1320,12 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
                 .filter(ScanResult.branch == branch)
                 .filter(ScanResult.status == "running")
             )
-            for prev in res_prev.scalars().all():
+            prev_scans = res_prev.scalars().all()
+            for prev in prev_scans:
                 prev.status = "superseded"
                 prev.action_taken = prev.action_taken or "SKIPPED"
                 prev.ai_explanation = prev.ai_explanation or "Superseded by newer commit build push."
+                await sync_single_scan_result_to_new_tables(prev.id, db)
 
             pipeline_steps = {
                 "checkout": {"result": "PASS", "detail": "code checked out"},
@@ -1358,6 +1363,8 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
 
     await db.commit()
     await db.refresh(scan)
+    await sync_single_scan_result_to_new_tables(scan.id, db)
+    await manager.broadcast(scan_to_broadcast_payload(scan, msg_type="scan_started"))
 
     # -----------------------------------------------------------------------
     # Idempotent DAST Enqueueing via Celery Producer
