@@ -262,11 +262,25 @@ async def _init_db_tables():
         except Exception as e:
             logger.info(f"[startup migration] column already exists or notice: {e}")
 
-        # Detect duplicate active rows that would violate the upcoming
-        # partial unique index on (commit_sha, repo_name, branch).
-        # The PostgreSQL migration will fail if duplicates exist — the
-        # operator must clean them up first via manual SQL or a one-off
-        # migration job.
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("""
+                    UPDATE scan_results
+                    SET status = 'superseded',
+                        action_taken = COALESCE(action_taken, 'SKIPPED'),
+                        ai_explanation = COALESCE(ai_explanation, 'Closed by system watchdog cleanup')
+                    WHERE status = 'running'
+                """))
+                await conn.execute(text("""
+                    UPDATE pipeline_runs
+                    SET status = 'SKIPPED',
+                        action_taken = COALESCE(action_taken, 'SKIPPED')
+                    WHERE status = 'RUNNING'
+                """))
+                logger.info("[startup migration] Successfully closed all stale active/running pipelines.")
+        except Exception as e:
+            logger.info(f"[startup migration] stale running scan cleanup notice: {e}")
+
     if not is_sqlite:
         dup_sql = text("""
             SELECT commit_sha, repo_name, branch, COUNT(*) AS cnt
@@ -3736,14 +3750,17 @@ async def process_copilot_query(question: str, db: AsyncSession) -> str:
         count_res = await db.execute(select(func.count()).select_from(ScanResult))
         total_count = count_res.scalar() or 0
 
-        scans_res = await db.execute(select(ScanResult).order_by(ScanResult.id.desc()).limit(20))
+        scans_res = await db.execute(select(ScanResult).order_by(ScanResult.id.desc()).limit(50))
         scans_rows = scans_res.scalars().all()
         
-        findings_res = await db.execute(select(SecurityFinding).order_by(SecurityFinding.id.desc()).limit(200))
+        findings_res = await db.execute(select(SecurityFinding).order_by(SecurityFinding.id.desc()).limit(500))
         findings_rows = findings_res.scalars().all()
+
+        deploy_res = await db.execute(select(Deployment).order_by(Deployment.created_at.desc()).limit(10))
+        deploy_rows = deploy_res.scalars().all()
     except Exception as ex:
         logger.error(f"[copilot db fetch error]: {ex}")
-        total_count, scans_rows, findings_rows = 0, [], []
+        total_count, scans_rows, findings_rows, deploy_rows = 0, [], [], []
 
     recent_scans = [
         {
@@ -3760,15 +3777,40 @@ async def process_copilot_query(question: str, db: AsyncSession) -> str:
         for r in scans_rows
     ]
     sev_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    top_findings = []
     for f in findings_rows:
         sev = (f.severity or "").upper()
         if sev in sev_counts:
             sev_counts[sev] += 1
+        if len(top_findings) < 15 and sev in ("CRITICAL", "HIGH"):
+            top_findings.append({
+                "title": f.title,
+                "severity": f.severity,
+                "scanner": f.scanner,
+                "file": f.file,
+                "cve_cwe": f.cve_cwe
+            })
+
+    deployments_list = [
+        {
+            "service": d.service,
+            "environment": d.environment,
+            "status": d.status,
+            "revision": d.revision_name,
+            "url": d.url
+        }
+        for d in deploy_rows
+    ]
 
     db_context = {
+        "system_name": "SecureFlow DevSecOps Intelligence",
+        "architect": "Abhimanyu",
         "total_scans": total_count,
         "recent_scans": recent_scans,
         "findings_summary": sev_counts,
+        "top_vulnerabilities": top_findings,
+        "active_deployments": deployments_list,
+        "security_policy": "Block on CRITICAL/HIGH findings, enforce signed commits, zero plain-text secrets (Gitleaks), container CVE scans (Trivy), and DAST API checks (OWASP ZAP)."
     }
 
     try:

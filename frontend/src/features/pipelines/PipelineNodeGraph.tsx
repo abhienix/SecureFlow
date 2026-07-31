@@ -13,7 +13,14 @@ export function PipelineNodeGraph({ run, onNodeClick }: PipelineNodeGraphProps) 
   const steps = run.pipeline_steps || {};
   const runStatusUpper = String(run.status || '').toUpperCase();
 
-  const isCompletedSuccess = runStatusUpper === 'PASSED' || runStatusUpper === 'COMPLETE' || runStatusUpper === 'SUCCESS';
+  // ONLY mark overall completed success if run.status is explicitly PASSED/COMPLETE AND no steps are still PENDING or RUNNING
+  const hasIncompleteSteps = STAGE_ORDER.some(key => {
+    if (key === 'deploy_prod') return false; // deploy_prod can be skipped
+    const res = String(steps[key]?.result || '').toUpperCase();
+    return !res || res === 'PENDING' || res === 'WAITING' || res === 'RUNNING' || res === 'QUEUED';
+  });
+
+  const isCompletedSuccess = (runStatusUpper === 'PASSED' || runStatusUpper === 'COMPLETE' || runStatusUpper === 'SUCCESS') && !hasIncompleteSteps;
 
   // Find the first explicitly failed/blocked stage, if any
   let firstFailedIndex = -1;
