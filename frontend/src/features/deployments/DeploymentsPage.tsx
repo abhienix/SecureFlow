@@ -1,98 +1,218 @@
-import { Rocket, Globe, ExternalLink, Terminal } from "lucide-react";
-import {
-  Card,
-  CardBody,
-  CardHeader,
-  PageHeader,
-  LoadingState,
-  ErrorState,
-  ActionBadge,
-  StatusBadge,
-} from "../../ui";
-import { useDeployments } from "../../lib/queries";
-import { formatDate, formatCommit } from "../../lib/utils";
+import React from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { RefreshCw, Cloud, Link, ArrowLeft, RotateCcw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import DataTable, { Column } from '../../components/ui/DataTable';
+import Badge from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
+import { client } from '../../api/client';
 
-export function DeploymentsPage() {
-  const deps = useDeployments();
+interface Deployment {
+  id: string;
+  revision_name: string;
+  service: string;
+  environment: string;
+  url: string;
+  status: string;
+  commit_sha: string;
+  created_at: string;
+  duration: number;
+}
+
+export default function DeploymentsPage() {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+
+  const { data, isLoading, isError, refetch } = useQuery<{ deployments: Deployment[] }>({
+    queryKey: ['deployments'],
+    queryFn: async () => {
+      const res = await client.get('/deployments');
+      console.log('Deployments Raw API Response:', res.data);
+      return res.data;
+    },
+  });
+
+  const { data: currentDep } = useQuery<Deployment>({
+    queryKey: ['deployments', 'current'],
+    queryFn: async () => {
+      const res = await client.get('/deployments/current');
+      return res.data;
+    },
+  });
+
+  const rollbackMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await client.post(`/deployments/${id}/rollback`);
+      return res.data;
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['deployments'] });
+      window.dispatchEvent(
+        new CustomEvent('sf_toast', {
+          detail: {
+            type: 'success',
+            title: 'Rollback Completed',
+            message: res.message || 'Service rolled back successfully.',
+          },
+        })
+      );
+    },
+  });
+
+  const handleRollback = (id: string, revName: string) => {
+    if (window.confirm(`Are you sure you want to rollback production service to revision ${revName}?`)) {
+      rollbackMutation.mutate(id);
+    }
+  };
+
+  const columns: Column<Deployment>[] = [
+    {
+      header: 'Revision Name',
+      accessor: (row) => (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontWeight: 600, color: 'var(--sf-text-primary)' }}>{row.revision_name}</span>
+          <span style={{ fontSize: '11px', color: 'var(--sf-text-muted)', fontFamily: 'var(--sf-font-mono)' }}>
+            SHA: {row.commit_sha?.substring(0, 8)}
+          </span>
+        </div>
+      ),
+      sortable: true,
+      sortAccessor: 'revision_name',
+    },
+    {
+      header: 'Environment',
+      accessor: (row) => <span style={{ textTransform: 'capitalize' }}>{row.environment}</span>,
+    },
+    {
+      header: 'URL',
+      accessor: (row) => (
+        <a
+          href={row.url}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--sf-accent)', fontSize: '13px' }}
+        >
+          Endpoint <Link size={12} />
+        </a>
+      ),
+    },
+    {
+      header: 'Status',
+      accessor: (row) => (
+        <Badge variant={row.status === 'active' ? 'success' : row.status === 'failed' ? 'failed' : 'neutral'}>
+          {row.status}
+        </Badge>
+      ),
+    },
+    {
+      header: 'Created At',
+      accessor: (row) => <span>{new Date(row.created_at).toLocaleString()}</span>,
+    },
+    {
+      header: 'Action',
+      accessor: (row) => {
+        const isActive = row.status === 'active';
+        return (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={isActive || rollbackMutation.isPending}
+            onClick={() => handleRollback(row.id, row.revision_name)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+          >
+            <RotateCcw size={12} /> Rollback
+          </Button>
+        );
+      },
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Deployments"
-        description="Production deployments gated by the policy engine."
-      />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div>
+        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--sf-ink)', margin: '0 0 4px 0' }}>
+          Cloud Run Deployments
+        </h1>
+        <p style={{ color: 'var(--sf-ink-low)', margin: 0, fontSize: '14px' }}>
+          Production deployment revisions history, active traffic targets, and rollback triggers.
+        </p>
+      </div>
 
-      {deps.isLoading ? (
-        <LoadingState label="Loading deployments…" />
-      ) : deps.isError ? (
-        <ErrorState message={deps.error?.message} onRetry={() => deps.refetch()} />
-      ) : (
-        <div className="space-y-3">
-          {(deps.data?.deployments ?? []).map((d) => (
-            <Card key={d.id}>
-              <CardBody>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div
-                      className={
-                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg " +
-                        (d.status === "active"
-                          ? "bg-emerald-500/15 text-emerald-400"
-                          : "bg-rose-500/15 text-rose-400")
-                      }
-                    >
-                      <Rocket size={18} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-                        {d.service_name}
-                        <span className="font-mono text-xs text-slate-500">{d.revision}</span>
-                      </p>
-                      <p className="truncate text-xs text-slate-500">
-                        {d.repo_name} · <span className="font-mono">{formatCommit(d.commit_sha)}</span> ·{" "}
-                        {d.environment}
-                      </p>
-                    </div>
-                  </div>
+      {/* Active Revision Banner */}
+      {currentDep && (
+        <div
+          style={{
+            backgroundColor: 'var(--sf-bg-surface)',
+            border: '1px solid var(--sf-border)',
+            borderRadius: '12px',
+            padding: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div
+              style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                color: 'var(--sf-success)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Cloud size={24} />
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>
+                Active Production Revision
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--sf-text-primary)', marginTop: '2px' }}>
+                {currentDep.revision_name}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--sf-text-muted)', marginTop: '2px' }}>
+                Commit: {currentDep.commit_sha} | Created: {new Date(currentDep.created_at).toLocaleString()}
+              </div>
+            </div>
+          </div>
 
-                  <div className="flex items-center gap-2">
-                    <ActionBadge action={d.ai_verdict} />
-                    <StatusBadge status={d.status} />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-3 text-xs text-slate-500">
-                  <span className="inline-flex items-center gap-3">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Terminal size={12} /> DAST {d.dast_status}
-                    </span>
-                    <span>{formatDate(d.created_at)}</span>
-                  </span>
-                  {d.url && (
-                    <a
-                      href={d.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300"
-                    >
-                      <Globe size={12} /> Open service <ExternalLink size={11} />
-                    </a>
-                  )}
-                </div>
-              </CardBody>
-            </Card>
-          ))}
-
-          {(deps.data?.deployments ?? []).length === 0 && (
-            <Card>
-              <CardHeader title="No deployments" />
-              <CardBody>
-                <p className="text-sm text-slate-400">No deployments recorded yet.</p>
-              </CardBody>
-            </Card>
-          )}
+          <a
+            href={currentDep.url}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              backgroundColor: 'var(--sf-accent)',
+              color: '#ffffff',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            Live Endpoint <Link size={14} />
+          </a>
         </div>
       )}
+
+      {/* Revisions Table */}
+      <DataTable
+        columns={columns}
+        data={data?.deployments || []}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={refetch}
+        emptyIcon={Cloud}
+        emptyHeading="No deployments found"
+        emptyBody="Cloud Run revision history will appear once deployments are configured."
+      />
     </div>
   );
 }
