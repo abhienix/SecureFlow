@@ -55,7 +55,7 @@ jobs:
       - name: Build & Push Backend Image
         run: |
           IMAGE="us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }}"
-          docker build \
+          docker build -f ./backend/Dockerfile \
             -t "$IMAGE" \
             ./backend
           docker push "$IMAGE"
