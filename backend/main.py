@@ -238,6 +238,8 @@ async def _init_db_tables():
         "ALTER TABLE scan_results ADD COLUMN worker_id VARCHAR",
         "ALTER TABLE scan_results ADD COLUMN queue_error TEXT",
         "ALTER TABLE scan_results ADD COLUMN zap_report_path VARCHAR",
+        "ALTER TABLE scan_results ADD COLUMN github_run_id VARCHAR",
+        "ALTER TABLE scan_results ADD COLUMN github_repo VARCHAR",
         "ALTER TABLE pipeline_stages ADD COLUMN stage_key VARCHAR",
         "ALTER TABLE pipeline_stages ADD COLUMN order_index INTEGER",
         "ALTER TABLE pipeline_stages ADD COLUMN exit_code INTEGER",
@@ -2297,6 +2299,8 @@ async def get_scan_results(db: AsyncSession = Depends(get_db), limit: int = SCAN
             "worker_id": r.worker_id,
             "queue_error": r.queue_error,
             "zap_report_path": r.zap_report_path,
+            "github_run_id": getattr(r, "github_run_id", None),
+            "github_repo": getattr(r, "github_repo", None),
         }
         for r in rows
     ]
