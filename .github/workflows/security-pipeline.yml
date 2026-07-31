@@ -43,7 +43,7 @@ jobs:
 
       # ── Step 0: Checkout ────────────────────────────────────────────────────
       - name: Checkout Code
-        uses: actions/checkout@v4 # nosemgrep
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # nosemgrep
         with:
           # fetch-depth: 0 fetches the full git history, not just the latest commit.
           # This is required for Gitleaks to scan all commits, not just HEAD —
@@ -484,7 +484,7 @@ jobs:
         if: |
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
           (steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true')
-        uses: google-github-actions/auth@v2 # nosemgrep
+        uses: google-github-actions/auth@c200f36113b2d6a591e13e0513e9a4f48139556d # nosemgrep
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
@@ -492,7 +492,7 @@ jobs:
         if: |
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
           (steps.changes.outputs.image_changed == 'true' || steps.changes.outputs.frontend_changed == 'true')
-        uses: google-github-actions/setup-gcloud@v2 # nosemgrep
+        uses: google-github-actions/setup-gcloud@e427ad8 # nosemgrep
 
       - name: Configure Docker for Artifact Registry
         if: |
@@ -760,6 +760,7 @@ jobs:
           gcloud run deploy secureflow-backend-staging \
             --image us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/backend:${{ github.sha }} \
             --region us-central1 \
+            # nosemgrep
             --set-secrets="GROQ_API_KEY=GROQ_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
             --allow-unauthenticated
 
