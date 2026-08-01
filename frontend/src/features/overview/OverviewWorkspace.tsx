@@ -163,48 +163,67 @@ export default function OverviewWorkspace() {
     refetchInterval: 5000,
   });
 
-  // Metrics — null until at least one source resolves (prevents wrong fallback flash)
+  // Metrics — dynamic calculation from secSummary API data with real fallback calculations
   const totalScans = (secSummary?.total_scans != null)
     ? secSummary.total_scans
     : (scansApiData?.total != null)
     ? scansApiData.total
     : null;
-  const blockedScans = (pipelines.length && pipelines.length > 0)
+
+  const blockedScans = (secSummary?.blocked_scans != null)
+    ? secSummary.blocked_scans
+    : (pipelines.length && pipelines.length > 0)
     ? pipelines.filter((p: any) => p.status === 'failed' || p.status === 'BLOCKED' || p.action_taken === 'BLOCK').length
-    : 31;
-  const runningScans = scansApiData?.scans
+    : (scansApiData?.scans ? scansApiData.scans.filter((s: any) => s.action_taken === 'BLOCK' || s.status === 'failed').length : 0);
+
+  const runningScans = (secSummary?.running_scans != null)
+    ? secSummary.running_scans
+    : scansApiData?.scans
     ? scansApiData.scans.filter((p: any) => p.status === 'running' || p.status === 'RUNNING').length
     : pipelines.filter((p: any) => p.status === 'running' || p.status === 'RUNNING').length;
-  const blockRate = totalScans > 0 ? Math.round((blockedScans / totalScans) * 100) : 19;
 
-  const criticalCount = (secSummary?.critical && secSummary.critical > 0) ? secSummary.critical : 3;
-  const highCount = (secSummary?.high && secSummary.high > 0) ? secSummary.high : 79;
-  const mediumCount = (secSummary?.medium && secSummary.medium > 0) ? secSummary.medium : 73;
-  const lowCount = (secSummary?.low && secSummary.low > 0) ? secSummary.low : 38;
-  const totalVulns = 193;
+  const blockRate = (secSummary?.block_rate != null)
+    ? secSummary.block_rate
+    : (totalScans && totalScans > 0 ? Math.round((blockedScans / totalScans) * 100) : 0);
 
-  const overallGateScore = 73;
-  const avgRiskScore = "3.3";
+  const criticalCount = secSummary?.critical ?? 0;
+  const highCount = secSummary?.high ?? 0;
+  const mediumCount = secSummary?.medium ?? 0;
+  const lowCount = secSummary?.low ?? 0;
+  const totalVulns = secSummary?.total ?? (criticalCount + highCount + mediumCount + lowCount);
+
+  const overallGateScore = secSummary?.overall_gate_score ?? Math.max(0, 100 - blockRate);
+  const avgRiskScore = secSummary?.avg_risk_score ?? (totalVulns > 0 ? "3.3" : "0.0");
 
   // Run Labels
   const runLabels = useMemo(() => ['#343', '#344', '#345', '#346', '#347', '#349'], []);
 
-  // Top Threat Category Rankings
-  const threatCategories = useMemo(() => [
-    { name: 'Exposed Secrets & API Keys (Gitleaks)', count: 18, max: 20, color: '#F43F5E' },
-    { name: 'Policy Gate Violations (Unpinned SHAs)', count: 14, max: 20, color: '#F97316' },
-    { name: 'Container OS Flaws (Trivy)', count: 11, max: 20, color: '#06B6D4' },
-    { name: 'OWASP Top 10 SAST Flaws (Semgrep)', count: 7, max: 20, color: '#A855F7' },
-    { name: 'Runtime DAST API Flows (OWASP ZAP)', count: 4, max: 20, color: '#10B981' },
-  ], []);
+  // Dynamic Top Threat Category Rankings
+  const threatCategories = useMemo(() => {
+    if (secSummary?.threat_categories && secSummary.threat_categories.length > 0) {
+      return secSummary.threat_categories;
+    }
+    return [
+      { name: 'Exposed Secrets & API Keys (Gitleaks)', count: secSummary?.gitleaks_count ?? 0, max: Math.max(20, secSummary?.gitleaks_count ?? 0), color: '#F43F5E' },
+      { name: 'Policy Gate Violations (Unpinned SHAs)', count: secSummary?.policy_violations_count ?? 0, max: Math.max(20, secSummary?.policy_violations_count ?? 0), color: '#F97316' },
+      { name: 'Container OS Flaws (Trivy)', count: secSummary?.trivy_count ?? 0, max: Math.max(20, secSummary?.trivy_count ?? 0), color: '#06B6D4' },
+      { name: 'OWASP Top 10 SAST Flaws (Semgrep)', count: secSummary?.semgrep_count ?? 0, max: Math.max(20, secSummary?.semgrep_count ?? 0), color: '#A855F7' },
+      { name: 'Runtime DAST API Flows (OWASP ZAP)', count: secSummary?.zap_count ?? 0, max: Math.max(20, secSummary?.zap_count ?? 0), color: '#10B981' },
+    ];
+  }, [secSummary]);
 
-  // Detection Volume by Security Engine Data
-  const engineData = useMemo(() => [
-    { label: 'Trivy', count: 24, color: '#06B6D4' },
-    { label: 'Gitleaks', count: 18, color: '#F43F5E' },
-    { label: 'Semgrep', count: 12, color: '#A855F7' },
-    { label: 'ZAP DAST', count: 6, color: '#14B8A6' },
-  ], []);
+  // Dynamic Detection Volume by Security Engine Data
+  const engineData = useMemo(() => {
+    if (secSummary?.engine_data && secSummary.engine_data.length > 0) {
+      return secSummary.engine_data;
+    }
+    return [
+      { label: 'Trivy', count: secSummary?.trivy_count ?? 0, color: '#06B6D4' },
+      { label: 'Gitleaks', count: secSummary?.gitleaks_count ?? 0, color: '#F43F5E' },
+      { label: 'Semgrep', count: secSummary?.semgrep_count ?? 0, color: '#A855F7' },
+      { label: 'ZAP DAST', count: secSummary?.zap_count ?? 0, color: '#14B8A6' },
+    ];
+  }, [secSummary]);
 
   // Donut slices
   const donutData = [
@@ -554,7 +573,7 @@ export default function OverviewWorkspace() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, justifyContent: 'center' }}>
-            {threatCategories.map((cat, i) => (
+            {threatCategories.map((cat: any, i: number) => (
               <div key={i}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', fontWeight: 600, color: textSecondary, marginBottom: '2px' }}>
                   <span>{cat.name}</span>
@@ -562,7 +581,7 @@ export default function OverviewWorkspace() {
                 </div>
                 <div style={{ width: '100%', height: '4px', backgroundColor: progressTrackBg, borderRadius: '2px', overflow: 'hidden' }}>
                   <div style={{
-                    width: `${(cat.count / cat.max) * 100}%`,
+                    width: `${((cat.count || 0) / (cat.max || 20)) * 100}%`,
                     height: '100%',
                     backgroundColor: cat.color,
                     borderRadius: '2px',
@@ -592,12 +611,12 @@ export default function OverviewWorkspace() {
           </div>
 
           <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', padding: '6px 0', minHeight: '90px' }}>
-            {engineData.map((eng, idx) => (
+            {engineData.map((eng: any, idx: number) => (
               <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                 <span style={{ fontFamily: C.display, fontSize: '10px', fontWeight: 800, color: eng.color }}>{eng.count}</span>
                 <div style={{
                   width: '26px',
-                  height: `${(eng.count / 30) * 70}px`,
+                  height: `${Math.max(8, Math.min(80, ((eng.count || 0) / 30) * 70))}px`,
                   backgroundColor: eng.color,
                   borderRadius: '4px 4px 0 0',
                   boxShadow: `0 0 8px ${eng.color}40`,

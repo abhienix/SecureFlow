@@ -517,35 +517,66 @@ def smart_fallback(question: str, context: dict) -> str:
             f"Focus on the **{c} critical** issues first — these can cause immediate risk."
         )
 
-    # ── 6. Health / status ──────────────────────────────────────────────────
-    if any(w in q for w in ["health", "status", "overview", "summary"]):
+    # ── 6. SecureFlow Architecture & Tech Stack Queries ──────────────────────
+    if any(w in q for w in ["secureflow", "architecture", "stack", "how it works", "scanner", "tool", "who made", "creator", "author"]):
+        return (
+            "🛡️ **SecureFlow Enterprise DevSecOps Architecture**\n\n"
+            "• **Core Security Gate Engine**:\n"
+            "  - **Gitleaks**: Scans commit history & source code for exposed API keys, private tokens, and credentials.\n"
+            "  - **Semgrep**: Audits backend & frontend source code for OWASP Top 10 SAST security flaws.\n"
+            "  - **Trivy**: Scans Docker base images and system dependencies for CVE vulnerabilities.\n"
+            "  - **OWASP ZAP**: Runs dynamic out-of-process DAST attacks against staging targets via Redis/Celery.\n\n"
+            "• **Backend Infrastructure**:\n"
+            "  - **FastAPI**: Async high-performance REST API & WebSocket gateway.\n"
+            "  - **PostgreSQL / SQLAlchemy**: Relational persistence for pipelines, repositories, and findings.\n"
+            "  - **Redis & Celery**: Asynchronous queue broker for distributed DAST scanning tasks.\n\n"
+            "• **Frontend Dashboard**:\n"
+            "  - **React & TypeScript**: Modern enterprise UI with 1:1 real-time WebSocket telemetry updates.\n\n"
+            "• **Architect & Maintainer**:\n"
+            "  - Designed and maintained by **Abhimanyu** (Lead Software Architect & Security Engineer)."
+        )
+
+    # ── 7. Overall History & System Health ────────────────────────────────────
+    if any(w in q for w in ["health", "status", "overview", "summary", "history"]):
         block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
         return (
-            f"**SecureFlow System Health**\n"
-            f"- Total scans tracked: **{total}**\n"
-            f"- Last 20 runs: **{len(passed)} passed**, **{len(blocked)} blocked** ({block_rate}% block rate)\n"
-            f"- Findings: **{sev.get('CRITICAL', 0)}** critical, **{sev.get('HIGH', 0)}** high\n"
-            f"- Latest run: **#{latest.get('id', 'N/A')}** — {latest.get('action_taken', 'ALLOW')}"
+            f"📊 **SecureFlow System Health & History**\n\n"
+            f"• **Pipeline Execution History**:\n"
+            f"  - Total pipeline scans tracked: **{total}**\n"
+            f"  - Recent window (last {len(recent_scans)} runs): **{len(passed)} passed**, **{len(blocked)} blocked** ({block_rate}% block rate)\n"
+            f"  - Latest scan: **#{latest.get('id', 'N/A')}** (`{latest.get('commit_sha', '?')[:7]}`) — **{latest.get('action_taken', 'ALLOW')}**\n\n"
+            f"• **Active Vulnerability Posture**:\n"
+            f"  - 🔴 Critical: **{sev.get('CRITICAL', 0)}**\n"
+            f"  - 🟠 High: **{sev.get('HIGH', 0)}**\n"
+            f"  - 🟡 Medium: **{sev.get('MEDIUM', 0)}**\n"
+            f"  - 🟢 Low: **{sev.get('LOW', 0)}**"
         )
 
-    # ── 7. Latest / most recent scan ────────────────────────────────────────
+    # ── 8. Latest / Most Recent Scan Query ──────────────────────────────────
     if any(w in q for w in ["latest", "newest", "most recent"]):
         if not latest:
-            return "No scans found yet."
+            return "No scans found in database yet."
         return (
-            f"**Latest scan: #{latest['id']}**\n"
-            f"- Branch: `{latest.get('branch', 'main')}`\n"
-            f"- Commit: `{latest.get('commit_sha', '?')[:7]}` — _{latest.get('commit_message', '') or 'no message'}_\n"
-            f"- Result: **{latest.get('action_taken', 'ALLOW')}**\n"
-            + (f"- Note: {latest['ai_explanation']}" if latest.get('ai_explanation') else "")
+            f"⚡ **Latest Scan Run: #{latest['id']}**\n\n"
+            f"• Repository: `{latest.get('repo_name', 'SecureFlow')}`\n"
+            f"• Branch: `{latest.get('branch', 'main')}`\n"
+            f"• Commit: `{latest.get('commit_sha', '?')[:7]}` — _{latest.get('commit_message', '') or 'no message'}_\n"
+            f"• Action Taken: **{latest.get('action_taken', 'ALLOW')}**\n"
+            f"• Status: **{latest.get('status', 'complete')}**\n"
+            + (f"• AI Security Explanation: {latest['ai_explanation']}\n" if latest.get('ai_explanation') else "")
         )
 
-    # ── 8. Default Fallback ─────────────────────────────────────────────────
+    # ── 9. Default Point-Wise Summary ────────────────────────────────────────
     block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
     return (
-        f"Here's what I can see right now:\n"
-        f"- **{total}** total pipeline scans\n"
-        f"- Last 20: **{len(passed)} passed**, **{len(blocked)} blocked** ({block_rate}% block rate)\n"
-        f"- Findings: **{sev.get('CRITICAL', 0)} critical**, **{sev.get('HIGH', 0)} high**, **{sev.get('MEDIUM', 0)} medium**\n\n"
-        f"Try asking: _'78th commit'_, _'which pipeline was blocked?'_, or _'show last 10 commits'_."
+        f"🤖 **Void Security Assistant Overview**\n\n"
+        f"• **Pipeline History**: **{total}** total scans logged in database\n"
+        f"• **Security Gate Status**: **{len(passed)} passed**, **{len(blocked)} blocked** in last 20 runs ({block_rate}% block rate)\n"
+        f"• **Current Findings**: **{sev.get('CRITICAL', 0)} critical**, **{sev.get('HIGH', 0)} high**, **{sev.get('MEDIUM', 0)} medium**\n\n"
+        f"💡 **Suggested Questions**:\n"
+        f"  - _'show 78th commit'_\n"
+        f"  - _'which pipeline was blocked?'_\n"
+        f"  - _'how does secureflow architecture work?'_\n"
+        f"  - _'show critical vulnerabilities'_\n"
+        f"  - _'show last 10 commits'_"
     )

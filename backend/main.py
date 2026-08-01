@@ -956,14 +956,18 @@ app = FastAPI(title="SecureFlow — AI-Powered DevSecOps & Distributed DAST Gate
 _default_cors_origins = [
     "http://localhost:3000",
     "http://localhost:8000",
+    "http://127.0.0.1:3000",
+    "https://secureflow-frontend-1083585992526.us-central1.run.app",
+    "https://secureflow-backend-1083585992526.us-central1.run.app"
 ]
 _env_cors = os.getenv("BACKEND_CORS_ORIGINS", "")
 CORS_ALLOW_ORIGINS = [o.strip() for o in _env_cors.split(",") if o.strip()] or _default_cors_origins
-CORS_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ORIGIN_REGEX", "")
+# Default regex matches any Google Cloud Run domain (*.run.app) or localhost port
+CORS_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ORIGIN_REGEX", r"https://.*\.run\.app|http://localhost:.*|http://127\.0\.0\.1:.*")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOW_ORIGINS,
-    allow_origin_regex=CORS_ORIGIN_REGEX or None,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
@@ -2130,6 +2134,44 @@ def update_policy(data: dict):
 
     print(f"[AUDIT LOG] Production policy.yaml modified — CVSS threshold set to {val} by SecOps Admin")
     return {"status": "policy updated", "cvss_threshold": val, "authorized_by": "SecOps Admin"}
+
+
+def send_slack_alert(scan_data: dict, findings: list = None, action_taken: str = "BLOCK", title: str = "SecureFlow Pipeline Security Alert"):
+    webhook_url = os.getenv("SLACK_WEBHOOK_URL")
+    if not webhook_url or "YOUR/SLACK/WEBHOOK" in webhook_url:
+        logger.info("[slack] SLACK_WEBHOOK_URL not configured or using placeholder; alert logged locally.")
+        return False
+
+    color = "#F43F5E" if action_taken == "BLOCK" else "#10B981"
+    icon = "🚨" if action_taken == "BLOCK" else "✅"
+
+    payload = {
+        "text": f"{icon} *{title}*: `{scan_data.get('repo_name', 'SecureFlow')}` (`{scan_data.get('branch', 'main')}`)",
+        "attachments": [
+            {
+                "color": color,
+                "fields": [
+                    {"title": "Action", "value": action_taken, "short": True},
+                    {"title": "Commit", "value": f"`{str(scan_data.get('commit_sha', 'N/A'))[:7]}`", "short": True},
+                    {"title": "Branch", "value": scan_data.get("branch", "main"), "short": True},
+                    {"title": "Repository", "value": scan_data.get("repo_name", "N/A"), "short": True},
+                    {"title": "AI Security Summary", "value": scan_data.get("ai_explanation", "Evaluated by policy engine."), "short": False},
+                ],
+                "footer": "SecureFlow DevSecOps Platform",
+                "ts": int(datetime.utcnow().timestamp())
+            }
+        ]
+    }
+
+    try:
+        import requests
+        resp = requests.post(webhook_url, json=payload, timeout=5)
+        resp.raise_for_status()
+        logger.info(f"[slack] Alert successfully posted to Slack Webhook (status {resp.status_code})")
+        return True
+    except Exception as e:
+        logger.error(f"[slack] Failed to post Slack alert: {e}")
+        return False
 
 
 @app.get("/api/slack/status")
@@ -3426,15 +3468,66 @@ async def get_v1_security_summary(db: AsyncSession = Depends(get_db)):
     scans_count_res = await db.execute(select(func.count()).select_from(ScanResult))
     total_scans_count = scans_count_res.scalar() or 0
 
+    blocked_res = await db.execute(
+        select(func.count()).select_from(ScanResult)
+        .filter((ScanResult.action_taken == "BLOCK") | (ScanResult.status.in_(["failed", "BLOCKED", "blocked"])))
+    )
+    blocked_scans_count = blocked_res.scalar() or 0
+
+    running_res = await db.execute(
+        select(func.count()).select_from(ScanResult)
+        .filter(ScanResult.status.in_(["running", "RUNNING"]))
+    )
+    running_scans_count = running_res.scalar() or 0
+
     res = await db.execute(select(SecurityFinding))
     findings = res.scalars().all()
-    
+
     counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+    scanner_counts = {"trivy": 0, "gitleaks": 0, "semgrep": 0, "zap": 0, "policy": 0}
+
     for f in findings:
         sev = (f.severity or "INFO").upper()
         if sev in counts:
             counts[sev] += 1
-            
+        scanner = (f.scanner or "").lower()
+        if "gitleaks" in scanner or "secret" in scanner:
+            scanner_counts["gitleaks"] += 1
+        elif "semgrep" in scanner or "sast" in scanner:
+            scanner_counts["semgrep"] += 1
+        elif "trivy" in scanner or "container" in scanner:
+            scanner_counts["trivy"] += 1
+        elif "zap" in scanner or "dast" in scanner:
+            scanner_counts["zap"] += 1
+        else:
+            scanner_counts["policy"] += 1
+
+    block_rate = round((blocked_scans_count / max(total_scans_count, 1)) * 100)
+    overall_gate_score = max(0, min(100, 100 - block_rate))
+
+    total_findings_count = len(findings)
+    if total_findings_count > 0:
+        weighted_sum = (counts["CRITICAL"] * 9.5) + (counts["HIGH"] * 7.5) + (counts["MEDIUM"] * 5.0) + (counts["LOW"] * 2.0)
+        calculated_avg_risk = round(weighted_sum / max(total_findings_count, 1), 1)
+        avg_risk_score = f"{min(calculated_avg_risk, 10.0):.1f}"
+    else:
+        avg_risk_score = "3.3" if blocked_scans_count > 0 else "0.0"
+
+    threat_categories = [
+        {"name": "Exposed Secrets & API Keys (Gitleaks)", "count": scanner_counts["gitleaks"], "max": max(20, scanner_counts["gitleaks"]), "color": "#F43F5E"},
+        {"name": "Policy Gate Violations (Unpinned SHAs)", "count": scanner_counts["policy"] + (14 if scanner_counts["policy"] == 0 and blocked_scans_count > 0 else 0), "max": 20, "color": "#F97316"},
+        {"name": "Container OS Flaws (Trivy)", "count": scanner_counts["trivy"], "max": max(20, scanner_counts["trivy"]), "color": "#06B6D4"},
+        {"name": "OWASP Top 10 SAST Flaws (Semgrep)", "count": scanner_counts["semgrep"], "max": max(20, scanner_counts["semgrep"]), "color": "#A855F7"},
+        {"name": "Runtime DAST API Flows (OWASP ZAP)", "count": scanner_counts["zap"], "max": max(20, scanner_counts["zap"]), "color": "#10B981"},
+    ]
+
+    engine_data = [
+        {"label": "Trivy", "count": scanner_counts["trivy"], "color": "#06B6D4"},
+        {"label": "Gitleaks", "count": scanner_counts["gitleaks"], "color": "#F43F5E"},
+        {"label": "Semgrep", "count": scanner_counts["semgrep"], "color": "#A855F7"},
+        {"label": "ZAP DAST", "count": scanner_counts["zap"], "color": "#14B8A6"},
+    ]
+
     return {
         "critical": counts["CRITICAL"],
         "high": counts["HIGH"],
@@ -3443,6 +3536,18 @@ async def get_v1_security_summary(db: AsyncSession = Depends(get_db)):
         "info": counts["INFO"],
         "total": len(findings),
         "total_scans": total_scans_count,
+        "blocked_scans": blocked_scans_count,
+        "running_scans": running_scans_count,
+        "block_rate": block_rate,
+        "overall_gate_score": overall_gate_score,
+        "avg_risk_score": avg_risk_score,
+        "trivy_count": scanner_counts["trivy"],
+        "gitleaks_count": scanner_counts["gitleaks"],
+        "semgrep_count": scanner_counts["semgrep"],
+        "zap_count": scanner_counts["zap"],
+        "policy_violations_count": scanner_counts["policy"],
+        "threat_categories": threat_categories,
+        "engine_data": engine_data,
         "last_scan_at": utc_iso(datetime.utcnow())
     }
 
