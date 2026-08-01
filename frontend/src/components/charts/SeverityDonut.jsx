@@ -10,8 +10,8 @@ export default function SeverityDonut({ C, data: propData }) {
   ];
 
   return (
-    <div style={{ width: "100%", height: 260, display: "flex", alignItems: "center" }}>
-      <ResponsiveContainer width="100%" height="100%">
+    <div style={{ width: "100%", height: 260, display: "flex", alignItems: "center", minHeight: 260 }}>
+      <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
         <PieChart>
           <Pie data={data} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={4} dataKey="value">
             {data.map((entry, index) => (
