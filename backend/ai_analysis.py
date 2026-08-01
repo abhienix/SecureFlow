@@ -426,34 +426,55 @@ def smart_fallback(question: str, context: dict) -> str:
                 f"- Created At: {found_scan.get('created_at', 'N/A')}"
             )
 
-    # ── 2b. Ordinal position lookup: "78th commit", "5th scan", "23rd run" ───
-    # Matches patterns like "78th", "5th", "23rd", "42nd", "1st" used to look
-    # up the Nth scan by chronological position (1 = oldest, N = newest).
-    ordinal_match = re.search(r'\b(\d+)\s*(st|nd|rd|th)\b', q)
-    if ordinal_match and any(w in q for w in ["commit", "scan", "run", "pipeline"]):
-        position = int(ordinal_match.group(1))  # 1-based
-        # Build a chronologically sorted list (oldest first) from all available scans
-        all_scans_sorted = sorted(
-            recent_scans + [s for s in earliest_scans if s not in recent_scans],
-            key=lambda s: s.get("id", 0)
-        )
-        if 1 <= position <= len(all_scans_sorted):
-            target = all_scans_sorted[position - 1]
-            icon = "\U0001f534" if target.get("action_taken") == "BLOCK" else "\U0001f7e2"
-            return (
-                f"**Commit #{position} (Ordinal Position)**:\n"
-                f"{icon} **#{target['id']}** `{target.get('commit_sha', '?')[:7]}` \u2014 _{target.get('commit_message') or 'no message'}_\n"
-                f"- Branch: `{target.get('branch', 'main')}`\n"
-                f"- Result: **{target.get('action_taken', 'ALLOW')}**\n"
-                f"- Created At: {target.get('created_at', 'N/A')}\n\n"
-                f"_(Showing position {position} of {len(all_scans_sorted)} locally cached scans. Total tracked: {total})_"
+    # ── 2b. Ordinal position lookup: "87th commit", "87th push", "5th scan" ───
+    ordinal_match = re.search(r'\b(\d+)\s*(st|nd|rd|th)?\b', q)
+    if ordinal_match and any(w in q for w in ["commit", "scan", "run", "pipeline", "push"]):
+        position = int(ordinal_match.group(1))
+        
+        # Check if query contains a negation prefix like "not 87th commit"
+        has_not_prefix = bool(re.search(r'\b(not|except|other than)\s*#?\s*' + str(position), q))
+
+        target = context.get("target_ordinal_scan")
+        if not target or target.get("position") != position:
+            all_scans_sorted = sorted(
+                recent_scans + [s for s in earliest_scans if s not in recent_scans],
+                key=lambda s: s.get("id", 0)
             )
+            if 1 <= position <= len(all_scans_sorted):
+                target = all_scans_sorted[position - 1]
+                target["position"] = position
+
+        if target:
+            action = target.get("action_taken", "ALLOW")
+            is_blocked = action == "BLOCK" or target.get("status") in ("failed", "blocked")
+            icon = "🔴" if is_blocked else "🟢"
+
+            wants_why_blocked = any(w in q for w in ["why", "reason", "block", "fail", "issue"])
+            is_push_query = "push" in q
+
+            out_lines = []
+            if has_not_prefix or is_push_query:
+                out_lines.append(f"Got it! In SecureFlow, each `git push` triggers a CI/CD pipeline scan run, so **Push #{position}** and **Commit #{position}** refer to the exact same scan run in repository history.\n")
+            
+            out_lines.append(f"📌 **Commit / Push #{position} Details (Scan Run #{target['id']})**:")
+            out_lines.append(f"{icon} **Commit SHA**: `{target.get('commit_sha', '?')[:7]}` — _{target.get('commit_message') or 'no message'}_")
+            out_lines.append(f"• **Branch**: `{target.get('branch', 'main')}`")
+            out_lines.append(f"• **Date & Time**: `{target.get('created_at', 'N/A')}` UTC")
+            
+            if is_blocked:
+                reason = target.get("ai_explanation") or "Security scanner policy gate thresholds exceeded."
+                out_lines.append(f"• **Result**: 🔴 **BLOCKED**")
+                out_lines.append(f"• **Reason Why Blocked**: {reason}")
+            else:
+                out_lines.append(f"• **Result**: 🟢 **PASSED (ALLOW)**")
+                if wants_why_blocked:
+                    out_lines.append(f"• **Block Status**: **Not Blocked!** This commit/push passed all security scanner gates (Gitleaks, Semgrep, Trivy, ZAP) cleanly.")
+
+            out_lines.append(f"\n_(Position {position} of {total} total scans tracked in history)_")
+            return "\n".join(out_lines)
         else:
             return (
-                f"I can see **{len(all_scans_sorted)}** scans in my local cache, "
-                f"but position **{position}** is out of that range. "
-                f"Total scans tracked in the database: **{total}**. "
-                f"Try asking for a specific commit SHA or scan ID instead."
+                f"Position **#{position}** is outside the currently tracked database range (total scans: **{total}**)."
             )
 
 

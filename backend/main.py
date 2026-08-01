@@ -3891,6 +3891,22 @@ async def process_copilot_query(question: str, db: AsyncSession) -> str:
     recent_scans = [_fmt_scan(r) for r in scans_rows]
     earliest_scans = [_fmt_scan(r) for r in earliest_rows]
 
+    target_ordinal_scan = None
+    ord_match = re.search(r'\b(\d+)\s*(st|nd|rd|th)?\b', question)
+    if ord_match and any(w in question.lower() for w in ["commit", "scan", "run", "pipeline", "push"]):
+        pos = int(ord_match.group(1))
+        if 1 <= pos <= total_count:
+            try:
+                pos_res = await db.execute(
+                    select(ScanResult).order_by(ScanResult.id.asc()).offset(pos - 1).limit(1)
+                )
+                ord_row = pos_res.scalars().first()
+                if ord_row:
+                    target_ordinal_scan = _fmt_scan(ord_row)
+                    target_ordinal_scan["position"] = pos
+            except Exception as ex:
+                logger.warning(f"[copilot ordinal db fetch error]: {ex}")
+
     sev_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
     top_findings = []
     for f in findings_rows:
@@ -3923,6 +3939,7 @@ async def process_copilot_query(question: str, db: AsyncSession) -> str:
         "total_scans": total_count,
         "recent_scans": recent_scans,
         "earliest_scans": earliest_scans,
+        "target_ordinal_scan": target_ordinal_scan,
         "findings_summary": sev_counts,
         "top_vulnerabilities": top_findings,
         "active_deployments": deployments_list,
