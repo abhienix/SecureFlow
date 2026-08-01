@@ -264,22 +264,52 @@ async def _init_db_tables():
 
         try:
             async with engine.begin() as conn:
+                # 1. Repair scans where steps finished as passed/complete
                 await conn.execute(text("""
                     UPDATE scan_results
-                    SET status = 'superseded',
-                        action_taken = COALESCE(action_taken, 'SKIPPED'),
-                        ai_explanation = COALESCE(ai_explanation, 'Closed by system watchdog cleanup')
+                    SET status = 'complete',
+                        action_taken = COALESCE(action_taken, 'ALLOW')
                     WHERE status = 'running'
+                      AND (
+                        pipeline_steps LIKE '%deploy_prod%'
+                        OR pipeline_steps LIKE '%deploy_staging%'
+                        OR pipeline_steps LIKE '%PASS%'
+                      )
+                      AND pipeline_steps NOT LIKE '%BLOCK%'
+                      AND pipeline_steps NOT LIKE '%FAIL%'
+                """))
+
+                # 2. Repair scans where steps finished as blocked
+                await conn.execute(text("""
+                    UPDATE scan_results
+                    SET status = 'complete',
+                        action_taken = 'BLOCK'
+                    WHERE status = 'running'
+                      AND (pipeline_steps LIKE '%BLOCK%' OR pipeline_steps LIKE '%FAIL%')
+                """))
+
+                # 3. Sync pipeline_runs for repaired complete scans
+                await conn.execute(text("""
+                    UPDATE pipeline_runs
+                    SET status = 'PASSED',
+                        action_taken = 'ALLOW'
+                    WHERE status = 'RUNNING'
+                      AND id IN (
+                        SELECT 'run-' || id FROM scan_results WHERE status = 'complete' AND action_taken = 'ALLOW'
+                      )
                 """))
                 await conn.execute(text("""
                     UPDATE pipeline_runs
-                    SET status = 'SKIPPED',
-                        action_taken = COALESCE(action_taken, 'SKIPPED')
+                    SET status = 'BLOCKED',
+                        action_taken = 'BLOCK'
                     WHERE status = 'RUNNING'
+                      AND id IN (
+                        SELECT 'run-' || id FROM scan_results WHERE status = 'complete' AND action_taken = 'BLOCK'
+                      )
                 """))
-                logger.info("[startup migration] Successfully closed all stale active/running pipelines.")
+                logger.info("[startup migration] Successfully auto-repaired and closed all completed/passed pipeline runs.")
         except Exception as e:
-            logger.info(f"[startup migration] stale running scan cleanup notice: {e}")
+            logger.info(f"[startup migration] scan cleanup notice: {e}")
 
     if not is_sqlite:
         dup_sql = text("""
@@ -1703,24 +1733,30 @@ async def update_scan_progress(run_id: int, data: dict = None, db: AsyncSession 
         except Exception as e:
             logger.warning(f"[progress] Error creating event record: {e}")
 
-    # Update PipelineRun overall status based on latest stage states
-    if run_updated and run:
-        all_stages = await db.execute(
-            select(PipelineStage).filter(PipelineStage.run_id == run_id_str).order_by(PipelineStage.order_index)
-        )
-        stages = all_stages.scalars().all()
-        if stages:
-            running_stages = [s for s in stages if s.status == StageStatus.RUNNING.value]
-            failed_stages = [s for s in stages if StageStatus.is_failure(s.status)]
-            all_terminal = all(StageStatus.is_terminal(s.status) for s in stages)
-            if running_stages:
-                run.status = StageStatus.RUNNING.value
-            elif failed_stages:
-                run.status = StageStatus.BLOCKED.value if any(s.status == StageStatus.BLOCKED.value for s in failed_stages) else StageStatus.FAILED.value
-            elif all_terminal:
-                run.status = StageStatus.PASSED.value
-            else:
-                run.status = StageStatus.WAITING.value
+    # Update PipelineRun and ScanResult overall status based on latest stage states
+    all_stages = await db.execute(
+        select(PipelineStage).filter(PipelineStage.run_id == run_id_str).order_by(PipelineStage.order_index)
+    )
+    stages = all_stages.scalars().all()
+    if stages:
+        running_stages = [st for st in stages if st.status == StageStatus.RUNNING.value]
+        failed_stages = [st for st in stages if StageStatus.is_failure(st.status)]
+        all_terminal = all(StageStatus.is_terminal(st.status) for st in stages)
+        if running_stages:
+            if run: run.status = StageStatus.RUNNING.value
+            scan.status = "running"
+        elif failed_stages:
+            has_block = any(st.status == StageStatus.BLOCKED.value for st in failed_stages)
+            if run: run.status = StageStatus.BLOCKED.value if has_block else StageStatus.FAILED.value
+            scan.status = "complete"
+            scan.action_taken = "BLOCK"
+        elif all_terminal or ("deploy_prod" in existing_steps or "deploy_staging" in existing_steps):
+            if run: run.status = StageStatus.PASSED.value
+            scan.status = "complete"
+            if not scan.action_taken:
+                scan.action_taken = "ALLOW"
+        else:
+            if run: run.status = StageStatus.WAITING.value
 
     await db.commit()
 

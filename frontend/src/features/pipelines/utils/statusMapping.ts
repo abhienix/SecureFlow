@@ -84,21 +84,26 @@ export function getOverallBadge(run: PipelineRun) {
     return { label: 'FAILED', color: 'red' };
   }
 
-  // 2. Then check status
+  // 2. Check if all steps in the graph have completed successfully
+  const stepList = Object.values(steps);
+  const stepResultsUpper = stepList.map(s => String((s as any)?.result || '').toUpperCase());
+  const hasRunningStep = stepResultsUpper.some(r => ['RUNNING', 'PENDING', 'WAITING', 'DEPLOYING', 'IN_PROGRESS'].includes(r));
+  const hasFailedStep = stepResultsUpper.some(r => ['FAIL', 'FAILED', 'BLOCK', 'BLOCKED', 'ERROR'].includes(r));
+  const hasPassedSteps = stepResultsUpper.some(r => ['PASS', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'PASSED'].includes(r));
+  
+  // If final deploy_prod or deploy_staging is PASS, or all non-skipped steps passed with zero failures/running
+  const isFullyPassed = (stepResultsUpper.includes('PASS') || hasPassedSteps) && !hasRunningStep && !hasFailedStep;
+
   if (runStatusUpper === 'CANCELLED' || runStatusUpper === 'TIMEOUT') return { label: 'CANCELLED', color: 'gray' };
   if (runStatusUpper === 'SKIPPED' || runStatusUpper === 'SUPERSEDED') return { label: 'SKIPPED', color: 'gray' };
-  if (runStatusUpper === 'PASSED' || runStatusUpper === 'SUCCESS') return { label: 'PASSED', color: 'green' };
+  if (runStatusUpper === 'PASSED' || runStatusUpper === 'SUCCESS' || isFullyPassed) return { label: 'PASSED', color: 'green' };
 
-  // "complete" is only PASSED if no steps are still deploying/running
   if (runStatusUpper === 'COMPLETE') {
-    const hasRunningStep = Object.values(steps).some(s =>
-      ['RUNNING', 'PENDING', 'WAITING', 'DEPLOYING'].includes(String((s as any)?.result || '').toUpperCase())
-    );
     if (hasRunningStep) return { label: 'RUNNING', color: 'indigo' };
     return { label: 'PASSED', color: 'green' };
   }
 
-  if (runStatusUpper === 'DEPLOYING' || runStatusUpper === 'RUNNING' || runStatusUpper === 'IN_PROGRESS' || allSteps.some(s => String(s?.result || '').toUpperCase() === 'RUNNING')) {
+  if (hasRunningStep || runStatusUpper === 'DEPLOYING' || runStatusUpper === 'RUNNING' || runStatusUpper === 'IN_PROGRESS') {
     return { label: 'RUNNING', color: 'indigo' };
   }
   return { label: 'WAITING', color: 'gray' };
