@@ -6,7 +6,7 @@ import Badge from '../../components/ui/Badge';
 import DrawerPanel from '../../components/ui/DrawerPanel';
 import ScannerBar from '../../components/security/ScannerBar';
 import { client } from '../../api/client';
-import { useSecurityStore } from '../../store/securityStore';
+import { useSecurityStore } from '../../stores/securityStore';
 
 export default function SecurityCenterWorkspace() {
   const qc = useQueryClient();

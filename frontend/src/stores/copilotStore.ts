@@ -20,7 +20,7 @@ interface CopilotState {
 }
 
 export const useCopilotStore = create<CopilotState>((set) => ({
-  isOpen: true, // Permanent right panel by default
+  isOpen: true,
   messages: [],
   context: null,
   setOpen: (open) => set({ isOpen: open }),

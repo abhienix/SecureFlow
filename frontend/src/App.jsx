@@ -25,7 +25,7 @@ const PipelineDetailPage = lazy(() => import("./features/pipelines/PipelineDetai
 const SecurityCenterWorkspace = lazy(() => import("./features/security/SecurityCenterWorkspace"));
 const DeploymentsPage = lazy(() => import("./features/deployments/DeploymentsPage"));
 const ObservabilityPage = lazy(() => import("./features/observability/ObservabilityPage"));
-const PolicyWorkspace = lazy(() => import("./components/pages/PolicyWorkspace"));
+const PolicyWorkspace = lazy(() => import("./features/policies/PolicyWorkspace"));
 const SettingsWorkspace = lazy(() => import("./features/settings/SettingsWorkspace"));
 const NotificationsPage = lazy(() => import("./features/notifications/NotificationsPage"));
 
