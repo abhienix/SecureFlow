@@ -47,9 +47,21 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") onClose();
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  // Context chips construction
+  const [hasRightDrawer, setHasRightDrawer] = useState(false);
+
+  useEffect(() => {
+    const checkDrawer = () => {
+      if (typeof document === 'undefined') return;
+      // Check if a right-hand side drawer or triggerPrompt from drawer is active
+      const rightDrawer = document.querySelector('[style*="right: 0"], [class*="drawer"], [class*="Drawer"]');
+      const isVisibleDrawer = rightDrawer && rightDrawer.getBoundingClientRect().width > 200;
+      setHasRightDrawer(!!isVisibleDrawer || !!triggerPrompt);
+    };
+    checkDrawer();
+    const interval = setInterval(checkDrawer, 400);
+    return () => clearInterval(interval);
+  }, [isOpen, triggerPrompt, location]);
 
   const activeScan = useMemo(() => scans[0] || {}, [scans]);
   const currentRouteName = location.pathname.split("/")[1] || "overview";
@@ -402,7 +414,10 @@ Current page: ${ctx.current_page}
       <div style={{
         position: "fixed",
         bottom: 24,
-        right: 24,
+        ...(hasRightDrawer
+          ? { left: "min(280px, calc(100vw - 400px))", right: "auto" }
+          : { right: 24, left: "auto" }
+        ),
         width: 380,
         maxWidth: "calc(100vw - 48px)",
         maxHeight: "calc(100vh - 48px)",
@@ -410,16 +425,16 @@ Current page: ${ctx.current_page}
         flexDirection: "column",
         borderRadius: 20,
         overflow: "hidden",
-        background: "rgba(8, 12, 28, 0.82)",
+        background: "rgba(8, 12, 28, 0.88)",
         backdropFilter: "blur(28px) saturate(180%)",
         WebkitBackdropFilter: "blur(28px) saturate(180%)",
-        border: "1px solid rgba(129, 140, 248, 0.2)",
-        boxShadow: "0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(129,140,248,0.08), inset 0 1px 0 rgba(255,255,255,0.05)",
+        border: "1px solid rgba(129, 140, 248, 0.25)",
+        boxShadow: "0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(129,140,248,0.12), inset 0 1px 0 rgba(255,255,255,0.05)",
         transform: isOpen ? "translateY(0) scale(1)" : "translateY(24px) scale(0.97)",
         opacity: isOpen ? 1 : 0,
-        transition: "transform 320ms cubic-bezier(0.16,1,0.3,1), opacity 280ms ease",
+        transition: "left 300ms ease, right 300ms ease, transform 320ms cubic-bezier(0.16,1,0.3,1), opacity 280ms ease",
         pointerEvents: isOpen ? "auto" : "none",
-        zIndex: 50
+        zIndex: 10000
       }}>
 
         {/* ── HEADER ── */}
