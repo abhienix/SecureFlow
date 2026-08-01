@@ -1006,13 +1006,33 @@ async def verify_api_secret(request: Request):
         raise HTTPException(status_code=403, detail="Forbidden: invalid or missing API secret")
 
 
-def utc_iso(dt: datetime | None) -> str | None:
-    """Serialize naive UTC datetimes with a Z suffix so browsers parse them correctly."""
+@app.exception_handler(Exception)
+async def custom_global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"[GLOBAL EXCEPTION] {request.method} {request.url}: {exc}")
+    origin = request.headers.get("origin", "*")
+    return responses.JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+
+def utc_iso(dt: datetime | str | None) -> str | None:
+    """Serialize naive UTC datetimes or string timestamps safely with a Z suffix."""
     if dt is None:
         return None
-    if dt.tzinfo is None:
+    if isinstance(dt, str):
+        return dt if dt.endswith("Z") else dt + "Z"
+    if hasattr(dt, "tzinfo") and dt.tzinfo is None:
         return dt.isoformat() + "Z"
-    return dt.isoformat()
+    if hasattr(dt, "isoformat"):
+        return dt.isoformat()
+    return str(dt)
 
 
 def scan_to_broadcast_payload(scan: ScanResult, msg_type: str = "scan_complete") -> dict:
@@ -3979,6 +3999,7 @@ async def copilot_chat_streaming(data: dict, db: AsyncSession = Depends(get_db))
 app.include_router(v1_router)
 
 @app.websocket("/ws/events")
+@v1_router.websocket("/ws/events")
 async def websocket_events(ws: WebSocket):
     await manager.connect(ws)
     missed_pongs = 0
