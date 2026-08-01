@@ -405,8 +405,6 @@ Current page: ${ctx.current_page}
     ];
   };
 
-  const suggestedChips = getSuggestedChips();
-
   const quickChips = getSuggestedChips().slice(0, 3);
 
   return (
