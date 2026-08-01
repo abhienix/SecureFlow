@@ -133,6 +133,159 @@ graph TD
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### ✏️ Eraser.io Diagram-as-Code Specs
+
+For a clean, uncoloured, whiteboard-style visual architecture, copy and paste the following specifications directly into [Eraser.io](https://www.eraser.io/):
+
+<details>
+<summary><b>1. Master System Architecture Flow (Click to Expand)</b></summary>
+
+```text
+// Nodes
+developer [icon: "terminal", label: "Developer Git Push / PR"]
+
+// CI/CD Workflow Group
+subgraph CI_Pipeline [label: "GitHub Actions 9-Stage Pipeline"] {
+  checkout [label: "1. Checkout"]
+  code_scan [icon: "shield", label: "2. SAST & Secrets Scan"]
+  docker_build [icon: "docker", label: "3. Docker Build"]
+  trivy_scan [icon: "shield-check", label: "4. Trivy CVE Scan"]
+  policy_gate [icon: "lock", label: "5. Policy Gate (yaml)"]
+  deploy_staging [icon: "cloud", label: "6. Deploy Staging"]
+  owasp_zap [icon: "bug", label: "7. OWASP ZAP DAST"]
+  zap_gate [icon: "shield-alert", label: "8. ZAP Gate"]
+  deploy_prod [icon: "rocket", label: "9. Deploy Production"]
+}
+
+// FastAPI Backend & DAST Cluster Group
+subgraph Backend_Cluster [label: "FastAPI Backend & DAST Cluster"] {
+  fastapi [icon: "cpu", label: "FastAPI Gateway"]
+  redis_queue [icon: "database", label: "Redis & Celery Queue"]
+  dast_worker [icon: "server", label: "DAST Worker Process"]
+  zap_container [icon: "docker", label: "ZAP Docker Container"]
+}
+
+// Databases Group
+subgraph Data_Layer [label: "Data & Cache Layer"] {
+  postgres [icon: "postgresql", label: "PostgreSQL Database"]
+  redis_cache [icon: "database", label: "Redis Cache"]
+}
+
+// AI Copilot Group
+subgraph AI_Engine [label: "Void AI Copilot Engine"] {
+  context_builder [icon: "settings", label: "Context Builder"]
+  llm_router [icon: "cpu", label: "LLM Provider Chain"]
+}
+
+// Frontend Group
+subgraph Frontend_App [label: "React 19 Executive Dashboard"] {
+  node_graph [icon: "layout", label: "9-Node Animated Graph"]
+  copilot_drawer [icon: "message-square", label: "Void AI Copilot Drawer"]
+  security_hub [icon: "activity", label: "Security Center & Findings"]
+}
+
+// Connections
+developer > checkout : "push / PR"
+checkout > code_scan
+code_scan > docker_build
+docker_build > trivy_scan
+trivy_scan > policy_gate
+policy_gate > deploy_staging : "ALLOW"
+deploy_staging > owasp_zap
+owasp_zap > zap_gate
+zap_gate > deploy_prod : "ALLOW"
+
+// CI Progress streams to FastAPI
+CI_Pipeline > fastapi : "Micro Progress PATCH"
+
+// DAST Enqueue and execution
+fastapi > redis_queue : "Enqueue Task"
+redis_queue > dast_worker : "Pull Task"
+dast_worker > zap_container : "Execute (Docker Socket)"
+zap_container > deploy_staging : "HTTP Attack Vectors"
+zap_container > dast_worker : "Scan Results (JSON)"
+dast_worker > postgres : "Insert Findings"
+dast_worker > fastapi : "WS Broadcast Trigger"
+
+// Data persistence & cache
+fastapi > postgres : "Read/Write State"
+fastapi > redis_cache : "Heartbeat / Cache"
+
+// WebSocket push to UI
+fastapi > node_graph : "sub-15ms WebSocket"
+fastapi > security_hub
+
+// AI Context & flow
+postgres > context_builder : "DB Scan History"
+context_builder > llm_router : "RAG Context"
+llm_router > copilot_drawer : "Security Insights & Patches"
+```
+
+</details>
+
+<details>
+<summary><b>2. DAST Out-of-Process Worker Flow (Click to Expand)</b></summary>
+
+```text
+// Define participants
+GHA [icon: "github", label: "GitHub Actions"]
+FastAPI [icon: "cpu", label: "FastAPI Gateway"]
+Redis [icon: "database", label: "Redis Queue"]
+Worker [icon: "server", label: "DAST Worker"]
+Docker [icon: "docker", label: "ZAP Docker"]
+DB [icon: "postgresql", label: "PostgreSQL DB"]
+ReactApp [icon: "layout", label: "React Dashboard"]
+
+// Sequence Flow
+GHA > FastAPI : "POST /api/v1/dast/start"
+FastAPI > DB : "Create ScanResult (status: QUEUED)"
+FastAPI > Redis : "Push Job to dast_queue"
+FastAPI > GHA : "200 OK / 202 Accepted"
+
+Worker > Redis : "Pop Job from dast_queue"
+Worker > DB : "Update status: RUNNING & assign worker"
+Worker > Docker : "docker run -v ZAP scan target_url"
+Docker > Worker : "Return scan findings JSON"
+
+Worker > DB : "Store findings & update status: COMPLETED"
+Worker > FastAPI : "WS Event trigger callback"
+FastAPI > ReactApp : "Broadcast WS update (telemetry)"
+```
+
+</details>
+
+<details>
+<summary><b>3. Component Dependency Topology (Click to Expand)</b></summary>
+
+```text
+// Components
+frontend [icon: "layout", label: "React 19 Frontend"]
+api_gateway [icon: "cpu", label: "FastAPI API Gateway"]
+worker_pool [icon: "server", label: "Out-of-Process Workers"]
+db_pg [icon: "postgresql", label: "PostgreSQL DB"]
+broker_redis [icon: "database", label: "Redis Queue & PubSub"]
+
+// Layout groupings
+Infrastructure {
+  db_pg
+  broker_redis
+}
+
+Services {
+  api_gateway
+  worker_pool
+}
+
+// Dependency Paths
+frontend > api_gateway : "REST / WebSocket"
+api_gateway > db_pg : "CRUD (SQLAlchemy)"
+api_gateway > broker_redis : "Heartbeats & Queuing"
+worker_pool > broker_redis : "Job Queue Poll"
+worker_pool > db_pg : "Persist scan findings"
+```
+
+</details>
+
 ---
 
 ## 🌟 9-Stage DevSecOps Pipeline Flow
@@ -172,33 +325,35 @@ $$\begin{aligned}
 
 ## 🤖 Void AI Copilot & Enterprise AI Server Architecture
 
-Void is an autonomous security intelligence copilot built directly into the SecureFlow dashboard, backed by a multi-tiered AI Server architecture:
+Void is an autonomous security intelligence copilot built directly into the SecureFlow dashboard, backed by an enterprise RAG and multi-model AI Server architecture:
 
 ```text
 AI Server
-├── Ollama
-│      ├── Qwen2.5:3B / Qwen2.5:7B
-│      └── nomic-embed-text
-├── ChromaDB / Vector Store
+├── Ollama Engine
+│      ├── DeepSeek (deepseek-coder:6.7b / deepseek-r1)
+│      ├── Qwen (qwen2.5:7b / qwen2.5:3b)
+│      └── nomic-embed-text (Vector Embedding Pipeline)
+├── ChromaDB / Vector Store (RAG Storage)
 ├── MCP Server (Model Context Protocol)
-├── RAG Engine
-├── Embedding Pipeline
-├── AI Gateway (FastAPI)
-├── Context Builder
-├── Conversation Memory (Zustand)
-├── Prompt Manager
-├── Remediation Engine
-├── Security Knowledge Base
-└── Tool Registry
+├── RAG Engine (Retrieval-Augmented Generation)
+├── Embedding Pipeline (Codebase & Finding Indexing)
+├── AI Gateway (FastAPI REST & Sub-15ms WebSockets)
+├── LLM Router (Task-Aware Model Dispatcher)
+├── Context Builder (Real-Time DB State Ingestion)
+├── Conversation Memory (Zustand State)
+├── Prompt Manager & Security System Instructions
+├── Remediation Engine (Line-by-Line Code Patches)
+├── Security Knowledge Base (OWASP, CWE, CVE Rules)
+└── Security Guardrails Engine (Context & Safety Boundary Filter)
 ```
 
 ### AI Component Architecture
-- **AI Gateway**: Serves `/api/copilot/ask` REST queries and streams sub-15ms WebSocket push events.
-- **Context Builder**: Ingests real-time DB state (latest 50 scans, 50 earliest scans, 500 security findings, active Cloud Run deployments, policy definitions).
-- **Multi-Model Provider Chain**: Primary Cloud LLM (`Groq` Llama-3.3-70B) $\rightarrow$ Secondary (`Gemini` 2.0) $\rightarrow$ Local Offline Inference (`Ollama` Qwen2.5) $\rightarrow$ Deterministic Smart Fallback.
+- **RAG & Embedding Pipeline**: Uses `nomic-embed-text` with ChromaDB to index codebase snippets, CVE definitions, and OWASP remediation guidelines for semantic retrieval.
+- **Intelligent LLM Router**: Dynamically dispatches code patch synthesis to **DeepSeek** (`deepseek-coder:6.7b` / `llama-3.3-70b`), general security analysis to **Qwen** (`qwen2.5:7b` / `gemini-2.0`), and fallback queries to local offline models.
+- **AI Gateway & Context Builder**: Serves `/api/copilot/ask` REST queries and WebSocket events while ingesting real-time DB state (latest 50 scans, 50 earliest scans, 500 security findings, active Cloud Run deployments, policy definitions).
 - **Exact Query Parsing**: Handles single commit lookups (`"tell me no 1 commit"` returns Commit #1 from repository history), range queries (`"show last 10 commits"`), negation filtering (`"not 610"`), and exact ID lookups (`"show scan 608"`).
 - **Remediation Engine**: Synthesizes line-by-line code patches, sanitized query parameters, and credential rotation steps.
-- **Domain Guardrails**: Enforces strict security domain boundaries, rejecting off-topic prompts.
+- **Security Guardrails Engine**: Enforces strict security domain boundaries, redacting sensitive tokens and rejecting off-topic prompts.
 
 ---
 
