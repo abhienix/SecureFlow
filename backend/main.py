@@ -3753,6 +3753,9 @@ async def process_copilot_query(question: str, db: AsyncSession) -> str:
         scans_res = await db.execute(select(ScanResult).order_by(ScanResult.id.desc()).limit(50))
         scans_rows = scans_res.scalars().all()
         
+        earliest_res = await db.execute(select(ScanResult).order_by(ScanResult.id.asc()).limit(50))
+        earliest_rows = earliest_res.scalars().all()
+
         findings_res = await db.execute(select(SecurityFinding).order_by(SecurityFinding.id.desc()).limit(500))
         findings_rows = findings_res.scalars().all()
 
@@ -3760,10 +3763,10 @@ async def process_copilot_query(question: str, db: AsyncSession) -> str:
         deploy_rows = deploy_res.scalars().all()
     except Exception as ex:
         logger.error(f"[copilot db fetch error]: {ex}")
-        total_count, scans_rows, findings_rows, deploy_rows = 0, [], [], []
+        total_count, scans_rows, earliest_rows, findings_rows, deploy_rows = 0, [], [], [], []
 
-    recent_scans = [
-        {
+    def _fmt_scan(r):
+        return {
             "id": r.id,
             "repo_name": r.repo_name,
             "branch": r.branch,
@@ -3774,8 +3777,10 @@ async def process_copilot_query(question: str, db: AsyncSession) -> str:
             "ai_explanation": r.ai_explanation or "",
             "created_at": str(r.created_at)[:19] if r.created_at else ""
         }
-        for r in scans_rows
-    ]
+
+    recent_scans = [_fmt_scan(r) for r in scans_rows]
+    earliest_scans = [_fmt_scan(r) for r in earliest_rows]
+
     sev_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
     top_findings = []
     for f in findings_rows:
@@ -3807,6 +3812,7 @@ async def process_copilot_query(question: str, db: AsyncSession) -> str:
         "architect": "Abhimanyu",
         "total_scans": total_count,
         "recent_scans": recent_scans,
+        "earliest_scans": earliest_scans,
         "findings_summary": sev_counts,
         "top_vulnerabilities": top_findings,
         "active_deployments": deployments_list,

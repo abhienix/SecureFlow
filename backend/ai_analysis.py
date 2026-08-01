@@ -356,6 +356,7 @@ def smart_fallback(question: str, context: dict) -> str:
     """
     q = question.lower().strip()
     recent_scans = context.get("recent_scans", [])
+    earliest_scans = context.get("earliest_scans", [])
     sev = context.get("findings_summary", {})
     total = context.get("total_scans", len(recent_scans))
 
@@ -376,13 +377,6 @@ def smart_fallback(question: str, context: dict) -> str:
             "and codebase safety. How can I help with your security posture today?"
         )
 
-    # Extract numeric count if user asked for specific limit (e.g. "first 10", "1st 10", "last 5")
-    match_num = re.search(r'\b(\d+)\b', q) or re.search(r'\b(\d+)(st|nd|rd|th)\b', q)
-    requested_limit = int(match_num.group(1)) if match_num else 20
-    requested_limit = min(max(requested_limit, 1), 50)
-
-    is_earliest = any(w in q for w in ["from the start", "earliest", "oldest", "1st 10", "first 10", "start"])
-
     # ── 1. Standalone Greeting Check (Exact word boundary & short prompt) ──
     if re.search(r'\b(hi|hello|hey|greetings|who are you|what are you)\b', q) and len(q.split()) <= 4:
         return (
@@ -394,7 +388,45 @@ def smart_fallback(question: str, context: dict) -> str:
             f"Ask me about specific pipelines, commits, CVEs, or scan results."
         )
 
-    # ── 2. Blocked / Failed Queries ─────────────────────────────────────────
+    # ── 2. Single First Commit / Specific Scan ID Lookup ───────────────────
+    # Detect single item query for "no 1 commit", "commit #1", "first commit", "1st commit", "oldest commit"
+    has_plural_count = any(k in q for k in ["10", "20", "50", "5", "last", "recent", "list", "all"]) and not re.search(r'\b(no|number|#)?\s*1\b', q)
+    is_single_first = (
+        bool(re.search(r'\b(no|number|#)?\s*1(st)?\b', q) or re.search(r'\b(first|earliest|oldest)\b', q))
+        and not has_plural_count
+    )
+
+    if is_single_first and any(w in q for w in ["commit", "scan", "run", "done", "asked", "done"]):
+        all_scans = earliest_scans or recent_scans
+        if all_scans:
+            first_scan = min(all_scans, key=lambda s: s.get("id", 999999))
+            icon = "🔴" if first_scan.get("action_taken") == "BLOCK" else "🟢"
+            return (
+                f"**First Commit (#1 in Repository History)**:\n"
+                f"{icon} **#{first_scan['id']}** `{first_scan.get('commit_sha', '?')[:7]}` — _{first_scan.get('commit_message') or 'no message'}_\n"
+                f"- Branch: `{first_scan.get('branch', 'main')}`\n"
+                f"- Result: **{first_scan.get('action_taken', 'ALLOW')}**\n"
+                f"- Created At: {first_scan.get('created_at', 'N/A')}\n\n"
+                f"_(Total pipeline scans tracked: {total})_"
+            )
+
+    # Check for explicit ID lookup like "scan 608", "commit #608"
+    id_match = re.search(r'\b(scan|commit|run|#)\s*#?(\d+)\b', q)
+    if id_match and not ("not " + id_match.group(2) in q):
+        target_id = int(id_match.group(2))
+        combined_scans = recent_scans + earliest_scans
+        found_scan = next((s for s in combined_scans if s.get("id") == target_id), None)
+        if found_scan:
+            icon = "🔴" if found_scan.get("action_taken") == "BLOCK" else "🟢"
+            return (
+                f"**Scan Run #{found_scan['id']}**\n"
+                f"{icon} Commit `{found_scan.get('commit_sha', '?')[:7]}` — _{found_scan.get('commit_message') or 'no message'}_\n"
+                f"- Branch: `{found_scan.get('branch', 'main')}`\n"
+                f"- Action: **{found_scan.get('action_taken', 'ALLOW')}**\n"
+                f"- Created At: {found_scan.get('created_at', 'N/A')}"
+            )
+
+    # ── 3. Blocked / Failed Queries ─────────────────────────────────────────
     if any(w in q for w in ["block", "fail", "which one", "why", "reason", "issue", "how many are blocked"]):
         if not blocked:
             return "✅ No blocked pipelines in the last 20 runs. Everything is passing."
@@ -409,16 +441,25 @@ def smart_fallback(question: str, context: dict) -> str:
             f"In total, **{len(blocked)}** of the last {len(recent_scans)} runs were blocked."
         )
 
-    # ── 3. Commits / Scan Results Listing (With Range & Direction Parsing) ──
+    # ── 4. Commits / Scan Results Listing (With Range & Direction Parsing) ──
     if any(w in q for w in ["commit", "last", "recent", "pipeline", "result", "1st", "first", "start"]):
         if not recent_scans:
             return "No recent scan data found in the database right now."
 
-        display_scans = list(recent_scans)
+        # Strip out negated numbers like "not 610" before extracting count limit
+        q_clean = re.sub(r'\b(not|except)\s+#?\d+\b', '', q)
+        match_num = re.search(r'\b(\d+)\b', q_clean)
+        requested_limit = int(match_num.group(1)) if match_num else 20
+        requested_limit = min(max(requested_limit, 1), 50)
+
+        is_earliest = any(w in q for w in ["from the start", "earliest", "oldest", "1st 10", "first 10", "start"])
+
         if is_earliest:
+            display_scans = list(earliest_scans) if earliest_scans else list(recent_scans)
             display_scans.sort(key=lambda s: s.get("id", 0))
             heading = f"Here are the first {min(requested_limit, len(display_scans))} scan runs (from the start):\n"
         else:
+            display_scans = list(recent_scans)
             heading = f"Here are the last {min(requested_limit, len(display_scans))} scan runs:\n"
 
         lines = [heading]
@@ -431,7 +472,7 @@ def smart_fallback(question: str, context: dict) -> str:
             lines.append(f"{icon} **#{s['id']}** `{sha}` — {msg} _(branch: {branch}, {action})_")
         return "\n".join(lines)
 
-    # ── 4. CVE / findings / severity ────────────────────────────────────────
+    # ── 5. CVE / findings / severity ────────────────────────────────────────
     if any(w in q for w in ["cve", "finding", "vuln", "critical", "high", "severity", "security"]):
         c, h, m, lo = sev.get("CRITICAL", 0), sev.get("HIGH", 0), sev.get("MEDIUM", 0), sev.get("LOW", 0)
         if c + h + m + lo == 0:
@@ -445,7 +486,7 @@ def smart_fallback(question: str, context: dict) -> str:
             f"Focus on the **{c} critical** issues first — these can cause immediate risk."
         )
 
-    # ── 5. Health / status ──────────────────────────────────────────────────
+    # ── 6. Health / status ──────────────────────────────────────────────────
     if any(w in q for w in ["health", "status", "overview", "summary"]):
         block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
         return (
@@ -456,7 +497,7 @@ def smart_fallback(question: str, context: dict) -> str:
             f"- Latest run: **#{latest.get('id', 'N/A')}** — {latest.get('action_taken', 'ALLOW')}"
         )
 
-    # ── 6. Latest / most recent scan ────────────────────────────────────────
+    # ── 7. Latest / most recent scan ────────────────────────────────────────
     if any(w in q for w in ["latest", "newest", "most recent"]):
         if not latest:
             return "No scans found yet."
@@ -467,6 +508,16 @@ def smart_fallback(question: str, context: dict) -> str:
             f"- Result: **{latest.get('action_taken', 'ALLOW')}**\n"
             + (f"- Note: {latest['ai_explanation']}" if latest.get('ai_explanation') else "")
         )
+
+    # ── 8. Default Fallback ─────────────────────────────────────────────────
+    block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
+    return (
+        f"Here's what I can see right now:\n"
+        f"- **{total}** total pipeline scans\n"
+        f"- Last 20: **{len(passed)} passed**, **{len(blocked)} blocked** ({block_rate}% block rate)\n"
+        f"- Findings: **{sev.get('CRITICAL', 0)} critical**, **{sev.get('HIGH', 0)} high**, **{sev.get('MEDIUM', 0)} medium**\n\n"
+        f"Try asking: _'tell me no 1 commit'_, _'which pipeline was blocked?'_, or _'show last 10 commits'_."
+    )
 
     # ── 7. Default Fallback ─────────────────────────────────────────────────
     block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
