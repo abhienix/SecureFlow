@@ -1,4 +1,4 @@
-# 🛡️ SecureFlow — Enterprise DevSecOps Security Gate & Intelligence Platform
+# 🛡️ SecureFlow – Automated DevSecOps Pipeline with AI Security Analysis
 
 [![CI/CD Pipeline](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-blue?logo=github-actions)](https://github.com/abhienix/SecureFlow/actions)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
