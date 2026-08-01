@@ -169,7 +169,23 @@ flowchart TD
     style Data_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
     style Worker_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
     style Ext_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
+
+    %% Styling / Legend Links (Mermaid default class association)
+    class dev,github,c1,c2,c3,c4,c5,c6,c7,c8,c9,dashboard,void_drawer,console,notifs,gateway,repo_svc,pipe_svc,find_svc,dep_svc,pol_svc,ai_gtw,obs_svc,ws_mgr,conv_mgr,ctx_bld,rag_eng,mcp_srv,guardrails,prompt_mgr,ollama,qwen,nomic,chroma,remedy,pg,redis,prom,celery,docker,zap,health,heartbeat,github_api,slack,staging_env,prod_env service;
 ```
+
+### 🏛️ Operational Layer Breakdown (In Theory)
+
+The system is organized into **8 architectural layers** to ensure separation of concerns, scalability, and security:
+
+1.  **Developer Layer**: The entry point where developers commit code and open Pull Requests.
+2.  **CI/CD Execution Layer**: Executes automated GitHub Actions workflows (Gitleaks, Semgrep, Trivy SCA, Policy checking) and controls deployments.
+3.  **Client Interface Layer**: React 19 Executive Dashboard, Void AI conversational drawer, and Admin consoles for real-time security observability.
+4.  **Cloud Backend Layer**: FastAPI Gateway running internal sub-services (Findings, Pipeline, Deployments, AI Gateway, WebSocket Manager).
+5.  **AI Intelligence Layer**: Drives the reasoning engine using RAG context building, ChromaDB Vector Store, Prompt managers, and Qwen/Gemini models to generate code fixes.
+6.  **Databases & Cache Layer**: PostgreSQL DB (metrics persistence), Redis (job queues and state cache), and Prometheus (observability telemetry).
+7.  **Worker Execution Layer**: Asynchronous Celery task consumers running completely out-of-process on standalone VMs to manage Docker OWASP ZAP security scans.
+8.  **External Integrations**: GitHub REST APIs (for PR generation) and Slack Webhooks (for alert notifications).
 
 ### 🔄 Enterprise Workflow Sequence Diagrams
 
