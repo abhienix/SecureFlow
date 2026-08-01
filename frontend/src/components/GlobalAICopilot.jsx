@@ -47,7 +47,11 @@ export default function GlobalAICopilot({ C, isOpen, onClose }) {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") onClose();
     };
-  // Context chips construction
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
+  // Context chips construction & right-drawer overlap detection
   const [hasRightDrawer, setHasRightDrawer] = useState(false);
 
   useEffect(() => {
