@@ -951,13 +951,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="SecureFlow — AI-Powered DevSecOps & Distributed DAST Gateway", version="2.0.0", lifespan=lifespan)
 
-CORS_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ORIGIN_REGEX", r".*")
+# CORS: defaults to localhost + Cloud Run in dev. Set BACKEND_CORS_ORIGINS (comma-separated) or
+# BACKEND_CORS_ORIGIN_REGEX in production to restrict to known frontend domains.
+_default_cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:8000",
+]
+_env_cors = os.getenv("BACKEND_CORS_ORIGINS", "")
+CORS_ALLOW_ORIGINS = [o.strip() for o in _env_cors.split(",") if o.strip()] or _default_cors_origins
+CORS_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ORIGIN_REGEX", "")
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=CORS_ORIGIN_REGEX,
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_origin_regex=CORS_ORIGIN_REGEX or None,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 
@@ -2444,7 +2453,7 @@ async def get_observability_metrics(db: AsyncSession = Depends(get_db)):
     }
 
 
-@app.get("/api/migrate")
+@app.post("/api/migrate", dependencies=[Depends(verify_api_secret)])
 async def migrate(db: AsyncSession = Depends(get_db)):
     is_sqlite = "sqlite" in str(db.bind.url) if db.bind else False
     migration_statements = [
@@ -3105,12 +3114,8 @@ async def get_v1_repositories(db: AsyncSession = Depends(get_db)):
         repos = res.scalars().all()
     return {"repositories": repos, "total": len(repos)}
 
-@v1_router.post("/repositories")
+@v1_router.post("/repositories", dependencies=[Depends(verify_api_secret)])
 async def register_v1_repository(data: dict, db: AsyncSession = Depends(get_db)):
-    pwd = data.get("password")
-    if pwd and pwd != "Abhi@8476":
-        raise HTTPException(status_code=403, detail="Invalid admin security password. Password 'Abhi@8476' is required.")
-        
     name = data.get("repo_name") or f"{data.get('owner', 'abhienix')}/{data.get('name', 'new-repo')}"
     res = await db.execute(select(Repository).filter(Repository.name == name))
     existing = res.scalars().first()
