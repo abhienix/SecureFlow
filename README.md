@@ -22,94 +22,100 @@ Below is the complete, single-view architectural map showing how all core operat
 ```mermaid
 %%{init: {'theme': 'neutral', 'themeVariables': { 'background': '#ffffff', 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#333333'}}}%%
 flowchart TD
-    classDef layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray: 5 5;
-    classDef service fill:#ffffff,stroke:#0f172a,stroke-width:1px;
+    classDef default fill:#ffffff,stroke:#0f172a,stroke-width:1px,color:#000000;
 
     %% ----------------------------------------------------
     %% Layers Definitions
     %% ----------------------------------------------------
     subgraph Dev_Layer [💻 Developer Layer]
-        dev[Developer Workstation]:::service
+        dev[Developer Workstation]
     end
-    class Dev_Layer layer;
 
     subgraph CICD_Layer [⚙️ CI/CD Execution Layer]
-        github[GitHub Repository]:::service
+        github[GitHub Repository]
         subgraph GHA_Pipeline [GitHub Actions Runner]
             c1[Checkout] --> c2[Gitleaks] --> c3[Semgrep] --> c4[Docker Build] --> c5[Trivy] --> c6[Policy Engine] --> c7[Deploy Staging] --> c8[Trigger DAST] --> c9[Deploy Production]
         end
     end
-    class CICD_Layer layer;
 
     subgraph Client_Layer [📊 Client Interface Layer]
-        dashboard[React Executive Dashboard]:::service
-        void_drawer[Void AI Copilot Drawer]:::service
-        console[Admin Management Console]:::service
-        notifs[Notification Center]:::service
+        dashboard[React Executive Dashboard]
+        void_drawer[Void AI Copilot Drawer]
+        console[Admin Management Console]
+        notifs[Notification Center]
     end
-    class Client_Layer layer;
 
-    subgraph Backend_Layer [⚡ Cloud Backend Layer - API Gateway & Internal Services]
-        gateway[API Gateway / Auth Router]:::service
-        repo_svc[Repository Service]:::service
-        pipe_svc[Pipeline Service]:::service
-        find_svc[Findings Service]:::service
-        dep_svc[Deployment Service]:::service
-        pol_svc[Policy Evaluator]:::service
-        ai_gtw[AI Gateway]:::service
-        obs_svc[Observability Service]:::service
-        ws_mgr[WebSocket Manager]:::service
+    subgraph Backend_Layer [⚡ Cloud Backend Layer - API Gateway & Services]
+        gateway[API Gateway / Auth Router]
+        repo_svc[Repository Service]
+        pipe_svc[Pipeline Service]
+        find_svc[Findings Service]
+        dep_svc[Deployment Service]
+        pol_svc[Policy Evaluator]
+        ai_gtw[AI Gateway]
+        obs_svc[Observability Service]
+        ws_mgr[WebSocket Manager]
         
-        gateway --> repo_svc & pipe_svc & find_svc & dep_svc & pol_svc & ai_gtw & obs_svc & ws_mgr
+        gateway --> repo_svc
+        gateway --> pipe_svc
+        gateway --> find_svc
+        gateway --> dep_svc
+        gateway --> pol_svc
+        gateway --> ai_gtw
+        gateway --> obs_svc
+        gateway --> ws_mgr
     end
-    class Backend_Layer layer;
 
     subgraph AI_Layer [🧠 AI Intelligence Layer]
-        conv_mgr[Conversation Manager]:::service
-        ctx_bld[Context Builder RAG]:::service
-        rag_eng[RAG Embeddings Engine]:::service
-        mcp_srv[MCP Server Context]:::service
-        guardrails[Guardrails & Safety Filters]:::service
-        prompt_mgr[Prompt Manager]:::service
-        ollama[Ollama Engine Host]:::service
-        qwen[Qwen2.5 3B Model]:::service
-        nomic[nomic-embed-text]:::service
-        chroma[(ChromaDB Vector Store)]:::service
-        remedy[Remediation Engine]:::service
+        conv_mgr[Conversation Manager]
+        ctx_bld[Context Builder RAG]
+        rag_eng[RAG Embeddings Engine]
+        mcp_srv[MCP Server Context]
+        guardrails[Guardrails & Safety Filters]
+        prompt_mgr[Prompt Manager]
+        ollama[Ollama Engine Host]
+        qwen[Qwen2.5 3B Model]
+        nomic[nomic-embed-text]
+        chroma[ChromaDB Vector Store]
+        remedy[Remediation Engine]
 
-        ai_gtw --> conv_mgr --> ctx_bld --> rag_eng --> mcp_srv --> prompt_mgr --> guardrails --> ollama
-        ollama --> qwen & nomic
+        ai_gtw --> conv_mgr
+        conv_mgr --> ctx_bld
+        ctx_bld --> rag_eng
+        rag_eng --> mcp_srv
+        mcp_srv --> prompt_mgr
+        prompt_mgr --> guardrails
+        guardrails --> ollama
+        ollama --> qwen
+        ollama --> nomic
         rag_eng --> chroma
         ctx_bld --> remedy
     end
-    class AI_Layer layer;
 
     subgraph Data_Layer [🗄️ Databases & Cache Layer]
-        pg[(PostgreSQL DB)]:::service
-        redis[Redis Queue & PubSub]:::service
-        prom[(Prometheus Server)]:::service
+        pg[(PostgreSQL DB)]
+        redis[Redis Queue & PubSub]
+        prom[(Prometheus Server)]
     end
-    class Data_Layer layer;
 
     subgraph Worker_Layer [🖥️ Worker Execution Layer]
-        celery[Celery Task Consumer]:::service
-        docker[Docker Engine Socket]:::service
-        zap[OWASP ZAP Container]:::service
-        health[Worker Health Agent]:::service
-        heartbeat[Heartbeat Service]:::service
+        celery[Celery Task Consumer]
+        docker[Docker Engine Socket]
+        zap[OWASP ZAP Container]
+        health[Worker Health Agent]
+        heartbeat[Heartbeat Service]
 
-        celery --> docker --> zap
+        celery --> docker
+        docker --> zap
         health --> heartbeat
     end
-    class Worker_Layer layer;
 
     subgraph Ext_Layer [🌐 External Integrations Layer]
-        github_api[GitHub REST API]:::service
-        slack[Slack Webhook App]:::service
-        staging_env[Cloud Run Staging Staging]:::service
-        prod_env[Cloud Run Production Prod]:::service
+        github_api[GitHub REST API]
+        slack[Slack Webhook App]
+        staging_env[Cloud Run Staging]
+        prod_env[Cloud Run Production]
     end
-    class Ext_Layer layer;
 
     %% ----------------------------------------------------
     %% Communication & Flows Between Layers
@@ -125,27 +131,44 @@ flowchart TD
     c9 -->|Deploy Image| prod_env
 
     %% Client Dashboard connections
-    dashboard & void_drawer & console & notifs ==>|HTTP REST Calls| gateway
+    dashboard ==>|HTTP REST Calls| gateway
+    void_drawer ==>|HTTP REST Calls| gateway
+    console ==>|HTTP REST Calls| gateway
+    notifs ==>|HTTP REST Calls| gateway
     gateway -.->|Sub-15ms WebSocket push| dashboard
 
-    %% Backend Data Access (All data flows through Backend Services)
-    repo_svc & pipe_svc & find_svc & dep_svc & pol_svc & obs_svc ==>|SQL Queries| pg
-    pipe_svc & dep_svc -.->|Enqueue DAST / Cache| redis
+    %% Backend Data Access
+    repo_svc ==>|SQL Queries| pg
+    pipe_svc ==>|SQL Queries| pg
+    find_svc ==>|SQL Queries| pg
+    dep_svc ==>|SQL Queries| pg
+    pol_svc ==>|SQL Queries| pg
+    obs_svc ==>|SQL Queries| pg
+    
+    pipe_svc -.->|Enqueue DAST / Cache| redis
+    dep_svc -.->|Enqueue DAST / Cache| redis
     obs_svc -.->|Scrape Metrics| prom
 
     %% Worker DAST Flow (Out of process)
     redis -.->|DAST Task Queue| celery
     zap -->|Attack Scan Target| staging_env
     celery ==>|Persist Findings| pg
-    heartbeat -.->|Worker Heartbeat (30s)| redis
+    heartbeat -.->|Worker Heartbeat| redis
 
     %% AI Integrations
     ctx_bld ==>|Read DB Findings| pg
     remedy -.->|Create Pull Requests| github_api
     obs_svc -.->|Send Slack Alerts| slack
 
-    %% Styling / Legend Links (Mermaid default class association)
-    class dev,github,c1,c2,c3,c4,c5,c6,c7,c8,c9,dashboard,void_drawer,console,notifs,gateway,repo_svc,pipe_svc,find_svc,dep_svc,pol_svc,ai_gtw,obs_svc,ws_mgr,conv_mgr,ctx_bld,rag_eng,mcp_srv,guardrails,prompt_mgr,ollama,qwen,nomic,chroma,remedy,pg,redis,prom,celery,docker,zap,health,heartbeat,github_api,slack,staging_env,prod_env service;
+    %% Subgraph Styling
+    style Dev_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
+    style CICD_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
+    style Client_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
+    style Backend_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
+    style AI_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
+    style Data_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
+    style Worker_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
+    style Ext_Layer fill:#f8fafc,stroke:#334155,stroke-width:2px,stroke-dasharray:5 5
 ```
 
 ### 🔄 Enterprise Workflow Sequence Diagrams
@@ -169,16 +192,14 @@ sequenceDiagram
     Developer->>GitHub: git push / Pull Request
     GitHub->>Runner: Trigger Workflow (security-pipeline.yml)
     
-    critical Static Security Analysis
-        Runner->>Runner: Checkout Code
-        Runner->>Runner: Run Gitleaks (Secrets)
-        Runner->>Runner: Run Semgrep (SAST)
-    end
+    Note over Runner: Static Security Analysis
+    Runner->>Runner: Checkout Code
+    Runner->>Runner: Run Gitleaks (Secrets)
+    Runner->>Runner: Run Semgrep (SAST)
 
-    critical Container Packaging & SCA
-        Runner->>Runner: Docker Build
-        Runner->>Runner: Run Trivy Scan (SCA / CVE)
-    end
+    Note over Runner: Container Packaging & SCA
+    Runner->>Runner: Docker Build
+    Runner->>Runner: Run Trivy Scan (SCA / CVE)
 
     Runner->>Backend: POST /api/scan-results/start (Static Metrics)
     Backend-->>Runner: 200 OK (run_id)
@@ -223,12 +244,11 @@ sequenceDiagram
     Worker->>Redis: Pop task (scan_id, target_url)
     Worker->>DB: Update ScanResult (dast_status = "running", worker_name)
     
-    critical Execute DAST Docker Container
-        Worker->>ZAP: docker run ghcr.io/zaproxy/zaproxy:stable
-        ZAP->>Target: HTTP Dynamic Attack Vectors (XSS, SQLi, etc.)
-        Target-->>ZAP: HTTP Responses
-        ZAP-->>Worker: Export ZAP Report (JSON findings)
-    end
+    Note over Worker, ZAP: Execute DAST Docker Container
+    Worker->>ZAP: docker run ghcr.io/zaproxy/zaproxy:stable
+    ZAP->>Target: HTTP Dynamic Attack Vectors (XSS, SQLi, etc.)
+    Target-->>ZAP: HTTP Responses
+    ZAP-->>Worker: Export ZAP Report (JSON findings)
 
     Worker->>DB: Persist SecurityFinding records
     Worker->>DB: Update ScanResult (dast_status = "completed", zap_gate = PASS/BLOCK)
