@@ -417,14 +417,45 @@ def smart_fallback(question: str, context: dict) -> str:
         combined_scans = recent_scans + earliest_scans
         found_scan = next((s for s in combined_scans if s.get("id") == target_id), None)
         if found_scan:
-            icon = "🔴" if found_scan.get("action_taken") == "BLOCK" else "🟢"
+            icon = "\U0001f534" if found_scan.get("action_taken") == "BLOCK" else "\U0001f7e2"
             return (
                 f"**Scan Run #{found_scan['id']}**\n"
-                f"{icon} Commit `{found_scan.get('commit_sha', '?')[:7]}` — _{found_scan.get('commit_message') or 'no message'}_\n"
+                f"{icon} Commit `{found_scan.get('commit_sha', '?')[:7]}` \u2014 _{found_scan.get('commit_message') or 'no message'}_\n"
                 f"- Branch: `{found_scan.get('branch', 'main')}`\n"
                 f"- Action: **{found_scan.get('action_taken', 'ALLOW')}**\n"
                 f"- Created At: {found_scan.get('created_at', 'N/A')}"
             )
+
+    # ── 2b. Ordinal position lookup: "78th commit", "5th scan", "23rd run" ───
+    # Matches patterns like "78th", "5th", "23rd", "42nd", "1st" used to look
+    # up the Nth scan by chronological position (1 = oldest, N = newest).
+    ordinal_match = re.search(r'\b(\d+)\s*(st|nd|rd|th)\b', q)
+    if ordinal_match and any(w in q for w in ["commit", "scan", "run", "pipeline"]):
+        position = int(ordinal_match.group(1))  # 1-based
+        # Build a chronologically sorted list (oldest first) from all available scans
+        all_scans_sorted = sorted(
+            recent_scans + [s for s in earliest_scans if s not in recent_scans],
+            key=lambda s: s.get("id", 0)
+        )
+        if 1 <= position <= len(all_scans_sorted):
+            target = all_scans_sorted[position - 1]
+            icon = "\U0001f534" if target.get("action_taken") == "BLOCK" else "\U0001f7e2"
+            return (
+                f"**Commit #{position} (Ordinal Position)**:\n"
+                f"{icon} **#{target['id']}** `{target.get('commit_sha', '?')[:7]}` \u2014 _{target.get('commit_message') or 'no message'}_\n"
+                f"- Branch: `{target.get('branch', 'main')}`\n"
+                f"- Result: **{target.get('action_taken', 'ALLOW')}**\n"
+                f"- Created At: {target.get('created_at', 'N/A')}\n\n"
+                f"_(Showing position {position} of {len(all_scans_sorted)} locally cached scans. Total tracked: {total})_"
+            )
+        else:
+            return (
+                f"I can see **{len(all_scans_sorted)}** scans in my local cache, "
+                f"but position **{position}** is out of that range. "
+                f"Total scans tracked in the database: **{total}**. "
+                f"Try asking for a specific commit SHA or scan ID instead."
+            )
+
 
     # ── 3. Blocked / Failed Queries ─────────────────────────────────────────
     if any(w in q for w in ["block", "fail", "which one", "why", "reason", "issue", "how many are blocked"]):
@@ -516,15 +547,5 @@ def smart_fallback(question: str, context: dict) -> str:
         f"- **{total}** total pipeline scans\n"
         f"- Last 20: **{len(passed)} passed**, **{len(blocked)} blocked** ({block_rate}% block rate)\n"
         f"- Findings: **{sev.get('CRITICAL', 0)} critical**, **{sev.get('HIGH', 0)} high**, **{sev.get('MEDIUM', 0)} medium**\n\n"
-        f"Try asking: _'tell me no 1 commit'_, _'which pipeline was blocked?'_, or _'show last 10 commits'_."
-    )
-
-    # ── 7. Default Fallback ─────────────────────────────────────────────────
-    block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
-    return (
-        f"Here's what I can see right now:\n"
-        f"- **{total}** total pipeline scans\n"
-        f"- Last 20: **{len(passed)} passed**, **{len(blocked)} blocked** ({block_rate}% block rate)\n"
-        f"- Findings: **{sev.get('CRITICAL', 0)}** critical, **{sev.get('HIGH', 0)}** high, **{sev.get('MEDIUM', 0)}** medium\n\n"
-        f"Try asking: _'show last 10 commits'_, _'which pipeline was blocked?'_, or _'show 1st 10 from start'_."
-    )
+        f"Try asking: _'78th commit'_, _'which pipeline was blocked?'_, or _'show last 10 commits'_."
+    )
