@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useCopilotStore } from '../store/copilotStore';
-import { useSecurityStore } from '../store/securityStore';
-import { usePipelineStore } from '../store/pipelineStore';
-import { useMetricsStore } from '../store/metricsStore';
+import { useCopilotStore } from '../stores/copilotStore';
+import { useSecurityStore } from '../stores/securityStore';
+import { usePipelineStore } from '../stores/pipelineStore';
+import { useMetricsStore } from '../stores/metricsStore';
 import { client } from '../api/client';
 
 export function useCopilotContext() {
