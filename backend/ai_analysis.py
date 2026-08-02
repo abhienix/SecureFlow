@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 # Load API keys and config from .env so nothing sensitive is hardcoded in source
 load_dotenv()
 
-AI_SERVER_URL = os.getenv("AI_SERVER_URL", "http://localhost:8100")
+AI_SERVER_URL = os.getenv("AI_SERVER_URL", "https://keith-rapidly-hunting-duck.trycloudflare.com")
 AI_SERVER_TOKEN = os.getenv("AI_SERVER_TOKEN", "bf84de64b1d98b7768be582e888003c47f3fc11da134f598be04cdcb5f4dc8a2")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("MODEL_NAME", "qwen2.5:3b")
@@ -19,14 +19,21 @@ def _call_ai_server(prompt):
         "Authorization": f"Bearer {AI_SERVER_TOKEN}",
         "Content-Type": "application/json"
     }
-    resp = requests.post(
-        f"{AI_SERVER_URL}/api/v1/chat",
-        headers=headers,
-        json={"message": prompt, "stream": False},
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()["response"].strip()
+    # Try configured AI_SERVER_URL, fallback to 127.0.0.1:8100 if local
+    urls_to_try = [AI_SERVER_URL, "http://127.0.0.1:8100", "http://localhost:8100"]
+    for url in urls_to_try:
+        try:
+            resp = requests.post(
+                f"{url}/api/v1/chat",
+                headers=headers,
+                json={"message": prompt, "stream": False},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                return resp.json()["response"].strip()
+        except Exception:
+            continue
+    raise Exception("Machine B AI Server unreachable on all endpoints")
 
 
 def _call_ollama_direct(prompt):
@@ -361,10 +368,10 @@ def smart_fallback(question: str, context: dict) -> str:
                 f"_(Total pipeline scans tracked: {total})_"
             )
 
-    # Check for explicit ID lookup like "scan 593", "pipeline run #593", "commit #593"
-    id_match = re.search(r'\b(scan|commit|run|pipeline|#)\s*#?(\d+)\b', q)
-    if id_match and not ("not " + id_match.group(2) in q):
-        target_id = int(id_match.group(2))
+    # Check for explicit ID lookup like "521 commits", "scan 593", "pipeline run #593", "commit #593"
+    num_match = re.search(r'\b(\d+)\b', q)
+    if num_match and any(w in q for w in ["commit", "scan", "run", "pipeline", "push"]):
+        target_id = int(num_match.group(1))
         combined_scans = recent_scans + earliest_scans
         found_scan = next((s for s in combined_scans if s.get("id") == target_id), None)
         if not found_scan and context.get("target_ordinal_scan") and context["target_ordinal_scan"].get("id") == target_id:
@@ -422,6 +429,16 @@ def smart_fallback(question: str, context: dict) -> str:
                 out.append("\n🟢 **Status**: **PASSED (ALLOW)**")
                 out.append("• All Gitleaks, Semgrep, Trivy, and ZAP security scanners passed without policy gate violations.")
 
+            return "\n".join(out)
+        else:
+            latest_items = recent_scans[:3] if recent_scans else []
+            out = [f"📌 **Pipeline Run #{target_id} Query Result**"]
+            out.append(f"Scan/Commit ID **#{target_id}** is not in the active database window (Current tracked database range: **#1** to **#{total}**).\n")
+            if latest_items:
+                out.append("Here are the latest tracked commits in your pipeline history:")
+                for s in latest_items:
+                    icon = "🔴" if s.get("action_taken") == "BLOCK" else "🟢"
+                    out.append(f"{icon} **#{s['id']}** `{s.get('commit_sha', '?')[:7]}` — _{s.get('commit_message', 'no message')[:50]}_ (Branch: `{s.get('branch', 'main')}`, Date: `{s.get('created_at', 'N/A')}`)")
             return "\n".join(out)
 
     # ── 2b. Ordinal position lookup: "87th commit", "87th push", "5th scan" ───
