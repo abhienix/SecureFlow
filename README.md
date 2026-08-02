@@ -23,40 +23,103 @@ It runs four security scanners (**Gitleaks**, **Semgrep**, **Trivy**, **OWASP ZA
 
 SecureFlow operates across eight layers:
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  Developer ──► git push ──► GitHub Actions (9-stage pipeline)       │
-│                                                                     │
-│  ┌─ Static Analysis ─┐  ┌─ Container ──┐  ┌─ Policy ──┐  ┌─ DAST ─┐│
-│  │ Gitleaks + Semgrep│  │ Docker+Trivy │  │ Gate Eval │  │ ZAP    ││
-│  └───────────────────┘  └──────────────┘  └───────────┘  └────────┘│
-└────────────────────────────────┬────────────────────────────────────┘
-                                 │ HTTP telemetry
-┌────────────────────────────────▼────────────────────────────────────┐
-│  FastAPI Backend (API Gateway)                                      │
-│  ├─ Pipeline State Machine (9 stages, strict transitions)           │
-│  ├─ Policy Engine (severity + CVSS blocking, CVE allowlisting)      │
-│  ├─ WebSocket Manager (Redis pub/sub, <15ms broadcast)             │
-│  ├─ AI Analysis Module (Void copilot, scan analysis, fallback)      │
-│  ├─ Celery Producer (DAST task dispatch to Redis queue)             │
-│  └─ SQLAlchemy ORM (PostgreSQL / SQLite, 12+ tables)               │
-├─────────────────────────────────────────────────────────────────────┤
-│  React 19 Dashboard              │  Local GPU AI Server (Machine B) │
-│  ├─ Overview (metrics, charts)   │  ├─ FastAPI Gateway (:8100)     │
-│  ├─ Pipeline Timeline            │  ├─ Ollama (Qwen2.5:3b)         │
-│  ├─ Security Center (findings)   │  ├─ DeepSeek-coder:6.7b         │
-│  ├─ Deployments (rollback)       │  ├─ ChromaDB (RAG vectors)      │
-│  ├─ Observability (topology)     │  ├─ Model Router                │
-│  ├─ Policy Editor (live YAML)    │  ├─ Guardrails Engine           │
-│  ├─ Void AI Copilot (streaming)  │  └─ JWT Authentication          │
-│  └─ Settings & Notifications     │                                  │
-├──────────────────────────────────┼──────────────────────────────────┤
-│  Celery Worker Node              │  Data Layer                      │
-│  ├─ Redis Task Consumer          │  ├─ PostgreSQL (production)      │
-│  ├─ Docker-based ZAP Scanner     │  ├─ SQLite (local dev)           │
-│  └─ Result Parser + Callback     │  ├─ Redis (pub/sub + queue)      │
-└──────────────────────────────────┘  └─ ChromaDB (vector store)      │
-                                      └──────────────────────────────┘
+```mermaid
+flowchart TB
+    Dev["👤 Developer<br/>git push"]
+
+    subgraph CI["GitHub Actions — 9-Stage Pipeline"]
+        direction LR
+        S1["1 Checkout"]
+        S2["2 Code Scan<br/>Gitleaks + Semgrep"]
+        S3["3 Docker Build"]
+        S4["4 Trivy CVE Scan"]
+        S5["5 Policy Gate"]
+        S6["6 Deploy Staging<br/>Cloud Run"]
+        S7["7 OWASP ZAP"]
+        S8["8 ZAP Gate"]
+        S9["9 Deploy Prod<br/>Cloud Run"]
+        S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8 --> S9
+    end
+
+    Dev --> CI
+    CI -->|HTTP telemetry / webhooks| BE
+
+    subgraph BE["FastAPI Backend — API Gateway"]
+        PSM["Pipeline State Machine<br/>9 stages, strict transitions"]
+        POL["Policy Engine<br/>CVSS + severity blocking, CVE allowlist"]
+        WSM["WebSocket Manager<br/>Redis pub/sub, less than 15ms broadcast"]
+        AIM["AI Analysis Module<br/>Void copilot orchestration"]
+        CP["Celery Producer<br/>DAST task dispatch"]
+        ORM["SQLAlchemy ORM<br/>PostgreSQL / SQLite, 12+ tables"]
+    end
+
+    subgraph FE["React 19 Dashboard"]
+        direction TB
+        F1["Overview"]
+        F2["Pipeline Timeline"]
+        F3["Security Center"]
+        F4["Deployments / Rollback"]
+        F5["Observability / Topology"]
+        F6["Policy Editor (live YAML)"]
+        F7["Void AI Copilot (streaming)"]
+        F8["Settings & Notifications"]
+    end
+
+    subgraph AISRV["Local GPU AI Server — Machine B"]
+        direction TB
+        AG["FastAPI Gateway :8100"]
+        OL["Ollama<br/>Qwen2.5:3b"]
+        DS["DeepSeek-coder:6.7b"]
+        CDB["ChromaDB<br/>RAG vector store"]
+        MR["Model Router"]
+        GR["Guardrails Engine"]
+        JWT["JWT Authentication"]
+    end
+
+    subgraph WORKER["Celery Worker Node"]
+        RC["Redis Task Consumer"]
+        ZAPD["Docker-based ZAP Scanner"]
+        RP["Result Parser + Callback"]
+    end
+
+    subgraph DATA["Data Layer"]
+        PG[("PostgreSQL<br/>production")]
+        SQ[("SQLite<br/>local dev")]
+        RD[("Redis<br/>pub/sub + queue")]
+        CH[("ChromaDB<br/>vector store")]
+    end
+
+    WSM <--> FE
+    AIM <-->|JWT-secured requests| AG
+    CP -->|enqueue task| RD
+    RD --> RC
+    RC --> ZAPD --> RP
+    RP -->|findings callback| BE
+
+    ORM --> PG
+    ORM --> SQ
+    WSM --> RD
+    AG --> MR
+    MR --> OL
+    MR --> DS
+    AG --> CDB
+    AG --> GR
+    AG --> JWT
+    CDB -.->|vectors| CH
+
+    classDef ci fill:#1e3a5f,stroke:#4a90d9,color:#fff
+    classDef backend fill:#2d1e4f,stroke:#8a5fd9,color:#fff
+    classDef frontend fill:#1e4f3a,stroke:#4ad98a,color:#fff
+    classDef ai fill:#4f2d1e,stroke:#d98a4a,color:#fff
+    classDef worker fill:#4f1e3a,stroke:#d94a8a,color:#fff
+    classDef data fill:#333,stroke:#999,color:#fff
+
+    class S1,S2,S3,S4,S5,S6,S7,S8,S9 ci
+    class PSM,POL,WSM,AIM,CP,ORM backend
+    class F1,F2,F3,F4,F5,F6,F7,F8 frontend
+    class AG,OL,DS,CDB,MR,GR,JWT ai
+    class RC,ZAPD,RP worker
+    class PG,SQ,RD,CH data
 ```
 
 ---
