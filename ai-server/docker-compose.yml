@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  secureflow-ollama:
+    image: ollama/ollama:latest
+    container_name: secureflow-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  secureflow-ollama-init:
+    image: ollama/ollama:latest
+    container_name: secureflow-ollama-init
+    depends_on:
+      - secureflow-ollama
+    environment:
+      - OLLAMA_HOST=http://secureflow-ollama:11434
+    restart: "no"
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for Ollama to start...';
+      until ollama list > /dev/null 2>&1; do
+        sleep 2;
+      done;
+      echo 'Ollama is ready. Pulling model qwen2.5:3b...';
+      ollama pull qwen2.5:3b;
+      echo 'Pulling model nomic-embed-text...';
+      ollama pull nomic-embed-text;
+      echo 'Model initialization complete!';
+      "
+
+  secureflow-ai-server:
+    build: .
+    container_name: secureflow-ai-server
+    ports:
+      - "8100:8100"
+    env_file:
+      - .env
+    environment:
+      - OLLAMA_URL=http://secureflow-ollama:11434
+    volumes:
+      - chroma-data:/data/chromadb
+    depends_on:
+      - secureflow-ollama
+    restart: unless-stopped
+
+volumes:
+  ollama-data:
+  chroma-data:
