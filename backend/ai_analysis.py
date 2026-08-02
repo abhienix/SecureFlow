@@ -7,111 +7,62 @@ from dotenv import load_dotenv
 # Load API keys and config from .env so nothing sensitive is hardcoded in source
 load_dotenv()
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# Ollama runs locally, so we default to localhost if not explicitly configured
+AI_SERVER_URL = os.getenv("AI_SERVER_URL", "http://localhost:8100")
+AI_SERVER_TOKEN = os.getenv("AI_SERVER_TOKEN", "bf84de64b1d98b7768be582e888003c47f3fc11da134f598be04cdcb5f4dc8a2")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-
-# Model choices: Groq gives us fast cloud inference for free, Gemini is our
-# paid fallback with higher reliability, and Ollama is the offline safety net
-# so the pipeline never fully dies even without internet or API credits
-GROQ_MODEL = "llama-3.3-70b-versatile"
-GEMINI_MODEL = "gemini-2.0-flash-lite"
-OLLAMA_MODEL = "qwen2.5:7b"
+OLLAMA_MODEL = os.getenv("MODEL_NAME", "qwen2.5:3b")
 
 
-def _call_groq(prompt):
-    # Groq uses OpenAI-compatible API format, which made it easy to swap in
-    # without changing the rest of the calling code
+def _call_ai_server(prompt):
+    """Calls standalone Machine B AI Server via FastAPI Gateway endpoint with JWT auth."""
+    headers = {
+        "Authorization": f"Bearer {AI_SERVER_TOKEN}",
+        "Content-Type": "application/json"
+    }
     resp = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": GROQ_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            # temperature 0.4 — low enough to keep output structured/consistent,
-            # high enough to avoid robotic repetition across similar CVE sets
-            "temperature": 0.4,
-            "max_tokens": 1024,
-        },
-        # 30s timeout — Groq is fast; if it takes longer something is wrong
-        timeout=30,
+        f"{AI_SERVER_URL}/api/v1/chat",
+        headers=headers,
+        json={"message": prompt, "stream": False},
+        timeout=120,
     )
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"].strip()
+    return resp.json()["response"].strip()
 
 
-def _call_gemini(prompt):
-    # Gemini uses a different API shape than OpenAI, so it gets its own caller
-    # rather than trying to shoehorn it into a generic wrapper
-    resp = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}",
-        json={"contents": [{"parts": [{"text": prompt}]}]},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-
-def _call_ollama(prompt):
-   # # Ollama runs the model locally — no API key needed, works offline,
-    # but slower so we give it a longer timeout (60s vs 30s for cloud)
+def _call_ollama_direct(prompt):
+    """Fallback direct Ollama call on port 11434 if AI Server Gateway is local."""
     resp = requests.post(
         f"{OLLAMA_URL}/api/generate",
         json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-        timeout=60,
+        timeout=120,
     )
     resp.raise_for_status()
     return resp.json()["response"].strip()
 
 
 def _call_ai(prompt):
-    # Fallback chain: Groq (free + fast) → Gemini (paid + reliable) → Ollama (local, always available)
-    # Each provider is tried only if its API key exists, so missing keys are
-    # skipped gracefully instead of throwing auth errors mid-pipeline
-    #
-    # NOTE: this function is reused below by answer_copilot_question() too —
-    # the Copilot chat doesn't get its own provider-calling logic, it just
-    # builds a different prompt and hands it to the same fallback chain
-    # everything else in this file already uses. One chain, one set of
-    # timeouts/retries/logging to maintain, instead of two copies drifting
-    # apart over time.
-
-    if GROQ_API_KEY:
-        try:
-            result = _call_groq(prompt)
-            print("AI provider: Groq (primary) - success")
-            return result
-        except Exception as e:
-            # Log and fall through — don't crash the whole scan just because
-            # one provider is having a bad day
-            print(f"Groq failed: {e}")
-    else:
-        print("Groq skipped - no API key")
-
-    if GEMINI_API_KEY:
-        try:
-            result = _call_gemini(prompt)
-            print("AI provider: Gemini (fallback) - success")
-            return result
-        except Exception as e:
-            print(f"Gemini failed: {e}")
-    else:
-        print("Gemini skipped - no API key")
-
+    """
+    100% Fully Local AI Provider Execution:
+    Directs all Void AI copilot and remediation tasks exclusively to Machine B's
+    local AI Server (Ollama + Qwen2.5 GPU). No external APIs (Gemini/Groq/OpenAI) are used.
+    """
+    # 1. Try Machine B AI Server Gateway first
     try:
-        result = _call_ollama(prompt)
-        print("AI provider: Ollama (local) - success")
+        result = _call_ai_server(prompt)
+        print("AI provider: Machine B AI Server (local GPU) - success")
         return result
     except Exception as e:
-        print(f"Ollama failed: {e}")
+        print(f"Machine B AI Server Gateway unreachable: {e}")
 
-    # If all three fail, raise so the caller can return a safe static fallback
-    # rather than silently returning None and confusing the frontend
-    raise Exception("All AI providers failed")
+    # 2. Fallback to direct local Ollama engine
+    try:
+        result = _call_ollama_direct(prompt)
+        print("AI provider: Ollama direct (local GPU) - success")
+        return result
+    except Exception as e:
+        print(f"Direct local Ollama failed: {e}")
+
+    raise Exception("Local AI Server & Ollama unreachable on Machine B")
 
 
 def _sanitize(value, max_len=None):
