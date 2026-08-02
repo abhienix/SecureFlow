@@ -252,29 +252,18 @@ def analyze_code_scan_failure(failure_info):
 
 COPILOT_SYSTEM_INSTRUCTIONS = (
     "You are SecureFlow's security companion named Void — a sharp, highly intelligent, interactive DevSecOps assistant engineered by Abhimanyu.\n\n"
-    "SYSTEM ARCHITECTURE & DEEP MEMORY:\n"
-    "1. DEVSECOPS PIPELINE ENGINE:\n"
-    "   - SecureFlow coordinates multi-stage CI/CD security audits using standard security tools: Gitleaks (Secrets), Semgrep (SAST), Trivy (Container CVEs), and OWASP ZAP (DAST).\n"
-    "   - Policy Gate rules enforce strict blocking on CRITICAL and HIGH severity findings before staging/production deployment.\n"
-    "2. DEEP SYSTEM MEMORY:\n"
-    "   - You have real-time memory access to the latest 50 scan runs, top 500 security findings, Cloud Run deployment states, and policy rule configurations.\n"
-    "3. REMEDIATION & PATCH GENERATION:\n"
-    "   - When answering vulnerability questions, offer actionable, developer-ready code patches, Dockerfile hardening instructions, or `.gitleaks.toml` suppression rules.\n\n"
-    "STRICT DOMAIN BOUNDARIES & SECURITY GUARDRAILS:\n"
-    "1. DOMAIN SCOPE:\n"
-    "   - You MUST ONLY answer questions related to SecureFlow, DevSecOps, CI/CD pipelines, security scans, CVEs, code vulnerabilities, policy gates, cloud security, and software safety.\n"
-    "2. OFF-TOPIC REJECTION:\n"
-    "   - If the user asks ANY off-topic, non-security, or non-technical question (e.g. weather, sports, cooking, general trivia, stories, non-software topics), you MUST politely decline with:\n"
-    "     '🔒 **Security Boundary**: I am Void, your SecureFlow security companion. I can only assist with DevSecOps pipelines, security scans, vulnerability remediation, and codebase safety. How can I help with your security posture today?'\n\n"
-    "RESPONSE STYLE & INTERACTIVE CONVERSATION PRINCIPLES:\n"
-    "1. CASUAL GREETINGS:\n"
-    "   - For standalone greetings ('hi', 'hello', 'hey'), respond warmly and briefly without dumping scan lists unless requested.\n"
-    "2. NUMERIC & RANGE PRECISION:\n"
-    "   - If the user asks for 'first 10', 'last 5', 'top 3', or specific counts, respect the exact count requested.\n"
-    "3. TECHNICAL INTEL:\n"
-    "   - Provide sharp, expert guidance on OWASP Top 10, CVE fixes, Docker hardening, Gitleaks secrets, and pipeline policy gate rules with code fix snippets.\n"
-    "4. CREATOR KNOWLEDGE:\n"
-    "   - You know Abhimanyu as your creator/architect. Only mention him if explicitly asked about your origin.\n"
+    "RESPONSE STYLE & ACCURACY RULES:\n"
+    "1. CRISP & CONCISE:\n"
+    "   - Answer directly and precisely to what was asked. Avoid unnecessary walls of text, fluff, or unrequested boilerplate.\n"
+    "2. LIST QUERIES:\n"
+    "   - When asked for lists (e.g. 'first 10 blocked commits', 'last 5 scans'), provide a clean, bulleted list matching the exact requested count.\n"
+    "3. ORIGIN & CREATOR:\n"
+    "   - If asked 'who made you' or 'who created you', give a short 1-line answer: 'I was designed, engineered, and built by Abhimanyu (Lead Security Architect).'\n"
+    "4. TECHNICAL REMEDIATION:\n"
+    "   - When asked for vulnerability fixes, provide short, actionable code snippets and exact line-by-line instructions.\n"
+    "5. OFF-TOPIC BOUNDARY:\n"
+    "   - If asked non-security/non-software questions (weather, sports, etc.), politely decline with:\n"
+    "     '🔒 **Security Boundary**: I am Void, your SecureFlow security companion. I can only assist with DevSecOps pipelines, security scans, vulnerability remediation, and codebase safety.'\n"
 )
 
 
@@ -493,83 +482,55 @@ def smart_fallback(question: str, context: dict) -> str:
             )
 
 
-    # ── 3. Blocked / Failed Queries ─────────────────────────────────────────
-    if any(w in q for w in ["block", "fail", "which one", "why", "reason", "issue", "how many are blocked"]):
+    # ── 3. Blocked / Failed Queries (Lists vs Single) ───────────────────────
+    if any(w in q for w in ["block", "fail"]):
         if not blocked:
-            return "✅ No blocked pipelines in the last 20 runs. Everything is passing."
+            return "✅ No blocked pipelines found in recent history."
         
+        # Check if user asked for a list (e.g., "first 10 blocked commits", "list blocked commits")
+        q_clean = re.sub(r'\b(not|except)\s+#?\d+\b', '', q)
+        match_num = re.search(r'\b(\d+)\b', q_clean)
+        requested_limit = int(match_num.group(1)) if match_num else 5
+        requested_limit = min(max(requested_limit, 1), 20)
+
+        is_earliest = any(w in q for w in ["first", "1st", "earliest", "oldest", "start"])
+        all_blocked = [s for s in (earliest_scans if is_earliest else recent_scans) if s.get("action_taken") == "BLOCK" or s.get("status") in ("failed", "blocked")]
+        
+        if not all_blocked:
+            all_blocked = blocked
+
+        if "10" in q or "5" in q or "list" in q or "all" in q or is_earliest:
+            direction = "first (earliest)" if is_earliest else "most recent"
+            lines = [f"🚨 **{min(requested_limit, len(all_blocked))} {direction} Blocked Commits**:\n"]
+            for s in all_blocked[:requested_limit]:
+                sha = s.get("commit_sha", "?")[:7]
+                msg = (s.get("commit_message") or "no message")[:55]
+                date_str = s.get("created_at", "")[:19]
+                lines.append(f"🔴 **#{s['id']}** `{sha}` — {msg}\n  └ _Date: {date_str} | Branch: {s.get('branch', 'main')}_")
+            return "\n".join(lines)
+        
+        # Single blocked query
         b = blocked[0]
         explanation = b.get("ai_explanation") or "Security scanner thresholds exceeded."
         return (
-            f"**Pipeline #{b['id']} was BLOCKED**\n"
-            f"- Commit: `{b.get('commit_sha', '?')[:7]}` on `{b.get('branch', 'main')}`\n"
-            f"- Message: _{b.get('commit_message', '') or 'n/a'}_\n"
-            f"- Reason: {explanation}\n\n"
-            f"In total, **{len(blocked)}** of the last {len(recent_scans)} runs were blocked."
+            f"🔴 **Latest Blocked Pipeline Run (#{b['id']})**\n"
+            f"• **Commit**: `{b.get('commit_sha', '?')[:7]}` — _{b.get('commit_message', '') or 'no message'}_\n"
+            f"• **Branch**: `{b.get('branch', 'main')}` | **Date**: `{b.get('created_at', 'N/A')}`\n"
+            f"• **Reason**: {explanation}"
         )
 
-    # ── 4. Commits / Scan Results Listing (With Range & Direction Parsing) ──
-    if any(w in q for w in ["commit", "last", "recent", "pipeline", "result", "1st", "first", "start"]):
-        if not recent_scans:
-            return "No recent scan data found in the database right now."
+    # ── 4. Creator / Who Made You Queries ──────────────────────────────────
+    if any(w in q for w in ["who made", "creator", "author", "who built", "who created"]):
+        return "👤 **SecureFlow Architect**: Designed, engineered, and maintained by **Abhimanyu**."
 
-        # Strip out negated numbers like "not 610" before extracting count limit
-        q_clean = re.sub(r'\b(not|except)\s+#?\d+\b', '', q)
-        match_num = re.search(r'\b(\d+)\b', q_clean)
-        requested_limit = int(match_num.group(1)) if match_num else 20
-        requested_limit = min(max(requested_limit, 1), 50)
-
-        is_earliest = any(w in q for w in ["from the start", "earliest", "oldest", "1st 10", "first 10", "start"])
-
-        if is_earliest:
-            display_scans = list(earliest_scans) if earliest_scans else list(recent_scans)
-            display_scans.sort(key=lambda s: s.get("id", 0))
-            heading = f"Here are the first {min(requested_limit, len(display_scans))} scan runs (from the start):\n"
-        else:
-            display_scans = list(recent_scans)
-            heading = f"Here are the last {min(requested_limit, len(display_scans))} scan runs:\n"
-
-        lines = [heading]
-        for s in display_scans[:requested_limit]:
-            icon = "🔴" if s.get("action_taken") == "BLOCK" else "🟢"
-            sha  = s.get("commit_sha", "?")[:7]
-            msg  = (s.get("commit_message") or "no message")[:60]
-            branch = s.get("branch", "main")
-            action = s.get("action_taken", "ALLOW")
-            lines.append(f"{icon} **#{s['id']}** `{sha}` — {msg} _(branch: {branch}, {action})_")
-        return "\n".join(lines)
-
-    # ── 5. CVE / findings / severity ────────────────────────────────────────
-    if any(w in q for w in ["cve", "finding", "vuln", "critical", "high", "severity", "security"]):
-        c, h, m, lo = sev.get("CRITICAL", 0), sev.get("HIGH", 0), sev.get("MEDIUM", 0), sev.get("LOW", 0)
-        if c + h + m + lo == 0:
-            return "No findings data available right now. Run a scan to populate security findings."
+    # ── 5. SecureFlow Architecture & Tech Stack Queries ──────────────────────
+    if any(w in q for w in ["secureflow", "architecture", "stack", "how it works", "scanner", "tool"]):
         return (
-            f"**Current Security Findings (last 200 entries):**\n"
-            f"- 🔴 Critical: **{c}**\n"
-            f"- 🟠 High: **{h}**\n"
-            f"- 🟡 Medium: **{m}**\n"
-            f"- 🟢 Low: **{lo}**\n\n"
-            f"Focus on the **{c} critical** issues first — these can cause immediate risk."
-        )
-
-    # ── 6. SecureFlow Architecture & Tech Stack Queries ──────────────────────
-    if any(w in q for w in ["secureflow", "architecture", "stack", "how it works", "scanner", "tool", "who made", "creator", "author"]):
-        return (
-            "🛡️ **SecureFlow Enterprise DevSecOps Architecture**\n\n"
-            "• **Core Security Gate Engine**:\n"
-            "  - **Gitleaks**: Scans commit history & source code for exposed API keys, private tokens, and credentials.\n"
-            "  - **Semgrep**: Audits backend & frontend source code for OWASP Top 10 SAST security flaws.\n"
-            "  - **Trivy**: Scans Docker base images and system dependencies for CVE vulnerabilities.\n"
-            "  - **OWASP ZAP**: Runs dynamic out-of-process DAST attacks against staging targets via Redis/Celery.\n\n"
-            "• **Backend Infrastructure**:\n"
-            "  - **FastAPI**: Async high-performance REST API & WebSocket gateway.\n"
-            "  - **PostgreSQL / SQLAlchemy**: Relational persistence for pipelines, repositories, and findings.\n"
-            "  - **Redis & Celery**: Asynchronous queue broker for distributed DAST scanning tasks.\n\n"
-            "• **Frontend Dashboard**:\n"
-            "  - **React & TypeScript**: Modern enterprise UI with 1:1 real-time WebSocket telemetry updates.\n\n"
-            "• **Architect & Maintainer**:\n"
-            "  - Designed and maintained by **Abhimanyu** (Lead Software Architect & Security Engineer)."
+            "🛡️ **SecureFlow Architecture Overview**\n\n"
+            "• **Scanners**: Gitleaks (Secrets), Semgrep (SAST), Trivy (CVEs), OWASP ZAP (DAST)\n"
+            "• **Backend**: FastAPI + SQLAlchemy (PostgreSQL) + Redis & Celery Task Queue\n"
+            "• **Frontend**: React + TypeScript + Real-time WebSockets\n"
+            "• **Architect**: Abhimanyu"
         )
 
     # ── 7. Overall History & System Health ────────────────────────────────────
