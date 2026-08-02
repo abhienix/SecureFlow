@@ -1,6 +1,6 @@
 # SecureFlow
 
-**AI-Powered DevSecOps Security Orchestration Platform**
+**Automated DevSecOps Pipeline with AI Security Analysis**
 
 [![CI/CD Pipeline](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-blue?logo=github-actions)](https://github.com/abhienix/SecureFlow/actions)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -93,7 +93,7 @@ The policy engine (`policy.yaml`) enforces security gates before code reaches pr
 
 ---
 
-## Void AI Copilot
+## Void AI 
 
 Void is a security-focused AI assistant that runs **100% locally** on a dedicated GPU machine (Machine B). No source code is sent to external AI providers.
 
