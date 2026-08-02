@@ -12,6 +12,7 @@ import Badge from '../../components/ui/Badge';
 import { useUIStore } from '../../stores/uiStore';
 import { useVoidStore } from '../../stores/voidStore';
 import { client } from '../../api/client';
+import { AutomatedRemediationCard } from './components/AutomatedRemediationCard';
 
 // Status constants matching backend pipeline_engine.py
 const STATUS = {
@@ -274,25 +275,24 @@ export default function PipelineDetailPage() {
             )}
           </div>
 
-          <button
-            onClick={() => setExpandedBlocked(expandedBlocked === blockedStage.id ? null : blockedStage.id)}
-            style={{ background: 'transparent', border: `1px solid #334155`, color: '#94A3B8', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            {expandedBlocked === blockedStage.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            {expandedBlocked === blockedStage.id ? 'Hide Details' : 'View Block Details'}
-          </button>
-
-          {expandedBlocked === blockedStage.id && (
-            <div style={{ marginTop: '16px', padding: '16px', backgroundColor: '#0F172A', borderRadius: '8px' }}>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#F59E0B', margin: '0 0 12px 0' }}>Suggested Remediation</h4>
-              <div style={{ fontSize: '12px', color: '#94A3B8', lineHeight: 1.6 }}>
-                <p>1. Review the scan findings for {blockedStage.name} in the Security Center.</p>
-                <p>2. Fix the identified vulnerabilities or update policy rules.</p>
-                <p>3. Re-run the pipeline from the Pipelines page.</p>
-                <p>4. Verify the fix passes all stages before deploying to production.</p>
-              </div>
-            </div>
-          )}
+          <div style={{ marginTop: '16px' }}>
+            <AutomatedRemediationCard
+              type={
+                blockedStage.stage_key === 'zap' || blockedStage.stage_key === 'zap_gate'
+                  ? 'zap'
+                  : blockedStage.stage_key === 'policy'
+                  ? 'policy'
+                  : blockedStage.stage_key === 'code_scan' || blockedStage.stage_key === 'checkout'
+                  ? 'codescan'
+                  : 'generic'
+              }
+              run={run}
+              onAskVoid={(prompt) => {
+                useVoidStore.getState().setTriggerPrompt(prompt);
+                useUIStore.getState().setCopilotOpen(true);
+              }}
+            />
+          </div>
         </div>
       )}
 

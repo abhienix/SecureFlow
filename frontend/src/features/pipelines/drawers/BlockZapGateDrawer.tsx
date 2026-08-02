@@ -2,6 +2,7 @@ import React from 'react';
 import { Bug, ExternalLink, ShieldCheck, Lock, Bot } from 'lucide-react';
 import { PipelineRun } from '../types/pipeline.types';
 import { useVoidStore } from '../../../stores/voidStore';
+import { AutomatedRemediationCard } from '../components/AutomatedRemediationCard';
 
 interface BlockZapGateDrawerProps {
   run: PipelineRun;
@@ -85,38 +86,14 @@ export function BlockZapGateDrawer({
         </div>
       </div>
 
-      {/* How to unblock */}
-      <div>
-        <div style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '6px' }}>
-          How to Unblock Production
-        </div>
-        <div style={{
-          backgroundColor: '#1E293B',
-          border: '1px solid #334155',
-          borderRadius: '6px',
-          padding: '16px',
-          fontSize: '13px',
-          color: '#E2E8F0',
-          lineHeight: '1.6'
-        }}>
-          ZAP found a vulnerability in your running application, not just in code.
-          <br /><br />
-          Steps to resolve:
-          <ol style={{ paddingLeft: '20px', margin: '8px 0 0 0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <li>Open <strong>Security Center → DAST Findings</strong>.</li>
-            <li>Identify the vulnerable endpoint or behaviour.</li>
-            <li>Fix the vulnerability in your application code.</li>
-            <li>Commit and push — ZAP will re-scan staging automatically before the next production deploy.</li>
-          </ol>
-          <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid #334155', fontSize: '12px', color: '#94A3B8' }}>
-            • <strong>ZAP scanned:</strong> {stagingUrl}
-            <br />
-            • <strong>Scan timeout:</strong> 10 minutes (40 polls × 15s)
-            <br />
-            • <strong>If scan timed out:</strong> Check worker VM health.
-          </div>
-        </div>
-      </div>
+      {/* Automated Remediation Card */}
+      <AutomatedRemediationCard
+        type="zap"
+        run={run}
+        onAskVoid={(prompt) => {
+          useVoidStore.getState().setTriggerPrompt(prompt);
+        }}
+      />
 
       {/* Buttons */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>

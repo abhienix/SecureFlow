@@ -3,6 +3,7 @@ import { ShieldAlert, ExternalLink, Lock, Bot } from 'lucide-react';
 import { PipelineRun } from '../types/pipeline.types';
 import { API_BASE } from '../../../lib/api';
 import { useVoidStore } from '../../../stores/voidStore';
+import { AutomatedRemediationCard } from '../components/AutomatedRemediationCard';
 
 interface BlockPolicyDrawerProps {
   run: PipelineRun;
@@ -132,31 +133,14 @@ export function BlockPolicyDrawer({
         {renderViolationsContent()}
       </div>
 
-      {/* How to fix */}
-      <div>
-        <div style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '6px' }}>
-          How to Unblock
-        </div>
-        <div style={{
-          backgroundColor: '#1E293B',
-          border: '1px solid #334155',
-          borderRadius: '6px',
-          padding: '16px',
-          fontSize: '13px',
-          color: '#E2E8F0',
-          lineHeight: '1.6'
-        }}>
-          This pipeline was blocked because your Trivy CVE scan results violated a policy rule.
-          <br /><br />
-          Steps to resolve:
-          <ol style={{ paddingLeft: '20px', margin: '8px 0 0 0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <li>Open <strong>Security Center → CVE Findings</strong>.</li>
-            <li>Find and fix the CVEs listed above (update the dependency to a patched version).</li>
-            <li>Commit the fix and push — the pipeline will re-run automatically.</li>
-            <li>If the CVE has no fix yet, acknowledge it in <strong>Policies → add an exception</strong> for this CVE ID with an expiry date.</li>
-          </ol>
-        </div>
-      </div>
+      {/* Automated Remediation Card */}
+      <AutomatedRemediationCard
+        type="policy"
+        run={run}
+        onAskVoid={(prompt) => {
+          useVoidStore.getState().setTriggerPrompt(prompt);
+        }}
+      />
 
       {/* Buttons */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
