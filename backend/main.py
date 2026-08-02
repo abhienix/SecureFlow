@@ -8,6 +8,7 @@ to dashboard, and AI remediation routing.
 """
 
 import os
+import re
 import json
 import yaml
 import asyncio
