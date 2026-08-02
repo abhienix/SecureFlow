@@ -285,27 +285,52 @@ Current page: ${ctx.current_page}
       let aiMessage = '';
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
+      let sseBuffer = '';
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const text = decoder.decode(value);
-          const lines = text.split('\n');
-          for (const line of lines) {
+          sseBuffer += decoder.decode(value, { stream: true });
+          const lines = sseBuffer.split('\n');
+          sseBuffer = lines.pop() || '';
+
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
             if (line.startsWith('data: ')) {
               const data = line.slice(6).trim();
               if (data === '[DONE]') break;
               try {
                 const parsed = JSON.parse(data);
-                aiMessage += parsed.token ?? '';
-                updateLastMessage(aiMessage);
+                if (typeof parsed.token === 'string') {
+                  aiMessage += parsed.token;
+                  updateLastMessage(aiMessage);
+                }
               } catch (e) {
-                // ignore parsing error
+                // ignore incomplete JSON chunk
               }
             }
           }
         }
+      }
+
+      // Process any remaining tail line in sseBuffer
+      if (sseBuffer.trim().startsWith('data: ')) {
+        const data = sseBuffer.trim().slice(6).trim();
+        if (data !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(data);
+            if (typeof parsed.token === 'string') {
+              aiMessage += parsed.token;
+              updateLastMessage(aiMessage);
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (!aiMessage.trim()) {
+        aiMessage = "Hey! 👋 I'm **Void** — your SecureFlow security assistant. Ask me about your pipelines, commits, CVEs, or scan results.";
+        updateLastMessage(aiMessage);
       }
 
       // Content safety check

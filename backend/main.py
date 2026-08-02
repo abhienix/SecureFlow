@@ -4018,14 +4018,21 @@ async def copilot_chat_streaming(data: dict, db: AsyncSession = Depends(get_db))
     messages = data.get("messages", [])
 
     async def token_generator():
-        question = messages[-1]["content"] if messages else "Hello"
+        user_msgs = [m for m in messages if isinstance(m, dict) and m.get("role") == "user" and m.get("content")]
+        question = user_msgs[-1]["content"] if user_msgs else "Hello"
         ans_text = await process_copilot_query(question, db)
 
-        words = ans_text.split(" ")
-        for i, word in enumerate(words):
-            chunk = {"token": word + (" " if i < len(words) - 1 else "")}
+        if not ans_text or not ans_text.strip():
+            ans_text = "Hey! 👋 I'm **Void** — your SecureFlow security assistant. How can I help with your security posture today?"
+
+        # Tokenize by space/newline delimiters while retaining exact formatting
+        tokens = re.split(r'(\s+)', ans_text)
+        for token in tokens:
+            if not token:
+                continue
+            chunk = {"token": token}
             yield f"data: {json.dumps(chunk)}\n\n"
-            await asyncio.sleep(0.018)
+            await asyncio.sleep(0.012)
         yield "data: [DONE]\n\n"
 
     return responses.StreamingResponse(token_generator(), media_type="text/event-stream")
