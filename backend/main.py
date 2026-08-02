@@ -1405,10 +1405,16 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
                 prev.ai_explanation = prev.ai_explanation or "Superseded by newer commit build push."
                 await sync_single_scan_result_to_new_tables(prev.id, db)
 
-            pipeline_steps = {
-                "checkout": {"result": "PASS", "detail": "code checked out"},
-                "zap": {"result": "PENDING", "detail": f"DAST target resolved: {resolved_target}"}
-            }
+            input_pipeline_steps = data.get("pipeline_steps")
+            if isinstance(input_pipeline_steps, dict) and input_pipeline_steps:
+                pipeline_steps = input_pipeline_steps
+            else:
+                pipeline_steps = {
+                    "checkout": {"result": "PASS", "detail": "code checked out"},
+                    "zap": {"result": "PENDING", "detail": f"DAST target resolved: {resolved_target}"}
+                }
+
+            initial_status = "blocked" if data.get("action") == "BLOCK" else "running"
 
             scan = ScanResult(
                 commit_sha=data.get("commit_sha", "unknown"),
@@ -1416,14 +1422,14 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
                 repo_name=repo_name,
                 branch=branch,
                 scan_type=data.get("scan_type", "full-pipeline"),
-                severity=None,
-                findings={},
-                ai_explanation="",
+                severity=data.get("severity"),
+                findings=data.get("findings", {}),
+                ai_explanation=data.get("reason", ""),
                 ai_fix="",
-                risk_score=None,
-                action_taken=None,
+                risk_score=data.get("risk_score"),
+                action_taken=data.get("action"),
                 pipeline_steps=pipeline_steps,
-                status="running",
+                status=initial_status,
                 started_at=datetime.utcnow(),
                 target_url=resolved_target,
                 deployment_url=req_deploy_url,
@@ -1434,6 +1440,19 @@ async def start_scan_run(data: dict, db: AsyncSession = Depends(get_db)):
             db.add(scan)
 
     if scan:
+        if data.get("pipeline_steps") and isinstance(data["pipeline_steps"], dict):
+            existing_steps = dict(scan.pipeline_steps or {})
+            for sk, sv in data["pipeline_steps"].items():
+                if isinstance(sv, dict):
+                    existing_steps[sk] = sv
+            scan.pipeline_steps = existing_steps
+        if data.get("action") == "BLOCK":
+            scan.status = "blocked"
+            scan.action_taken = "BLOCK"
+        if data.get("severity"):
+            scan.severity = data["severity"]
+        if data.get("reason"):
+            scan.ai_explanation = data["reason"]
         if data.get("github_run_id"):
             scan.github_run_id = str(data.get("github_run_id"))
         if data.get("github_repo"):

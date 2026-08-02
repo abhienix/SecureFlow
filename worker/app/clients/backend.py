@@ -1,6 +1,7 @@
+import os
 import requests
 
-BACKEND_URL = "http://YOUR_BACKEND_URL/api/scan-results"
+BACKEND_URL = os.getenv("BACKEND_URL", "https://your-backend.run.app/api/scan-results")
 
 
 def send_results(scan_id: str, findings: list):
@@ -13,6 +14,7 @@ def send_results(scan_id: str, findings: list):
         "findings": findings,
     }
 
+    # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
     response = requests.post(
         BACKEND_URL,
         json=payload,

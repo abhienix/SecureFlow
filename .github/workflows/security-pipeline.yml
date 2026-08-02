@@ -351,6 +351,13 @@ jobs:
             }' > block-payload.json
 
           echo "Notifying backend of BLOCK..."
+          if [ -n "${RUN_ID:-}" ] && [ "$RUN_ID" != "null" ]; then
+            curl -sS -X PATCH "$BACKEND_URL/api/scan-results/$RUN_ID/progress" \
+              -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
+              -H "Content-Type: application/json" \
+              -d @block-payload.json || true
+          fi
+
           RESPONSE=$(curl -sS -f -X POST "$BACKEND_URL/api/scan-results" \
             -H "Authorization: Bearer ${BACKEND_API_SECRET:-}" \
             -H "Content-Type: application/json" \

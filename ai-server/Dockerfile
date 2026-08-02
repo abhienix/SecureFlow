@@ -12,11 +12,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create chromadb storage folder
-RUN mkdir -p /data/chromadb
+# Create chromadb storage folder and non-root appuser
+RUN mkdir -p /data/chromadb && \
+    useradd -u 10001 -m appuser && \
+    chown -R appuser:appuser /app /data/chromadb
 
 # Copy application source
-COPY . .
+COPY --chown=appuser:appuser . .
+
+USER appuser
 
 EXPOSE 8100
 
