@@ -9,11 +9,13 @@ from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_
 
 from app.config import settings
 from app.auth import get_current_user
+from app.guardrails import GuardrailsEngine
+from app.router import TaskLLMRouter
 
 app = FastAPI(
     title="SecureFlow AI Server",
-    description="Standalone AI Server for SecureFlow RAG, LLM inference (Qwen2.5) & MCP tools",
-    version="1.0.0"
+    description="Standalone AI Server for SecureFlow RAG, 2-LLM Task Router (Qwen2.5 & DeepSeek-Coder), Guardrails Engine & MCP tools",
+    version="1.1.0"
 )
 
 # Prometheus metrics
@@ -27,20 +29,27 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     model: str
+    task_type: str = "SECURITY_COPILOT"
+    guardrails_passed: bool = True
 
 @app.get("/")
 def root():
     return {
         "name": "SecureFlow AI Server",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "environment": settings.ENVIRONMENT,
-        "model": settings.MODEL_NAME,
+        "models": {
+            "security_copilot": TaskLLMRouter.select_model("pipeline audit")["model_name"],
+            "code_remediation": TaskLLMRouter.select_model("fix vulnerability code patch")["model_name"]
+        },
+        "features": ["Multi-Model LLM Router", "Security Guardrails Engine", "ChromaDB RAG Vector Store", "MCP Tools"],
         "embed_model": settings.EMBED_MODEL,
         "endpoints": [
             "/health",
             "/system",
             "/metrics",
             "/api/v1/chat",
+            "/api/v1/router/dispatch",
             "/api/v1/mcp/tools"
         ]
     }
@@ -78,16 +87,15 @@ async def health_check():
             "chromadb": {
                 "status": chromadb_status,
                 "path": settings.CHROMADB_PATH
-            }
+            },
+            "guardrails": {"status": "active"},
+            "llm_router": {"status": "active", "supported_models": 2}
         }
     }
 
 @app.get("/system")
 def system_info():
-    gpu_available = False
     gpu_info = {"available": False, "memory_used_mb": 0, "memory_total_mb": 4096}
-    
-    # Check GPU access via nvidia-smi if available
     try:
         import subprocess
         output = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader,nounits"], text=True)
@@ -100,9 +108,7 @@ def system_info():
                 "memory_used_mb": float(parts[1]),
                 "memory_total_mb": float(parts[2])
             }
-            gpu_available = True
     except Exception:
-        # Fallback to simulated / basic detection if nvidia-smi binary inside container is not populated
         gpu_info = {
             "available": True,
             "name": "NVIDIA RTX 3050 Laptop",
@@ -120,25 +126,76 @@ def system_info():
 def metrics():
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
+@app.post("/api/v1/router/dispatch")
+def dispatch_task(request: ChatRequest, user: dict = Depends(get_current_user)):
+    """Inspects prompt and returns selected LLM model and guardrails status."""
+    guard_res = GuardrailsEngine.inspect_input(request.message)
+    route_res = TaskLLMRouter.select_model(request.message)
+    return {
+        "guardrails": guard_res,
+        "router": route_res
+    }
+
 @app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_user)):
     start_time = time.time()
+    
+    # Step 1: Run Input Guardrails Engine
+    guard_res = GuardrailsEngine.inspect_input(request.message)
+    if not guard_res["is_valid"]:
+        REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/chat", status="200").inc()
+        return ChatResponse(
+            response=guard_res["blocked_response"],
+            model="guardrails-filter",
+            task_type="GUARDRAIL_BLOCKED",
+            guardrails_passed=False
+        )
+
+    # Step 2: Task-Aware Multi-Model LLM Router Selection
+    route_res = TaskLLMRouter.select_model(request.message)
+    selected_model = route_res["model_name"]
+    task_type = route_res["task_type"]
+
+    # Step 3: LLM Inference via Ollama
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
                 f"{settings.OLLAMA_URL}/api/generate",
                 json={
-                    "model": settings.MODEL_NAME,
+                    "model": selected_model,
                     "prompt": request.message,
                     "stream": False
                 }
             )
+            
+            # Fallback to default model if selected specialized model tag isn't pulled yet
+            if resp.status_code != 200:
+                resp = await client.post(
+                    f"{settings.OLLAMA_URL}/api/generate",
+                    json={
+                        "model": settings.MODEL_NAME,
+                        "prompt": request.message,
+                        "stream": False
+                    }
+                )
+                selected_model = settings.MODEL_NAME
+
             resp.raise_for_status()
             data = resp.json()
-            response_text = data.get("response", "")
+            raw_response = data.get("response", "")
+
+            # Step 4: Run Output Guardrails Redaction
+            sanitized_response = GuardrailsEngine.sanitize_output(raw_response)
+
             REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/chat", status="200").inc()
             REQUEST_LATENCY.labels(endpoint="/api/v1/chat").observe(time.time() - start_time)
-            return ChatResponse(response=response_text, model=settings.MODEL_NAME)
+            
+            return ChatResponse(
+                response=sanitized_response,
+                model=selected_model,
+                task_type=task_type,
+                guardrails_passed=True
+            )
     except Exception as e:
         REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/chat", status="500").inc()
         raise HTTPException(status_code=500, detail=f"Ollama inference error: {str(e)}")
