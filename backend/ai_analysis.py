@@ -324,25 +324,27 @@ def smart_fallback(question: str, context: dict) -> str:
             "and codebase safety. How can I help with your security posture today?"
         )
 
-    # ── 1. Warm, Smart Interactive Greeting Check ──
-    if re.search(r'\b(hi|hii|hello|hey|greetings|who are you|what are you)\b', q) and len(q.split()) <= 4:
+    # ── 1. Flexible Greeting Check (hi, hiii, hello, hey, yo, sup, etc.) ──
+    is_greeting = bool(re.search(r'\b(h+i+|h+e+y+|h+e+l+o+|y+o+|s+u+p+|greetings|who are you|what are you)\b', q))
+    is_short_prompt = len(q.split()) <= 4
+
+    if is_greeting or (is_short_prompt and not any(k in q for k in ["commit", "scan", "run", "cve", "vuln", "finding", "policy", "pipeline", "#", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"])):
         c_count = sev.get("CRITICAL", 0)
         h_count = sev.get("HIGH", 0)
-        status_line = f"⚠️ **{c_count} Critical** and **{h_count} High** vulnerabilities need attention." if (c_count + h_count > 0) else "🟢 All security policy checks are passing cleanly!"
+        status_line = f"⚠️ **{c_count} Critical** and **{h_count} High** findings need review." if (c_count + h_count > 0) else "🟢 All security policy checks are healthy!"
 
         return (
             f"Hey there! 👋 I'm **Void**, your DevSecOps security assistant.\n\n"
-            f"I'm connected directly to your pipeline engine and local GPU.\n\n"
-            f"📊 **Current System Snapshot**:\n"
+            f"I'm connected to your pipeline engine and local GPU.\n\n"
+            f"📊 **System Posture Snapshot**:\n"
             f"• Scans Monitored: **{total}** total runs\n"
-            f"• Security Gate: **{len(passed)} passed**, **{len(blocked)} blocked** in recent runs\n"
-            f"• Security Posture: {status_line}\n\n"
-            f"💬 **What would you like to inspect?** You can ask me:\n"
+            f"• Recent Activity: **{len(passed)} passed**, **{len(blocked)} blocked**\n"
+            f"• Security Status: {status_line}\n\n"
+            f"💬 **How can I help you right now?** Ask me things like:\n"
             f"  - _'Why was the last pipeline blocked?'_\n"
-            f"  - _'Show me the top critical CVEs'_\n"
+            f"  - _'Show top critical CVEs'_\n"
             f"  - _'How do I fix SQL injection in FastAPI?'_\n"
-            f"  - _'List the first 5 blocked commits'_\n\n"
-            f"How can I help you secure your code today?"
+            f"  - _'List the first 5 blocked commits'_"
         )
 
     # ── 2. Single First Commit / Specific Scan ID Lookup ───────────────────
@@ -573,17 +575,21 @@ def smart_fallback(question: str, context: dict) -> str:
             + (f"• AI Security Explanation: {latest['ai_explanation']}\n" if latest.get('ai_explanation') else "")
         )
 
-    # ── 9. Default Point-Wise Summary ────────────────────────────────────────
-    block_rate = round(len(blocked) / max(len(recent_scans), 1) * 100)
+    # ── 9. Professional Fallback Response ──
+    c_count = sev.get("CRITICAL", 0)
+    h_count = sev.get("HIGH", 0)
+    status_line = f"⚠️ **{c_count} Critical** and **{h_count} High** findings need review." if (c_count + h_count > 0) else "🟢 All security policy checks are passing!"
+
     return (
-        f"🤖 **Void Security Assistant Overview**\n\n"
-        f"• **Pipeline History**: **{total}** total scans logged in database\n"
-        f"• **Security Gate Status**: **{len(passed)} passed**, **{len(blocked)} blocked** in last 20 runs ({block_rate}% block rate)\n"
-        f"• **Current Findings**: **{sev.get('CRITICAL', 0)} critical**, **{sev.get('HIGH', 0)} high**, **{sev.get('MEDIUM', 0)} medium**\n\n"
-        f"💡 **Suggested Questions**:\n"
-        f"  - _'show 78th commit'_\n"
-        f"  - _'which pipeline was blocked?'_\n"
-        f"  - _'how does secureflow architecture work?'_\n"
-        f"  - _'show critical vulnerabilities'_\n"
-        f"  - _'show last 10 commits'_"
+        f"Hey there! 👋 I'm **Void**, your DevSecOps security assistant.\n\n"
+        f"I'm connected to your pipeline engine and local GPU.\n\n"
+        f"📊 **System Posture Snapshot**:\n"
+        f"• Scans Monitored: **{total}** total runs\n"
+        f"• Recent Activity: **{len(passed)} passed**, **{len(blocked)} blocked**\n"
+        f"• Security Status: {status_line}\n\n"
+        f"💬 **How can I help you right now?** Ask me things like:\n"
+        f"  - _'Why was the last pipeline blocked?'_\n"
+        f"  - _'Show top critical CVEs'_\n"
+        f"  - _'How do I fix SQL injection in FastAPI?'_\n"
+        f"  - _'List the first 5 blocked commits'_"
     )
