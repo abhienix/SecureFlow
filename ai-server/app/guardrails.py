@@ -34,8 +34,8 @@ class GuardrailsEngine:
         """
         msg_lower = message.lower().strip()
 
-        # 1. Check Off-Topic Guardrail
-        if any(term in msg_lower for term in OFF_TOPIC_TERMS):
+        # 1. Check Off-Topic Guardrail (Exact word boundaries to prevent false positives on 'cookie', 'parsing', etc.)
+        if any(re.search(r'\b' + re.escape(term) + r'\b', msg_lower) for term in OFF_TOPIC_TERMS):
             return {
                 "is_valid": False,
                 "reason": "OFF_TOPIC",
