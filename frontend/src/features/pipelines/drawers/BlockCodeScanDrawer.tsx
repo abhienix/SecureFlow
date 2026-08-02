@@ -2,6 +2,7 @@ import React from 'react';
 import { ExternalLink, ShieldCheck, Bot } from 'lucide-react';
 import { PipelineRun } from '../types/pipeline.types';
 import { useVoidStore } from '../../../stores/voidStore';
+import { AutomatedRemediationCard } from '../components/AutomatedRemediationCard';
 
 interface BlockCodeScanDrawerProps {
   run: PipelineRun;
@@ -189,7 +190,15 @@ export function BlockCodeScanDrawer({ run, onNavigateToSecurity }: BlockCodeScan
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {renderFindings()}
-      {renderRemediation()}
+
+      {/* Automated Remediation Card */}
+      <AutomatedRemediationCard
+        type="codescan"
+        run={run}
+        onAskVoid={(prompt) => {
+          useVoidStore.getState().setTriggerPrompt(prompt);
+        }}
+      />
 
       {/* Buttons */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
