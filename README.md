@@ -599,30 +599,37 @@ AI Server
 
 ```text
 SecureFlow/
-├── .github/
+├── .github/                  # CI/CD & Security Automation Workflows
 │   └── workflows/
 │       ├── security-pipeline.yml     # Master CI/CD Security Pipeline & Policy Gate
 │       ├── quick-deploy-backend.yml  # Backend Cloud Run Quick Deploy Workflow
 │       └── quick-deploy-frontend.yml # Frontend Quick Deploy Workflow
-├── backend/
-│   ├── main.py                       # FastAPI Server, Routes, WebSockets & Watchdog
-│   ├── models.py                     # SQLAlchemy Database Schema Models
-│   ├── ai_analysis.py                # Void AI Copilot & Remediation Engine
-│   ├── celery_client.py              # Celery Producer & Redis Broker Client
-│   ├── pipeline_engine.py            # Monotonic Stage State Machine
-│   ├── policy_engine.py              # Zero-Trust Policy Evaluator
-│   └── requirements.txt              # Backend Dependencies
-├── frontend/
-│   ├── src/
-│   │   ├── api/                      # Axios API Client & Endpoint Wrappers
-│   │   ├── components/               # Layout, Navigation, TopBar & Global AI Copilot
-│   │   ├── features/                 # Overview, Pipelines, Security, Deployments, Policies, Settings
-│   │   ├── hooks/                    # Custom Hooks for WebSockets, Telemetry & Querying
-│   │   ├── stores/                   # Consolidated Zustand Stores (uiStore, voidStore, etc.)
-│   │   └── App.jsx                   # React 19 Main Application Shell
-│   └── package.json
-├── policy.yaml                       # Global Security Rules, CVSS Thresholds & Allow lists
-└── README.md
+├── ai-server/                # Machine B: Standalone AI Server (Local GPU Workstation)
+│   ├── app/                  # FastAPI AI Gateway, JWT Auth, & Endpoints
+│   ├── docker-compose.yml    # Ollama GPU, Ollama-Init, & AI Server Service Definitions
+│   ├── Dockerfile            # Container image definition for AI Gateway
+│   ├── .env.example          # AI Server environment configuration template
+│   └── README.md             # Machine B Setup & Integration Guide
+├── backend/                  # Machine A: Cloud Run Backend API Gateway (FastAPI)
+│   ├── main.py               # FastAPI Server, Routes, WebSockets & Watchdog
+│   ├── models.py             # SQLAlchemy Database Schema Models
+│   ├── ai_analysis.py        # Void AI Copilot & Remediation Engine
+│   ├── celery_client.py      # Celery Producer & Redis Broker Client
+│   ├── pipeline_engine.py    # Monotonic Stage State Machine
+│   ├── policy_engine.py      # Zero-Trust Policy Evaluator
+│   └── requirements.txt      # Backend Dependencies
+├── worker/                   # Machine A: Worker VM Scanner (Distributed Celery Runner)
+│   ├── app/                  # Celery Tasks, Scanners (ZAP, Trivy, Nuclei), & Parsers
+│   ├── Dockerfile            # Container image for Worker VM scanner node
+│   └── requirements.txt      # Worker dependencies
+├── frontend/                 # Client: React 19 Executive Dashboard UI
+│   ├── src/                  # React 19 Components, Features, Hooks & State Stores
+│   ├── package.json          # Node dependencies & build scripts
+│   └── Dockerfile            # Nginx Production container build
+├── docker/                   # Cloud Run Production Container Definitions
+├── docs/                     # Comprehensive Architecture & Deployment Specifications
+├── policy.yaml               # Global Zero-Trust Security Rules & CVSS Thresholds
+└── README.md                 # Master Architecture Blueprint & Deployment Guide
 ```
 
 ---
