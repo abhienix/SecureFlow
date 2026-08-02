@@ -1,4 +1,4 @@
-# 🛡️ SecureFlow – Enterprise Automated DevSecOps Pipeline & Local GPU AI Security Intelligence Platform
+# SecureFlow – Automated DevSecOps Pipeline with AI Security Analysis
 
 [![CI/CD Pipeline](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-blue?logo=github-actions)](https://github.com/abhienix/SecureFlow/actions)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -10,274 +10,160 @@
 [![SAST](https://img.shields.io/badge/SAST-Semgrep-6B5B95)](https://semgrep.dev/)
 [![Secret Detection](https://img.shields.io/badge/Secrets-Gitleaks-E040FB)](https://github.com/gitleaks/gitleaks)
 
-**SecureFlow** is a production-grade, enterprise Shift-Left DevSecOps Security Intelligence & Automated Gating Platform. It monitors every commit and pull request for exposed secrets (Gitleaks), static code security flaws (Semgrep), container vulnerabilities (Trivy), and dynamic web application vulnerabilities (OWASP ZAP). 
+I built **SecureFlow** to automate security scanning in CI/CD pipelines and give developers instant, real-time feedback whenever they push code. 
 
-SecureFlow enforces zero-trust security policies (`policy.yaml`), streams real-time telemetry over WebSockets (< 15ms latency), and features **Void AI** — a 100% local, GPU-accelerated security copilot backed by ChromaDB RAG Vector Store and local Qwen2.5 LLM inference.
+Instead of waiting for manual security reviews, SecureFlow automatically checks every commit and pull request for leaked secrets, static code vulnerabilities, container CVEs, and live API flaws. If a critical issue is found, it blocks the build before bad code hits production.
 
----
-
-## 🚀 Key Technical Highlights & Architecture Features
-
-- 🔒 **100% Local GPU AI Processing**: Zero cloud API token costs or external data leakage. AI inference runs entirely on a dedicated local NVIDIA GPU workstation (Machine B) using `qwen2.5:3b` and `nomic-embed-text`.
-- 🧠 **ChromaDB RAG Vector Store**: Indexes codebase topology, OWASP Top 10 guidelines, CWE definitions, and CVE remediation patterns for semantic RAG retrieval.
-- ⚡ **Real-Time WebSocket Telemetry**: Sub-15ms push updates from CI/CD runners to the React 19 Executive Dashboard without polling overhead.
-- 🛡️ **Zero-Trust Monotonic Security Gating**: Enforces automatic `BLOCK` decisions on Critical/High vulnerabilities before code reaches production servers.
-- 🔄 **Distributed Out-of-Process DAST Scanning**: Heavy OWASP ZAP dynamic application security testing (DAST) runs asynchronously on isolated worker nodes via Celery and Redis.
+It also comes with a built-in AI companion named **Void AI** that runs 100% locally on a dedicated GPU to explain security findings and provide exact code fixes without sending your code to external cloud AI APIs.
 
 ---
 
-## 🏛️ Master System Architecture (One-View Map)
+## 🤔 Why I Built SecureFlow
 
-Below is the complete single-view architectural map showing how all core operational layers interact:
+In standard development workflows, security scans are often slow, disconnected from the dashboard, or rely on expensive cloud AI services that leak code snippets. 
+
+I wanted to solve three big problems:
+1. **No Real-Time Visibility**: Most CI/CD security tools run silently in GitHub Actions. I built a live React dashboard with WebSockets so you can watch your security scans run in real time with < 15ms latency.
+2. **Preventing Bad Deploys**: If Semgrep or OWASP ZAP finds a high-risk flaw, the pipeline engine automatically blocks the deployment and marks downstream steps as skipped.
+3. **100% Local AI Security Copilot**: Instead of paying for OpenAI or Groq tokens, I set up a local GPU AI server running `Qwen2.5` and `ChromaDB` vector embeddings. It gives smart security answers and line-by-line code patches for $0 cost.
+
+---
+
+## 🏛️ System Architecture
+
+Here is the high-level flow of how code moves from a developer's machine through security scans and onto the dashboard:
 
 ```mermaid
 %%{init: {'theme': 'neutral', 'themeVariables': { 'background': '#ffffff', 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#333333'}}}%%
 flowchart TD
     classDef default fill:#ffffff,stroke:#0f172a,stroke-width:1px,color:#000000;
 
-    subgraph Dev_Layer [💻 Developer Layer]
+    subgraph Dev_Layer [💻 Developer]
         dev[Developer Workstation]
     end
 
-    subgraph CICD_Layer [⚙️ CI/CD Execution Layer]
+    subgraph CICD_Layer [⚙️ CI/CD Security Pipeline]
         github[GitHub Repository]
         subgraph GHA_Pipeline [GitHub Actions Runner]
-            c1[Checkout] --> c2[Gitleaks Secrets] --> c3[Semgrep SAST] --> c4[Docker Build] --> c5[Trivy CVE] --> c6[Policy Gate] --> c7[Deploy Staging] --> c8[Trigger DAST] --> c9[Deploy Production]
+            c1[Checkout] --> c2[Gitleaks Secrets] --> c3[Semgrep SAST] --> c4[Docker Build] --> c5[Trivy CVE] --> c6[Policy Gate] --> c7[Deploy Staging] --> c8[Trigger ZAP DAST] --> c9[Deploy Production]
         end
     end
 
-    subgraph Client_Layer [📊 Client Interface Layer]
+    subgraph Client_Layer [📊 Dashboard UI]
         dashboard[React Executive Dashboard]
-        void_drawer[Void AI Copilot Drawer]
-        console[Admin Management Console]
-        notifs[Notification Center]
+        void_drawer[Void AI Copilot Panel]
     end
 
-    subgraph Backend_Layer [⚡ Cloud Backend Layer - Machine A]
-        gateway[API Gateway / Auth Router]
-        repo_svc[Repository Service]
-        pipe_svc[Pipeline Service]
-        find_svc[Findings Service]
-        dep_svc[Deployment Service]
+    subgraph Backend_Layer [⚡ FastAPI Backend Server]
+        gateway[API Gateway & Telemetry Service]
+        pipe_svc[Pipeline Engine]
         pol_svc[Policy Evaluator]
-        ai_gtw[AI Gateway Client]
-        obs_svc[Observability Service]
         ws_mgr[WebSocket Manager]
         
-        gateway --> repo_svc
         gateway --> pipe_svc
-        gateway --> find_svc
-        gateway --> dep_svc
         gateway --> pol_svc
-        gateway --> ai_gtw
-        gateway --> obs_svc
         gateway --> ws_mgr
     end
 
-    subgraph AI_Layer [🧠 Standalone AI Server - Machine B Local GPU]
+    subgraph AI_Layer [🧠 Local GPU AI Server - Machine B]
         fastapi_ai[FastAPI AI Gateway :8100]
-        conv_mgr[Conversation Manager]
-        ctx_bld[Context Builder RAG]
-        rag_eng[RAG Embeddings Engine]
-        ollama[Ollama Engine Host]
-        qwen[Qwen2.5 3B GPU Model]
-        nomic[nomic-embed-text]
+        ollama[Ollama Engine]
+        qwen[Qwen2.5 3B Model]
         chroma[ChromaDB Vector Store]
-        remedy[Remediation Engine]
 
-        fastapi_ai --> conv_mgr
-        conv_mgr --> ctx_bld
-        ctx_bld --> rag_eng
-        rag_eng --> chroma
-        rag_eng --> ollama
+        fastapi_ai --> chroma
+        fastapi_ai --> ollama
         ollama --> qwen
-        ollama --> nomic
-        ctx_bld --> remedy
     end
 
-    subgraph Data_Layer [🗄️ Databases & Cache Layer]
-        pg[(PostgreSQL DB)]
-        redis[Redis Queue & PubSub]
-        prom[(Prometheus Server)]
-    end
-
-    subgraph Worker_Layer [🖥️ Worker VM Execution Layer]
+    subgraph Worker_Layer [🖥️ DAST Worker Node]
         celery[Celery Task Consumer]
-        docker[Docker Engine Socket]
         zap[OWASP ZAP Container]
-        health[Worker Health Agent]
-
-        celery --> docker
-        docker --> zap
+        celery --> zap
     end
 
-    subgraph Ext_Layer [🌐 External Integrations]
-        github_api[GitHub REST API]
-        slack[Slack Webhook App]
-        staging_env[Cloud Run Staging]
-        prod_env[Cloud Run Production]
-    end
-
-    dev ==>|1. git push / PR| github
-    github -->|2. Trigger| GHA_Pipeline
-    GHA_Pipeline -->|3. HTTP Progress PATCH| gateway
+    dev ==>|1. git push| github
+    github -->|2. Trigger Pipeline| GHA_Pipeline
+    GHA_Pipeline -->|3. Status PATCH| gateway
     
-    c7 -->|Deploy Image| staging_env
-    c9 -->|Deploy Image| prod_env
+    dashboard ==>|REST & WebSockets| gateway
+    void_drawer ==>|Query Copilot| gateway
+    gateway ==>|HTTPS Call| fastapi_ai
 
-    dashboard ==>|HTTP REST Calls| gateway
-    void_drawer ==>|HTTP REST Calls| gateway
-    console ==>|HTTP REST Calls| gateway
-    gateway -.->|Sub-15ms WebSocket push| dashboard
-
-    repo_svc ==>|SQL Queries| pg
-    pipe_svc ==>|SQL Queries| pg
-    find_svc ==>|SQL Queries| pg
-    dep_svc ==>|SQL Queries| pg
-    pol_svc ==>|SQL Queries| pg
-    obs_svc ==>|SQL Queries| pg
-    
-    pipe_svc -.->|Enqueue DAST Task| redis
-    obs_svc -.->|Scrape Metrics| prom
-
-    redis -.->|DAST Task Queue| celery
-    zap -->|Attack Scan Target| staging_env
-    celery ==>|Persist Findings| pg
-
-    ai_gtw ==>|HTTPS Tunnel Call| fastapi_ai
-    remedy -.->|Create Pull Requests| github_api
-    obs_svc -.->|Send Slack Alerts| slack
+    pipe_svc -.->|Enqueue DAST| celery
+    zap -->|Attack Scan| c7
 ```
 
 ---
 
-## 📁 Clean Component Architecture & Directory Map
+## 📁 Repository Map
 
-SecureFlow enforces strict separation of concerns across top-level components:
+The codebase is organized into four main isolated folders so everything is easy to find and manage:
 
 ```text
 SecureFlow/
-├── ai-server/                # Machine B: Standalone GPU AI Server (Ollama + FastAPI + ChromaDB)
-│   ├── app/                  # FastAPI AI Gateway, JWT Auth, & RAG Endpoints
-│   ├── docker-compose.yml    # Ollama GPU Container, Ollama-Init, & AI Gateway Service
-│   ├── Dockerfile            # Non-root appuser container definition for AI Gateway
-│   ├── .env.example          # AI Server environment configuration template
-│   └── README.md             # Machine B GPU Workstation Setup Guide
-├── backend/                  # Machine A: Cloud Run API Gateway & Telemetry Service (FastAPI)
-│   ├── main.py               # FastAPI Server, Routes, WebSockets & Watchdog
-│   ├── models.py             # SQLAlchemy Async Database Models
-│   ├── ai_analysis.py        # Void AI Copilot Routing & Smart Fallback Engine
-│   ├── celery_client.py      # Celery Producer & Redis Broker Client
-│   ├── pipeline_engine.py    # Monotonic Stage State Machine
-│   ├── policy_engine.py      # Zero-Trust Policy Evaluator (`policy.yaml`)
-│   └── requirements.txt      # Backend Dependencies
-├── worker/                   # Machine A: Distributed Worker VM Scanner (Celery + OWASP ZAP)
-│   ├── app/                  # Celery Tasks, Scanners (ZAP, Trivy), & Parsers
-│   ├── Dockerfile            # Non-root workeruser container definition
-│   └── requirements.txt      # Worker VM dependencies
-├── frontend/                 # Client Interface: React 19 Executive Dashboard UI
-│   ├── src/                  # React 19 Components, Features, Hooks & Zustand Stores
-│   ├── package.json          # Node dependencies & build scripts
-│   └── Dockerfile            # Production build definition
-├── .github/                  # CI/CD & Security Automation Workflows
-│   └── workflows/
-│       ├── security-pipeline.yml     # Master CI/CD Security Pipeline & Policy Gate
-│       ├── quick-deploy-backend.yml  # Backend Cloud Run Deployment Workflow
-│       └── quick-deploy-frontend.yml # Frontend Cloud Run Deployment Workflow
-├── policy.yaml               # Global Zero-Trust Security Rules & CVSS Thresholds
-└── README.md                 # Master Enterprise Blueprint & Setup Specification
+├── ai-server/        # Machine B: Local GPU AI Server (FastAPI + Ollama + Qwen2.5 + ChromaDB)
+├── backend/          # Cloud API Gateway & Telemetry Server (FastAPI + WebSockets + SQLite/PostgreSQL)
+├── worker/           # Distributed DAST Scanner (Celery + Redis + OWASP ZAP)
+├── frontend/         # Executive Security Dashboard (React 19 + TypeScript + Framer Motion)
+├── .github/          # GitHub Actions workflows for security pipelines & quick deploys
+└── policy.yaml       # Zero-Trust security policy rules & vulnerability thresholds
 ```
 
 ---
 
-## 🎯 Key Engineering Decisions (Interview Deep-Dive)
+## 🛠️ Core Features
 
-### 1. Why Separate the AI Server to a Local GPU Workstation (Machine B)?
-- **Problem**: Cloud AI APIs (OpenAI/Gemini/Groq) introduce per-token costs, API rate limits, network latency, and privacy compliance concerns (sending proprietary source code snippets over public APIs).
-- **Solution**: SecureFlow routes AI inference to a dedicated local GPU server (Machine B) running `Ollama` + `Qwen2.5:3b` + `nomic-embed-text` with ChromaDB RAG. This guarantees **100% offline, zero-cost, privacy-preserving AI inference** with < 300ms time-to-first-token.
-
-### 2. How Does the Monotonic Pipeline Engine Guarantee Accurate Statuses?
-- **Problem**: In concurrent CI/CD runs, out-of-order webhooks or pipeline step failures can cause status race conditions (e.g. displaying "PASS" on a step that failed in GitHub Actions).
-- **Solution**: SecureFlow implements a **Monotonic Stage State Machine** (`pipeline_engine.py`). Stage states transition strictly along deterministic paths (`PENDING` ➔ `RUNNING` ➔ `PASS` / `BLOCK` / `SKIPPED`). Once a stage transitions to `BLOCK`, downstream stages are automatically updated to `SKIPPED`, and the overall pipeline status is locked to `BLOCKED`.
-
-### 3. How Is Heavy DAST Scanning Decoupled from the API Gateway?
-- **Problem**: Dynamic Application Security Testing (OWASP ZAP) takes several minutes and consumes significant CPU/Memory, which would freeze main HTTP looper threads if executed synchronously.
-- **Solution**: The backend enqueues DAST scan tasks into **Redis**. Asynchronous **Celery Worker VMs** consume the queue out-of-process, execute OWASP ZAP in isolated Docker containers, parse vulnerability alerts, and report results back to PostgreSQL asynchronously.
+- **Secret Detection**: Runs **Gitleaks** to catch API keys, passwords, and private tokens before they are committed.
+- **Static Analysis (SAST)**: Scans source code with **Semgrep** for OWASP Top 10 security bugs.
+- **Container Scanning (SCA)**: Uses **Trivy** to inspect Docker base images for known CVEs.
+- **Dynamic Testing (DAST)**: Runs **OWASP ZAP** out-of-process via Celery to test live endpoints for XSS, SQLi, and missing security headers.
+- **Monotonic Pipeline Engine**: Ensures step statuses (`PASS`, `BLOCK`, `SKIPPED`) update deterministically without race conditions.
+- **Void AI Copilot**: A local assistant that answers questions about your commit history, scan findings, and OWASP fixes.
 
 ---
 
-## 🧰 Tech Stack Breakdown
+## 🎯 Key Design Choices (Interview Q&A)
 
-| Category | Component / Tool | Purpose / Usage |
-| :--- | :--- | :--- |
-| **CI/CD Pipeline** | GitHub Actions, Gitleaks, Semgrep, Trivy, OWASP ZAP | Automated pipeline scanning, SAST, secret detection, SCA & DAST |
-| **Backend Core** | Python 3.11, FastAPI, Uvicorn, SQLAlchemy 2.0 (Async) | High-performance REST API, WebSockets, ORM data layer |
-| **Local GPU AI Server** | Ollama, Qwen2.5 3B, nomic-embed-text, ChromaDB | 100% local GPU vector embedding and AI security copilot |
-| **Worker & Queue** | Celery, Redis, GCP Compute Engine | Asynchronous DAST queue broker and containerized scanner execution |
-| **Database** | PostgreSQL 15 / SQLite, asyncpg, aiosqlite | Persistent storage for scan results, stages, findings, and policies |
-| **Frontend UI** | React 19, TypeScript, TanStack Query v5, Zustand, Recharts | Real-time executive security intelligence dashboard |
-| **Hosting & Cloud** | Google Cloud Run, Cloudflare Tunnels, GCP Artifact Registry | Production serverless backend hosting & encrypted HTTPS connectivity |
+### Why separate the AI Server to a local GPU machine?
+Cloud AI providers (OpenAI/Gemini) cost money per request and require sending source code snippets to external servers. By running Ollama with `Qwen2.5:3b` and `ChromaDB` on a local NVIDIA GPU (Machine B), all code stays completely private, runs with zero token cost, and responds in under 300ms.
 
----
+### Why run DAST scanning in a separate worker process?
+OWASP ZAP scans can take several minutes and use a lot of CPU. Running ZAP inside the main API server would block user requests and slow down the dashboard. I decoupled DAST scanning into an asynchronous Celery worker backed by Redis.
 
-## ⚡ Quick Start & Local Setup
-
-### Prerequisites
-- **Python**: 3.11+
-- **Node.js**: 18+ & `npm`
-- **Docker Engine**: Required for container builds and local AI Server execution
+### How does the real-time dashboard work?
+Whenever GitHub Actions or the DAST worker finishes a step, it sends a lightweight HTTP request to the backend. The backend updates the database and immediately broadcasts the event over WebSockets to the React frontend, updating the UI in under 15ms.
 
 ---
 
-### 1. Standalone AI Server Setup (Machine B GPU Workstation)
+## ⚡ Quick Start
 
+### 1. Run Local GPU AI Server (Machine B)
 ```bash
 cd ai-server
 docker compose up -d --build
 ```
-The AI Server will be accessible at `http://localhost:8100` (Health check: `http://localhost:8100/health`).
 
----
-
-### 2. Backend Setup (Machine A)
-
+### 2. Run Backend API Server
 ```bash
 cd backend
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --port 8000
 ```
 
----
-
-### 3. Frontend Setup
-
+### 3. Run React Dashboard
 ```bash
 cd frontend
 npm install
 npm start
 ```
-The executive dashboard will open at `http://localhost:3000`.
+
+Open `http://localhost:3000` in your browser to view the live dashboard!
 
 ---
 
-## 🔑 Primary API Endpoints
+## 👤 Author
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `POST` | `/api/scan-results/start` | Register new pipeline scan run & trigger automated security checks |
-| `GET` | `/api/scan-results/{id}/progress` | Fetch real-time stage states and DAST scan progress |
-| `PATCH`| `/api/scan-results/{id}/progress` | Telemetry callback endpoint for CI/CD runners & Worker VM |
-| `GET` | `/api/scan-results` | Fetch historical scan runs, telemetry summaries, and findings |
-| `POST` | `/api/copilot/ask` | Query Void AI Security Copilot (100% local GPU execution) |
-| `GET` | `/api/policy` | View active zero-trust security policies loaded from `policy.yaml` |
-| `WS` | `/ws/events` | Sub-15ms WebSocket event stream for real-time dashboard telemetry |
-
-OpenAPI interactive documentation is accessible at `http://localhost:8000/docs`.
-
----
-
-## 📜 License & Credits
-
-Designed and engineered by **Abhimanyu Kumar** (Lead Software Architect & Security Engineer) as an Enterprise DevSecOps Security Intelligence Platform. Licensed under the [MIT License](LICENSE).
+Designed and built by **Abhimanyu Kumar** as a hands-on DevSecOps and AI security project. Licensed under the [MIT License](LICENSE).
