@@ -324,15 +324,25 @@ def smart_fallback(question: str, context: dict) -> str:
             "and codebase safety. How can I help with your security posture today?"
         )
 
-    # ── 1. Standalone Greeting Check (Exact word boundary & short prompt) ──
-    if re.search(r'\b(hi|hello|hey|greetings|who are you|what are you)\b', q) and len(q.split()) <= 4:
+    # ── 1. Warm, Smart Interactive Greeting Check ──
+    if re.search(r'\b(hi|hii|hello|hey|greetings|who are you|what are you)\b', q) and len(q.split()) <= 4:
+        c_count = sev.get("CRITICAL", 0)
+        h_count = sev.get("HIGH", 0)
+        status_line = f"⚠️ **{c_count} Critical** and **{h_count} High** vulnerabilities need attention." if (c_count + h_count > 0) else "🟢 All security policy checks are passing cleanly!"
+
         return (
-            f"Hey! 👋 I'm **Void** — your SecureFlow security assistant.\n"
-            f"I have access to your live pipeline data. Right now:\n"
-            f"- **{total}** total scans tracked\n"
-            f"- **{len(blocked)}** blocked in the last 20 runs\n"
-            f"- **{sev.get('CRITICAL', 0)} critical** / **{sev.get('HIGH', 0)} high** findings\n\n"
-            f"Ask me about specific pipelines, commits, CVEs, or scan results."
+            f"Hey there! 👋 I'm **Void**, your DevSecOps security assistant.\n\n"
+            f"I'm connected directly to your pipeline engine and local GPU.\n\n"
+            f"📊 **Current System Snapshot**:\n"
+            f"• Scans Monitored: **{total}** total runs\n"
+            f"• Security Gate: **{len(passed)} passed**, **{len(blocked)} blocked** in recent runs\n"
+            f"• Security Posture: {status_line}\n\n"
+            f"💬 **What would you like to inspect?** You can ask me:\n"
+            f"  - _'Why was the last pipeline blocked?'_\n"
+            f"  - _'Show me the top critical CVEs'_\n"
+            f"  - _'How do I fix SQL injection in FastAPI?'_\n"
+            f"  - _'List the first 5 blocked commits'_\n\n"
+            f"How can I help you secure your code today?"
         )
 
     # ── 2. Single First Commit / Specific Scan ID Lookup ───────────────────
