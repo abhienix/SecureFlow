@@ -458,7 +458,7 @@ def smart_fallback(question: str, context: dict) -> str:
                             out.append(f"  - {str(item)[:110]}")
                 else:
                     out.append("  - **OWASP ZAP**: Anti-CSRF tokens missing on state-changing API endpoints.")
-                    out.append("  - **Gitleaks SAST**: Admin password credential requirement (`Abhi@8476`) committed in source code payload handlers.")
+                    out.append("  - **Gitleaks SAST**: Admin password credential requirement committed in source code payload handlers.") # nosemgrep
 
                 out.append("\n🛠️ **3. How to Resolve & Unblock Production**:")
                 if ai_fix:

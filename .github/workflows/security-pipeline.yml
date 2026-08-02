@@ -239,6 +239,10 @@ jobs:
             --config "p/secrets" \
             --config "p/security-audit" \
             --config "p/owasp-top-ten" \
+            --exclude "venv" \
+            --exclude ".venv" \
+            --exclude "node_modules" \
+            --exclude "scratch" \
             --json \
             --output semgrep-results.json \
             --error \

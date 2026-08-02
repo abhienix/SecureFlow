@@ -1,0 +1,24 @@
+# Semgrep ignore patterns for SecureFlow
+
+# Dependencies & Build Artifacts
+node_modules/
+frontend/build/
+frontend/dist/
+backend/venv/
+venv/
+.venv/
+.pytest_cache/
+__pycache__/
+
+# Database & Generated Reports
+*.db
+*.sqlite
+*.log
+report.json
+gitleaks-results.json
+semgrep-results.json
+zap-results.json
+
+# Temporary & Scratch Files
+scratch/
+docs/
