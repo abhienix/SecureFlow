@@ -315,13 +315,20 @@ def smart_fallback(question: str, context: dict) -> str:
     OFF_TOPIC_TERMS = [
         "weather", "recipe", "cook", "bake", "sports", "football", "cricket", "basketball",
         "movie", "actor", "song", "sing", "joke", "capital of", "who is the president",
-        "president of", "tell me a story", "game", "horoscope", "car", "travel", "food"
+        "president of", "tell me a story", "game", "horoscope", "car", "travel", "food",
+        "restaurant", "hotel", "vacation", "news", "politics", "stock", "crypto", "bitcoin"
     ]
     if any(term in q for term in OFF_TOPIC_TERMS):
+        c_count = sev.get("CRITICAL", 0)
+        h_count = sev.get("HIGH", 0)
+        status_line = f"⚠️ {c_count} Critical, {h_count} High findings need review." if (c_count + h_count > 0) else "🟢 No critical open issues."
         return (
-            "🔒 **Security Boundary**: I am Void, your SecureFlow security companion. "
-            "I can only assist with DevSecOps pipelines, security scans, vulnerability remediation, "
-            "and codebase safety. How can I help with your security posture today?"
+            f"🔒 **Out of scope for me!** I'm **Void** — a security-focused DevSecOps assistant.\n\n"
+            f"I don't cover topics outside your pipeline. But here's what I **can** help with:\n"
+            f"• _'Show top critical CVEs'_\n"
+            f"• _'Which pipeline was blocked and why?'_\n"
+            f"• _'How do I fix a SQL injection in FastAPI?'_\n\n"
+            f"📊 **Your current security posture**: {status_line}"
         )
 
     # ── 1. Flexible Greeting Check (hi, hiii, hello, hey, yo, sup, etc.) ──
@@ -531,7 +538,91 @@ def smart_fallback(question: str, context: dict) -> str:
             f"• **Reason**: {explanation}"
         )
 
-    # ── 4. Creator / Who Made You Queries ──────────────────────────────────
+    # ── 4. CVE / Vulnerability Queries ─────────────────────────────────────
+    if any(w in q for w in ["cve", "vuln", "vulnerabilit", "critical", "top finding", "top issue",
+                             "most vuln", "most critical", "severity", "high risk", "security issue",
+                             "top vulnerability", "biggest risk", "worst finding"]):
+        c = sev.get("CRITICAL", 0)
+        h = sev.get("HIGH", 0)
+        m = sev.get("MEDIUM", 0)
+        lo = sev.get("LOW", 0)
+
+        # Find highest-risk scan
+        worst_scan = None
+        worst_score = -1
+        for s in recent_scans:
+            score = (s.get("zap_summary") or {}).get("High", 0) * 3 + (s.get("zap_summary") or {}).get("Medium", 0)
+            if score > worst_score:
+                worst_score = score
+                worst_scan = s
+
+        out = [f"🔍 **Top Security Findings Across All {total} Pipeline Scans**:\n"]
+        out.append(f"| Severity | Count |")
+        out.append(f"|----------|-------|")
+        out.append(f"| 🔴 Critical | **{c}** |")
+        out.append(f"| 🟠 High | **{h}** |")
+        out.append(f"| 🟡 Medium | **{m}** |")
+        out.append(f"| 🟢 Low | **{lo}** |")
+
+        if worst_scan:
+            zs = worst_scan.get("zap_summary") or {}
+            out.append(f"\n🏆 **Most Vulnerable Push** — Run **#{worst_scan['id']}** (`{worst_scan.get('commit_sha','?')[:7]}`)")
+            out.append(f"  - DAST High: **{zs.get('High', 0)}**, Medium: **{zs.get('Medium', 0)}**, Low: **{zs.get('Low', 0)}**")
+            out.append(f"  - Branch: `{worst_scan.get('branch','main')}` | Date: `{worst_scan.get('created_at','N/A')}`")
+            exp = worst_scan.get("ai_explanation")
+            if exp:
+                out.append(f"  - Diagnosis: {exp[:200]}")
+
+        out.append(f"\n💡 **Common fix patterns in this repo**:")
+        out.append(f"  - Remove hardcoded credentials (Gitleaks findings)")
+        out.append(f"  - Add security headers (`X-Content-Type-Options`, `HSTS`) to FastAPI")
+        out.append(f"  - Pin container image versions in Dockerfile to eliminate Trivy CVEs")
+        return "\n".join(out)
+
+    # ── 4b. Most Vulnerable Push Query ──────────────────────────────────────
+    if any(w in q for w in ["most vulnerab", "worst push", "worst commit", "most findings",
+                             "highest risk", "most bugs"]):
+        worst_scan = None
+        worst_score = -1
+        for s in recent_scans:
+            zs = s.get("zap_summary") or {}
+            score = zs.get("High", 0) * 3 + zs.get("Medium", 0) + (1 if s.get("action_taken") == "BLOCK" else 0) * 2
+            if score > worst_score:
+                worst_score = score
+                worst_scan = s
+        if worst_scan:
+            zs = worst_scan.get("zap_summary") or {}
+            exp = worst_scan.get("ai_explanation") or "Security policy gate thresholds exceeded."
+            return (
+                f"🏆 **Most Vulnerable Pipeline Push** (of last {len(recent_scans)} scans):\n\n"
+                f"🔴 **Run #{worst_scan['id']}** — `{worst_scan.get('commit_sha','?')[:7]}`\n"
+                f"• **Commit**: _{worst_scan.get('commit_message','no message')}_\n"
+                f"• **Branch**: `{worst_scan.get('branch','main')}` | **Date**: `{worst_scan.get('created_at','N/A')}`\n"
+                f"• **Gate Result**: **{worst_scan.get('action_taken','?')}**\n"
+                f"• **DAST Findings**: High: **{zs.get('High',0)}**, Medium: **{zs.get('Medium',0)}**, Low: **{zs.get('Low',0)}**\n"
+                f"• **Diagnosis**: {exp[:250]}"
+            )
+        return "No scan data available to determine most vulnerable push."
+
+    # ── 4c. Fix / Remediation Queries ───────────────────────────────────────
+    if any(w in q for w in ["fix", "patch", "remediat", "resolve", "how to", "how do i", "prevent"]):
+        return (
+            "🛠️ **Common Remediation Playbook for SecureFlow Findings**:\n\n"
+            "**1. Hardcoded Secrets (Gitleaks)**\n"
+            "  - Move secrets to environment variables or a secrets manager (e.g. AWS Secrets Manager, HashiCorp Vault)\n"
+            "  - Add `.env` to `.gitignore` and rotate any exposed credentials immediately\n\n"
+            "**2. SAST Issues (Semgrep)**\n"
+            "  - SQL Injection → Use parameterized queries / ORM (SQLAlchemy)\n"
+            "  - Path Traversal → Validate and sanitize file paths with `pathlib`\n\n"
+            "**3. Container CVEs (Trivy)**\n"
+            "  - Pin base images to a specific digest (e.g. `python:3.11.9-slim@sha256:...`)\n"
+            "  - Run `trivy image --severity HIGH,CRITICAL` locally before pushing\n\n"
+            "**4. DAST / API Issues (ZAP)**\n"
+            "  - Add `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` headers\n"
+            "  - Enable CSRF protection on all state-changing endpoints"
+        )
+
+    # ── 5. Creator / Who Made You Queries ──────────────────────────────────
     if any(w in q for w in ["who made", "creator", "author", "who built", "who created"]):
         return "👤 **SecureFlow Architect**: Designed, engineered, and maintained by **Abhimanyu**."
 
