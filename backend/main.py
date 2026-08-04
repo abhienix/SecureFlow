@@ -982,26 +982,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="SecureFlow — AI-Powered DevSecOps & Distributed DAST Gateway", version="2.0.0", lifespan=lifespan)
 
-# CORS: defaults to localhost + Cloud Run in dev. Set BACKEND_CORS_ORIGINS (comma-separated) or
-# BACKEND_CORS_ORIGIN_REGEX in production to restrict to known frontend domains.
 _default_cors_origins = [
     "http://localhost:3000",
-    "http://localhost:8000",
     "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
     "https://secureflow-frontend-1083585992526.us-central1.run.app",
     "https://secureflow-backend-1083585992526.us-central1.run.app"
 ]
 _env_cors = os.getenv("BACKEND_CORS_ORIGINS", "")
-CORS_ALLOW_ORIGINS = [o.strip() for o in _env_cors.split(",") if o.strip()] or _default_cors_origins
-# Default regex matches any Google Cloud Run domain (*.run.app) or localhost port
-CORS_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ORIGIN_REGEX", r"https://.*\.run\.app|http://localhost:.*|http://127\.0\.0\.1:.*")
+CORS_ALLOW_ORIGINS = [o.strip() for o in _env_cors.split(",") if o.strip()] or ["*"]
+CORS_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ORIGIN_REGEX", r"https://.*\.trycloudflare\.com|https://.*\.cloudflare\.com|https://.*\.ngrok-free\.(dev|app)|https://.*\.run\.app|http://localhost:.*|http://127\.0\.0\.1:.*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_origins=["*"],
     allow_origin_regex=CORS_ORIGIN_REGEX,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    allow_headers=["*"],
 )
 
 
