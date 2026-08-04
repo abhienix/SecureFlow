@@ -2,11 +2,13 @@ import axios from 'axios';
 
 const BACKEND_URL =
   process.env.REACT_APP_API_URL ||
-  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:8000'
-    : typeof window !== 'undefined'
+    : typeof window !== 'undefined' && window.location.port === '3000'
+    ? 'http://localhost:8000'
+    : typeof window !== 'undefined' && window.location.origin.includes('frontend')
     ? window.location.origin.replace('frontend', 'backend')
-    : 'https://secureflow-backend-1083585992526.us-central1.run.app');
+    : 'http://localhost:8000');
 
 export const API_BASE = BACKEND_URL;
 
