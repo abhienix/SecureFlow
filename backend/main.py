@@ -2287,12 +2287,17 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
 
-    focus_scan_id = data.get("scan_id")
+    # ── Auto-detect run ID mentioned in the question ──────────────────────────
+    id_match = re.search(r'#?(\d+)', question)
+    auto_id = int(id_match.group(1)) if id_match and int(id_match.group(1)) > 10 else None
+
+    focus_scan_id = data.get("scan_id") or auto_id
     focus_scan = None
     if focus_scan_id:
         res = await db.execute(select(ScanResult).filter(ScanResult.id == focus_scan_id))
         focus_scan = res.scalars().first()
 
+    # ── Recent scans (last 25) ────────────────────────────────────────────────
     res = await db.execute(
         select(ScanResult)
         .order_by(ScanResult.created_at.desc())
@@ -2300,19 +2305,90 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
     )
     recent = res.scalars().all()
 
+    # ── Earliest scans for ordinal queries ───────────────────────────────────
+    res2 = await db.execute(
+        select(ScanResult)
+        .order_by(ScanResult.created_at.asc())
+        .limit(10)
+    )
+    earliest = res2.scalars().all()
+
+    # ── Total count + severity summary ───────────────────────────────────────
+    count_res = await db.execute(select(func.count()).select_from(ScanResult))
+    total_scans = count_res.scalar() or 0
+
+    sev_res = await db.execute(
+        select(ScanResult.severity, func.count().label("cnt"))
+        .group_by(ScanResult.severity)
+    )
+    findings_summary = {row.severity: row.cnt for row in sev_res if row.severity}
+
     def scan_summary(s: ScanResult) -> dict:
+        """Full data for focused scan — gives LLM actual findings to work with."""
+        # Extract top gitleaks findings
+        gl = s.gitleaks_findings or []
+        gl_top = [{"rule": f.get("RuleID", f.get("ruleId", "secret")),
+                   "file": f.get("File", f.get("file", "?")),
+                   "line": f.get("StartLine", f.get("startLine", "?"))} for f in (gl[:3] if isinstance(gl, list) else [])]
+
+        # Extract top semgrep findings
+        sg = s.semgrep_findings or []
+        sg_results = (sg.get("results") or sg) if isinstance(sg, dict) else (sg if isinstance(sg, list) else [])
+        sg_top = [{"rule": f.get("check_id", "?").split(".")[-1],
+                   "file": f.get("path", "?"),
+                   "line": (f.get("start") or {}).get("line", "?"),
+                   "message": (f.get("extra") or {}).get("message", "")[:120]} for f in (sg_results[:3] if isinstance(sg_results, list) else [])]
+
+        # Extract top ZAP findings
+        zap = s.zap_findings or []
+        zap_top = [{"name": f.get("name", f.get("alert", "?")),
+                    "risk": f.get("riskdesc", f.get("risk", "?")),
+                    "url": f.get("url", "")[:80],
+                    "solution": f.get("solution", "")[:120]} for f in (zap[:3] if isinstance(zap, list) else [])]
+
+        # Trivy CVEs
+        trivy_vulns = []
+        for result_set in ((s.findings or {}).get("Results") or []):
+            for v in (result_set.get("Vulnerabilities") or [])[:3]:
+                trivy_vulns.append({"id": v.get("VulnerabilityID"),
+                                    "pkg": v.get("PkgName"),
+                                    "severity": v.get("Severity"),
+                                    "fix": v.get("FixedVersion", "no fix")})
+
         return {
             "id": s.id,
             "commit_sha": (s.commit_sha or "")[:8],
+            "commit_message": s.commit_message or "",
             "repo_name": s.repo_name,
             "branch": s.branch,
             "severity": s.severity,
             "action_taken": s.action_taken,
             "status": s.status,
+            "scan_type": s.scan_type,
             "dast_status": s.dast_status,
             "risk_score": s.risk_score,
-            "ai_explanation": (s.ai_explanation or "")[:400],
+            "ai_explanation": (s.ai_explanation or "")[:600],
+            "ai_fix": (s.ai_fix or "")[:600],
             "created_at": utc_iso(s.created_at),
+            "zap_summary": s.zap_summary or {},
+            "gitleaks_findings": gl_top,
+            "semgrep_findings": sg_top,
+            "zap_findings": zap_top,
+            "trivy_cves": trivy_vulns[:5],
+            "pipeline_steps": s.pipeline_steps or {},
+        }
+
+    def scan_brief(s: ScanResult) -> dict:
+        """Lightweight summary for list context — keeps prompt small."""
+        return {
+            "id": s.id,
+            "commit_sha": (s.commit_sha or "")[:8],
+            "commit_message": (s.commit_message or "")[:60],
+            "branch": s.branch,
+            "action_taken": s.action_taken,
+            "severity": s.severity,
+            "created_at": utc_iso(s.created_at),
+            "zap_summary": s.zap_summary or {},
         }
 
     try:
@@ -2321,7 +2397,10 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
         active_policy = {}
 
     context = {
-        "recent_scans": [scan_summary(s) for s in recent],
+        "total_scans": total_scans,
+        "findings_summary": findings_summary,
+        "recent_scans": [scan_brief(s) for s in recent],
+        "earliest_scans": [scan_brief(s) for s in earliest],
         "focus_scan": scan_summary(focus_scan) if focus_scan else None,
         "active_policy_rules": active_policy,
     }
