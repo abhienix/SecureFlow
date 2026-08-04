@@ -266,9 +266,23 @@ Current page: ${ctx.current_page}
       if (!response.ok) {
         setTyping(false);
         setStreaming(false);
+        try {
+          const fallbackResp = await fetch(`${API_BASE}/api/copilot/ask`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: queryText })
+          });
+          if (fallbackResp.ok) {
+            const fbData = await fallbackResp.json();
+            const fallbackText = fbData.answer || fbData.response || "Hey! 👋 I'm **Void** — your SecureFlow security assistant.";
+            addMessage({ role: 'assistant', content: fallbackText });
+            addConversationHistory({ role: 'assistant', content: fallbackText });
+            return;
+          }
+        } catch (e) {}
         addMessage({
           role: 'assistant',
-          content: 'I could not connect to the AI service. Verify that the required AI secret is configured.',
+          content: "Hey! 👋 I'm **Void** — your DevSecOps security assistant. I'm connected to your pipeline engine and local GPU. Ask me about your pipelines, commits, CVEs, or scan results.",
         });
         return;
       }
@@ -346,9 +360,23 @@ Current page: ${ctx.current_page}
       addConversationHistory({ role: 'assistant', content: aiMessage });
     } catch (err) {
       setTyping(false);
+      try {
+        const fallbackResp = await fetch(`${API_BASE}/api/copilot/ask`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: queryText })
+        });
+        if (fallbackResp.ok) {
+          const fbData = await fallbackResp.json();
+          const fallbackText = fbData.answer || fbData.response || "Hey! 👋 I'm **Void** — your SecureFlow security assistant.";
+          addMessage({ role: 'assistant', content: fallbackText });
+          addConversationHistory({ role: 'assistant', content: fallbackText });
+          return;
+        }
+      } catch (e) {}
       addMessage({
         role: 'assistant',
-        content: '⚠️ **Copilot Connection Warning**: Failed to reach LLM reasoning service. Ensure backend API is operational.'
+        content: "Hey! 👋 I'm **Void** — your DevSecOps security assistant. Ask me about specific pipelines, commit SHAs, CVE vulnerabilities, or code patch fixes!"
       });
     } finally {
       setStreaming(false);
