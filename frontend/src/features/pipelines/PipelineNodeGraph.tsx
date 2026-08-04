@@ -13,6 +13,8 @@ export function PipelineNodeGraph({ run, onNodeClick }: PipelineNodeGraphProps) 
   const steps = run.pipeline_steps || {};
   const runStatusUpper = String(run.status || '').toUpperCase();
 
+  const isBlockedRun = String(run.action || run.action_taken || '').toUpperCase() === 'BLOCK';
+
   // ONLY mark overall completed success if run.status is explicitly PASSED/COMPLETE AND no steps are still PENDING or RUNNING
   const hasIncompleteSteps = STAGE_ORDER.some(key => {
     if (key === 'deploy_prod') return false; // deploy_prod can be skipped
@@ -20,7 +22,10 @@ export function PipelineNodeGraph({ run, onNodeClick }: PipelineNodeGraphProps) 
     return !res || res === 'PENDING' || res === 'WAITING' || res === 'RUNNING' || res === 'QUEUED';
   });
 
-  const isCompletedSuccess = (runStatusUpper === 'PASSED' || runStatusUpper === 'COMPLETE' || runStatusUpper === 'SUCCESS') && !hasIncompleteSteps;
+  // A blocked run (action_taken=BLOCK) is NEVER a completed success, even if
+  // every stored step happens to be SKIPPED — otherwise the graph force-paints
+  // the whole pipeline green while the badge says BLOCKED.
+  const isCompletedSuccess = !isBlockedRun && (runStatusUpper === 'PASSED' || runStatusUpper === 'COMPLETE' || runStatusUpper === 'SUCCESS') && !hasIncompleteSteps;
 
   // Find the first explicitly failed/blocked stage, if any
   let firstFailedIndex = -1;

@@ -1220,7 +1220,11 @@ jobs:
       # backend's stale-run watchdog, no run should ever again sit at
       # "running" past a couple of minutes without an explanation.
       - name: Failsafe — Notify Unhandled Pipeline Failure
-        if: always() && failure() && steps.pipeline_start.outputs.run_id != ''
+        # Never clobber an already-reported gitleaks/semgrep block. When those
+        # steps fail, "Block on Code Scan Failure" already posts code_scan=BLOCK
+        # with the findings; running this generic failsafe afterwards overwrites
+        # it with SKIPPED/"cancelled before completion", wiping the real reason.
+        if: always() && failure() && steps.gitleaks.outcome != 'failure' && steps.semgrep.outcome != 'failure' && steps.pipeline_start.outputs.run_id != ''
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           BACKEND_API_SECRET: ${{ secrets.BACKEND_API_SECRET }}
