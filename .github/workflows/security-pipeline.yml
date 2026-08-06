@@ -29,9 +29,7 @@ on:
 # the dashboard row, so it's paired with Fix C (the always()-gated final
 # notifier) which explicitly reports "cancelled/superseded" back to the
 # backend so the row never sits at "running" indefinitely.
-concurrency:
-  group: secureflow-v2-${{ github.ref }}-${{ github.run_id }}
-  cancel-in-progress: false
+
 
 jobs:
   security-pipeline:
