@@ -9,8 +9,8 @@ load_dotenv()
 
 logger = logging.getLogger("secureflow.ai")
 
-AI_SERVER_URL = os.getenv("AI_SERVER_URL", "")
-AI_SERVER_TOKEN = os.getenv("AI_SERVER_TOKEN", "")
+AI_SERVER_URL = os.getenv("AI_SERVER_URL", "")  # nosemgrep: generic-api-key
+AI_SERVER_TOKEN = os.getenv("AI_SERVER_TOKEN", "")  # nosemgrep: generic-api-key,hardcoded-token
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("MODEL_NAME", "qwen2.5:3b")
 
