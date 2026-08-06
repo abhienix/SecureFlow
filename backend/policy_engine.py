@@ -16,9 +16,8 @@ POLICY_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'policy.yaml')
 
 def load_policy_file():
     """Read policy.yaml from disk and return it as a Python dict."""
-    # We reload from disk on every request rather than caching at startup —
-    # this means policy changes take effect immediately without restarting
-    # the server, which matters when you need to quickly allowlist a CVE
+    # Reloading on each request means policy changes (allowlist additions,
+    # threshold tweaks) take effect immediately without a server restart.
     with open(POLICY_FILE_PATH, 'r') as file:
         return yaml.safe_load(file)
 
@@ -27,14 +26,11 @@ def get_policy_for_repo(repo_name, custom_policy=None):
     """
     Find the right policy block for this repo.
 
-    repo_name usually comes in as "owner/repo" (e.g. "abhienix/SecureFlow"),
-    but policy.yaml only lists the short repo name ("SecureFlow").
-    So we strip the owner part before looking it up.
+    repo_name comes in as "owner/repo" (e.g. "abhienix/SecureFlow"),
+    but policy.yaml only stores the short name ("SecureFlow").
+    Falls back to the "default" block when no repo-specific rule exists.
 
-    If there's no specific rule for this repo, fall back to "default".
-
-    Returns (merged_policy_dict, policy_name) where policy_name is
-    the short repo name if a repo-specific policy was found, or "default".
+    Returns (merged_policy_dict, policy_name).
     """
     policy = custom_policy if (custom_policy and isinstance(custom_policy, dict)) else load_policy_file()
     repo_rules = policy.get('repos', {})
@@ -48,15 +44,15 @@ def get_policy_for_repo(repo_name, custom_policy=None):
     return default_rules, "default"
 
 
-
 def check_allowlist(cve_id, policy):
     """
-    Check if a specific CVE has been allowlisted (manually approved as
-    "known, can't fix yet, ok to ignore for now") in policy.yaml.
+    Check if a rule/CVE ID has been manually allowlisted in policy.yaml.
 
-    Each allowlist entry has an expiry date - once it expires, the CVE
-    goes back to being treated normally. This stops old exceptions from
-    being forgotten forever.
+    Works for both Trivy CVE IDs and SAST/DAST rule identifiers — any string
+    that appears as the "cve" field in an allowlist entry is matched.
+
+    Entries are time-bounded: an expired allowlist entry is treated as if
+    it never existed, so nothing gets silently ignored forever.
     """
     allowlist = policy.get('allowlist', [])
 
@@ -67,11 +63,9 @@ def check_allowlist(cve_id, policy):
         expiry_date = datetime.strptime(str(entry['expires']), '%Y-%m-%d')
 
         if datetime.now() < expiry_date:
-            # Still within the approved window — treat as safe
             return True, entry['reason']
         else:
-            # Allowlist entry expired — don't silently keep ignoring this CVE.
-            # Returning False here means it goes back through normal block/warn logic.
+            # Expired — fall through to normal block/warn evaluation
             return False, None
 
     return False, None
@@ -80,7 +74,7 @@ def check_allowlist(cve_id, policy):
 def get_highest_cvss_score(vulnerability):
     """
     A single CVE can have multiple CVSS scores from different sources
-    (NVD, Red Hat, etc). We just take the highest one to be safe.
+    (NVD, Red Hat, etc). We take the highest one to err on the safe side.
     """
     cvss_sources = vulnerability.get('CVSS', {})
     if not isinstance(cvss_sources, dict):
@@ -88,8 +82,6 @@ def get_highest_cvss_score(vulnerability):
 
     highest_score = 0.0
     for source in cvss_sources.values():
-        # V3Score is the CVSS v3 rating — we prefer v3 over v2 since it's
-        # more accurate for modern vulnerability scoring
         score = source.get('V3Score', 0.0)
         if score > highest_score:
             highest_score = score
@@ -104,11 +96,8 @@ SEVERITY_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
 
 def get_highest_severity_label(scan_findings):
     """
-    Looks at every vulnerability in the scan and returns the single most
-    severe one found, as a clean label - e.g. "CRITICAL", "HIGH".
-
-    If there are no vulnerabilities at all, returns "CLEAN" instead of
-    "unknown" - a scan with nothing wrong should say so plainly.
+    Walk every vulnerability in the scan and return the highest severity seen.
+    Returns "CLEAN" when no vulnerabilities exist — cleaner than None on the dashboard.
     """
     highest_seen = None
 
@@ -120,14 +109,16 @@ def get_highest_severity_label(scan_findings):
             if highest_seen is None or SEVERITY_RANK[severity] > SEVERITY_RANK[highest_seen]:
                 highest_seen = severity
 
-    # "CLEAN" is more meaningful than "UNKNOWN" or None for the dashboard —
-    # a scan with zero vulnerabilities should be immediately recognizable
     return highest_seen if highest_seen else "CLEAN"
 
 
 def evaluate_policy(scan_findings, repo_name, custom_policy=None):
     """
-    Main entry point. Takes Trivy's scan output and decides ALLOW or BLOCK.
+    Main entry point — takes raw scanner output and returns ALLOW or BLOCK.
+
+    Design note: policy and allowlist are loaded FIRST, before any finding
+    is evaluated. This means the allowlist applies to all four scanners
+    (Gitleaks, Semgrep, ZAP, Trivy), not just Trivy.
     """
     def _as_list(items):
         if isinstance(items, dict):
@@ -136,12 +127,38 @@ def evaluate_policy(scan_findings, repo_name, custom_policy=None):
             return [items] if items else []
         return [i for i in items if isinstance(i, dict)]
 
+    # Load repo policy first so the allowlist is available to all scanners below.
+    policy, policy_used = get_policy_for_repo(repo_name, custom_policy=custom_policy)
+
     gitleaks_findings = _as_list(scan_findings.get("gitleaks"))
     semgrep_findings = _as_list(scan_findings.get("semgrep"))
     zap_findings = _as_list(
         scan_findings.get("zap")
         or scan_findings.get("zap_findings", {}).get("alerts")
         or scan_findings.get("dast_findings")
+    )
+
+    def _filter_allowlisted(findings, id_keys):
+        """
+        Drop any finding whose rule/alert ID appears in the allowlist.
+        id_keys lists the field names to try in order (scanner output varies).
+        """
+        filtered = []
+        for item in findings:
+            item_id = next((item.get(k) for k in id_keys if item.get(k)), None)
+            is_allowed, _ = check_allowlist(item_id, policy) if item_id else (False, None)
+            if not is_allowed:
+                filtered.append(item)
+        return filtered
+
+    gitleaks_findings = _filter_allowlisted(
+        gitleaks_findings, ["RuleID", "rule_id", "rule"]
+    )
+    semgrep_findings = _filter_allowlisted(
+        semgrep_findings, ["check_id", "rule_id"]
+    )
+    zap_findings = _filter_allowlisted(
+        zap_findings, ["alert", "name", "pluginId"]
     )
 
     if zap_findings:
@@ -203,8 +220,6 @@ def evaluate_policy(scan_findings, repo_name, custom_policy=None):
             "warned": [],
             "allowlisted": [],
         }
-
-    policy, policy_used = get_policy_for_repo(repo_name, custom_policy=custom_policy)
 
     # Pull thresholds from policy — these can differ per repo.
     # CRITICAL and HIGH block by default; MEDIUM only warns; LOW is ignored.

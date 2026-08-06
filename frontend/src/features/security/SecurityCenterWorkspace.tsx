@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, ShieldAlert, ShieldCheck, CheckCircle, ExternalLink, Filter, HelpCircle } from 'lucide-react';
+import { Shield, ShieldAlert, ShieldCheck, CheckCircle, ExternalLink, Filter, HelpCircle, FileJson, FileText } from 'lucide-react';
 import DataTable, { Column } from '../../components/ui/DataTable';
 import Badge from '../../components/ui/Badge';
 import DrawerPanel from '../../components/ui/DrawerPanel';
@@ -13,17 +13,14 @@ export default function SecurityCenterWorkspace() {
   const { filters, setFilters, resetFilters } = useSecurityStore();
   const [selectedFinding, setSelectedFinding] = useState<any | null>(null);
 
-  // Fetch Findings
   const { data: findingsData, isLoading: findingsLoading, isError: findingsError, refetch } = useQuery({
     queryKey: ['security', 'findings', filters],
     queryFn: async () => {
       const res = await client.get('/security/findings', { params: filters });
-      console.log('Security Findings Raw API Response:', res.data);
       return res.data;
     },
   });
 
-  // Fetch Security Summary
   const { data: secSummary } = useQuery({
     queryKey: ['security', 'summary'],
     queryFn: async () => {
@@ -32,7 +29,6 @@ export default function SecurityCenterWorkspace() {
     },
   });
 
-  // Fetch Scanner Comparison
   const { data: scannerComparison } = useQuery({
     queryKey: ['security', 'scanner-comparison'],
     queryFn: async () => {
@@ -40,6 +36,16 @@ export default function SecurityCenterWorkspace() {
       return res.data;
     },
   });
+
+  const handleExportJson = (scanId: string) => {
+    const url = `/api/v1/reports/pipeline/${scanId}/json`;
+    window.open(url, '_blank');
+  };
+
+  const handleExportPdf = (scanId: string) => {
+    const url = `/api/v1/reports/pipeline/${scanId}/pdf`;
+    window.open(url, '_blank');
+  };
 
   // Update Status mutation
   const updateStatusMutation = useMutation({
@@ -49,12 +55,13 @@ export default function SecurityCenterWorkspace() {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['security', 'findings'] });
-      // update currently opened drawer data
       setSelectedFinding(data);
     },
   });
 
   const findings = findingsData?.findings || [];
+  // Export targets the most recently loaded scan
+  const latestScanId = findings[0]?.scan_id;
 
   // Grouped Scanner chart data formatting
   const comparisonData = React.useMemo(() => {
@@ -215,19 +222,71 @@ export default function SecurityCenterWorkspace() {
           </select>
         </div>
 
-        <button
-          onClick={resetFilters}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--sf-text-muted)',
-            cursor: 'pointer',
-            fontSize: '12px',
-            textDecoration: 'underline',
-          }}
-        >
-          Reset Filters
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={resetFilters}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--sf-text-muted)',
+              cursor: 'pointer',
+              fontSize: '12px',
+              textDecoration: 'underline',
+            }}
+          >
+            Reset Filters
+          </button>
+
+          {latestScanId && (
+            <>
+              <button
+                id="btn-export-json"
+                onClick={() => handleExportJson(latestScanId)}
+                title="Export report as JSON"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  background: 'rgba(99, 102, 241, 0.12)',
+                  border: '1px solid rgba(99, 102, 241, 0.4)',
+                  borderRadius: '6px',
+                  color: '#818cf8',
+                  padding: '5px 10px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  transition: 'background 0.15s',
+                }}
+              >
+                <FileJson size={13} />
+                Export JSON
+              </button>
+
+              <button
+                id="btn-export-pdf"
+                onClick={() => handleExportPdf(latestScanId)}
+                title="Export report as PDF"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  borderRadius: '6px',
+                  color: '#f87171',
+                  padding: '5px 10px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  transition: 'background 0.15s',
+                }}
+              >
+                <FileText size={13} />
+                Export PDF
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Findings Data Table */}

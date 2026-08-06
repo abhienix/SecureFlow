@@ -63,7 +63,9 @@ from celery_client import (
 
 logger = logging.getLogger("secureflow.backend")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@10.128.0.2:5432/secureflow")  # nosemgrep: generic-api-key,hardcoded-password
+# Default to local SQLite for development. Set DATABASE_URL in the environment
+# (or .env) to point at a real Postgres instance for staging/production.
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./secureflow_dev.db")
 STALE_RUN_TIMEOUT_MINUTES = int(os.getenv("STALE_RUN_TIMEOUT_MINUTES", "20"))
 WATCHDOG_INTERVAL_SECONDS = int(os.getenv("WATCHDOG_INTERVAL_SECONDS", "30"))
 
@@ -85,23 +87,24 @@ if _is_production and not BACKEND_API_SECRET:
         "Set the BACKEND_API_SECRET environment variable immediately."
     )
 
-# Dynamically convert to postgresql+asyncpg for asyncio postgres driver
+# Map the plain postgresql:// scheme to the asyncpg driver variant.
 ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://") if DATABASE_URL.startswith("postgresql://") else DATABASE_URL
 
 if ASYNC_DATABASE_URL.startswith("postgresql+asyncpg://"):
     try:
         import asyncpg  # noqa: F401
     except ImportError:
-        logger.info("[database] asyncpg module not found — using sqlite+aiosqlite:///./secureflow_dev.db")
+        logger.info("[database] asyncpg not installed — falling back to local SQLite")
         ASYNC_DATABASE_URL = "sqlite+aiosqlite:///./secureflow_dev.db"
 
-kw = {}
-if "postgresql" in ASYNC_DATABASE_URL:
-    kw = {
-        "pool_size": 20,
-        "max_overflow": 10,
-        "connect_args": {"timeout": 30, "command_timeout": 30}
-    }
+# Pool settings are Postgres-only. SQLAlchemy raises TypeError if you pass
+# pool_size or max_overflow to a SQLite engine.
+_is_postgres = "postgresql" in ASYNC_DATABASE_URL
+kw = {
+    "pool_size": 20,
+    "max_overflow": 10,
+    "connect_args": {"timeout": 30, "command_timeout": 30},
+} if _is_postgres else {}
 
 engine = create_async_engine(ASYNC_DATABASE_URL, **kw)
 AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
@@ -4137,6 +4140,12 @@ async def copilot_chat_streaming(data: dict, db: AsyncSession = Depends(get_db))
 
 # Mount v1 router and real-time routes
 app.include_router(v1_router)
+
+# Export/reporting router — wires in the real get_db dependency at startup
+from reports import router as reports_router, _get_db as reports_get_db
+app.include_router(reports_router)
+app.dependency_overrides[reports_get_db] = get_db
+
 
 @app.websocket("/ws/events")
 @v1_router.websocket("/ws/events")
