@@ -1,16 +1,24 @@
 import os
 import re
 import json
+import logging
 import requests
 from dotenv import load_dotenv
 
-# Load API keys and config from .env so nothing sensitive is hardcoded in source
 load_dotenv()
 
-AI_SERVER_URL = os.getenv("AI_SERVER_URL", "https://keith-rapidly-hunting-duck.trycloudflare.com")
-AI_SERVER_TOKEN = os.getenv("AI_SERVER_TOKEN", "bf84de64b1d98b7768be582e888003c47f3fc11da134f598be04cdcb5f4dc8a2")
+logger = logging.getLogger("secureflow.ai")
+
+AI_SERVER_URL = os.getenv("AI_SERVER_URL", "")
+AI_SERVER_TOKEN = os.getenv("AI_SERVER_TOKEN", "")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("MODEL_NAME", "qwen2.5:3b")
+
+if not AI_SERVER_TOKEN:
+    logger.warning(
+        "AI_SERVER_TOKEN is not set. Requests to the AI gateway will fail. "
+        "Set AI_SERVER_TOKEN in your .env file or environment."
+    )
 
 
 def _call_ai_server(prompt):
@@ -86,26 +94,46 @@ def _sanitize(value, max_len=None):
 
 
 def _parse_json(raw):
+    """Extract a JSON object from raw model output.
+
+    Models often wrap responses in markdown fences, add trailing text,
+    or embed newlines inside string values. We try a sequence of increasingly
+    lenient strategies before giving up.
+    """
     raw = raw.strip()
+
+    # Strip markdown code fences
     if raw.startswith("```json"):
         raw = raw[7:]
     elif raw.startswith("```"):
         raw = raw[3:]
     raw = raw.rstrip("`").strip()
+
+    # Strip non-printable control characters (null bytes, escape sequences)
     raw = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', raw)
-    
+
+    # Try direct parse first
     try:
-        # Try direct parse after collapsing newlines
-        clean = re.sub(r'\n', ' ', raw)
-        return json.loads(clean)
+        return json.loads(raw)
     except Exception:
-        # Fallback: find the first { and last }
-        match = re.search(r'(\{[\s\S]*\})', raw)
-        if match:
-            json_str = match.group(1)
-            json_str = re.sub(r'\n', ' ', json_str)
-            return json.loads(json_str)
-        raise
+        pass
+
+    # Collapse real newlines into spaces and try again — models sometimes
+    # emit multi-line string values that break the JSON parser
+    try:
+        return json.loads(re.sub(r'\n', ' ', raw))
+    except Exception:
+        pass
+
+    # Last resort: extract the outermost {...} block and try to parse that
+    match = re.search(r'(\{[\s\S]*\})', raw)
+    if match:
+        try:
+            return json.loads(re.sub(r'\n', ' ', match.group(1)))
+        except Exception:
+            pass
+
+    raise ValueError(f"Could not extract valid JSON from model output: {raw[:200]}")
 
 
 def analyze_scan(vulnerabilities):

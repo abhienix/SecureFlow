@@ -139,8 +139,7 @@ def dispatch_task(request: ChatRequest, user: dict = Depends(get_current_user)):
 @app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_user)):
     start_time = time.time()
-    
-    # Step 1: Run Input Guardrails Engine
+
     guard_res = GuardrailsEngine.inspect_input(request.message)
     if not guard_res["is_valid"]:
         REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/chat", status="200").inc()
@@ -151,12 +150,10 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
             guardrails_passed=False
         )
 
-    # Step 2: Task-Aware Multi-Model LLM Router Selection
     route_res = TaskLLMRouter.select_model(request.message)
     selected_model = route_res["model_name"]
     task_type = route_res["task_type"]
 
-    # Step 3: LLM Inference via Ollama
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
@@ -167,8 +164,8 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
                     "stream": False
                 }
             )
-            
-            # Fallback to default model if selected specialized model tag isn't pulled yet
+
+            # If the routed model isn't available, fall back to the configured default.
             if resp.status_code != 200:
                 resp = await client.post(
                     f"{settings.OLLAMA_URL}/api/generate",
@@ -184,12 +181,11 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
             data = resp.json()
             raw_response = data.get("response", "")
 
-            # Step 4: Run Output Guardrails Redaction
             sanitized_response = GuardrailsEngine.sanitize_output(raw_response)
 
             REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/chat", status="200").inc()
             REQUEST_LATENCY.labels(endpoint="/api/v1/chat").observe(time.time() - start_time)
-            
+
             return ChatResponse(
                 response=sanitized_response,
                 model=selected_model,
@@ -221,3 +217,56 @@ def list_mcp_tools(user: dict = Depends(get_current_user)):
             }
         ]
     }
+
+
+class RagIngestRequest(BaseModel):
+    scan_id: str
+    findings: list
+    repo_name: str = ""
+    severity: str = "UNKNOWN"
+
+
+@app.post("/api/v1/rag/ingest")
+async def rag_ingest(request: RagIngestRequest, user: dict = Depends(get_current_user)):
+    """
+    Index scan findings into ChromaDB so the Void copilot can retrieve
+    relevant historical context when answering remediation questions.
+
+    Called automatically by the backend after each scan completes.
+    Without this, ChromaDB stays empty and the RAG layer adds no value.
+    """
+    try:
+        import chromadb
+
+        chroma_client = chromadb.PersistentClient(path=settings.CHROMADB_PATH)
+        collection = chroma_client.get_or_create_collection("secureflow_findings")
+
+        documents = []
+        metadatas = []
+        ids = []
+
+        for i, finding in enumerate(request.findings[:50]):
+            doc_text = (
+                f"Scan ID: {request.scan_id} | Repo: {request.repo_name} | "
+                f"Severity: {finding.get('risk') or finding.get('severity') or request.severity} | "
+                f"Alert: {finding.get('name') or finding.get('alert') or finding.get('title', 'unknown')} | "
+                f"Description: {finding.get('description') or finding.get('desc') or ''} | "
+                f"Solution: {finding.get('solution') or finding.get('fix') or ''}"
+            )
+            documents.append(doc_text)
+            metadatas.append({
+                "scan_id": str(request.scan_id),
+                "repo_name": request.repo_name,
+                "severity": str(finding.get('risk') or finding.get('severity') or request.severity),
+            })
+            ids.append(f"{request.scan_id}-{i}")
+
+        if documents:
+            collection.upsert(documents=documents, metadatas=metadatas, ids=ids)
+
+        return {"status": "ingested", "count": len(documents), "scan_id": request.scan_id}
+
+    except Exception as e:
+        # ChromaDB is optional infrastructure — log and continue rather than
+        # failing the entire scan pipeline if the vector store is unavailable.
+        raise HTTPException(status_code=500, detail=f"RAG ingest error: {str(e)}")

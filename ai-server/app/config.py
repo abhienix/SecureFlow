@@ -2,7 +2,7 @@ import os
 from pydantic import BaseModel
 
 class Settings(BaseModel):
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "bf84de64b1d98b7768be582e888003c47f3fc11da134f598be04cdcb5f4dc8a2")
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "")  # Must be set in environment — never hardcode
     SECUREFLOW_API_URL: str = os.getenv("SECUREFLOW_API_URL", "https://your-cloudrun-backend-url.run.app")
     SECUREFLOW_API_TOKEN: str = os.getenv("SECUREFLOW_API_TOKEN", "")
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")

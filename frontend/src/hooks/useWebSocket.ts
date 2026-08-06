@@ -159,12 +159,15 @@ export function useWebSocket() {
             });
           }
 
-          // Invalidate queries based on event type
+          // Stage updates are the hottest path — invalidate the specific run
+          // detail immediately so the timeline re-renders without waiting for
+          // the next polling cycle.
           if (data.type === 'pipeline.stage_update' && data.run_id) {
             qc.invalidateQueries({ queryKey: ['pipelines', 'detail', data.run_id.replace('run-', '')] });
             qc.invalidateQueries({ queryKey: ['pipelines', 'detail', data.scan_id] });
             qc.invalidateQueries({ queryKey: ['pipelines', 'latest'] });
             qc.invalidateQueries({ queryKey: queryKeys.pipelines });
+            qc.invalidateQueries({ queryKey: ['security', 'findings'] });
             qc.invalidateQueries({ queryKey: ['events', 'feed'] });
             window.dispatchEvent(new CustomEvent('sf_ws_event', { detail: data }));
             return;
@@ -234,8 +237,13 @@ export function useWebSocket() {
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       stopHealthPoll();
       if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.close();
+        // Null the ref BEFORE calling close() so the onclose handler
+        // doesn't schedule a new reconnect after component unmount.
+        const ws = wsRef.current;
+        wsRef.current = null;
+        ws.onclose = null;
+        ws.onerror = null;
+        ws.close();
       }
     };
   }, [qc, setWsConnected, setLastApiResponse]);
