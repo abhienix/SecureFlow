@@ -30,8 +30,8 @@ on:
 # notifier) which explicitly reports "cancelled/superseded" back to the
 # backend so the row never sits at "running" indefinitely.
 concurrency:
-  group: secureflow-${{ github.ref }}
-  cancel-in-progress: true
+  group: secureflow-v2-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   security-pipeline:

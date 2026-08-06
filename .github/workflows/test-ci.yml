@@ -1,0 +1,14 @@
+name: Test Runner Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  test-job:
+    name: Test Job
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping
+        run: echo "GitHub Actions runner working!"
