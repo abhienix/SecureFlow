@@ -61,7 +61,25 @@ export function getOverallBadge(run: PipelineRun) {
   const action = String(run.action || run.action_taken || '').toUpperCase();
   const runStatusUpper = String(run.status || '').toUpperCase();
 
-  // 1. Prioritize explicit step blocks/failures FIRST (so superseded/skipped status doesn't hide a block!)
+  const allStepValues = Object.values(steps) as any[];
+  const stepResultsUpper = allStepValues.map(s => String((s as any)?.result || '').toUpperCase());
+
+  // 1. Prioritize explicit CANCELLED, SKIPPED, or SUPERSEDED run statuses
+  if (['CANCELLED', 'CANCELED', 'TIMEOUT'].includes(runStatusUpper)) {
+    return { label: 'CANCELLED', color: 'gray' };
+  }
+  if (['SKIPPED', 'SUPERSEDED'].includes(runStatusUpper)) {
+    return { label: 'SKIPPED', color: 'gray' };
+  }
+
+  // Check if ALL non-waiting steps are SKIPPED or CANCELLED
+  const nonWaitingSteps = stepResultsUpper.filter(r => r && r !== 'WAITING' && r !== 'PENDING');
+  const allSkippedOrCancelled = nonWaitingSteps.length > 0 && nonWaitingSteps.every(r => ['SKIPPED', 'SKIP', 'CANCELLED', 'CANCELED'].includes(r));
+  if (allSkippedOrCancelled) {
+    return { label: 'SKIPPED', color: 'gray' };
+  }
+
+  // 2. Prioritize explicit step blocks/failures (only if step actually executed and blocked)
   const zapGateRes = String(steps.zap_gate?.result || '').toUpperCase();
   const codeScanRes = String(steps.code_scan?.result || '').toUpperCase();
   const policyRes = String(steps.policy?.result || '').toUpperCase();
@@ -75,27 +93,18 @@ export function getOverallBadge(run: PipelineRun) {
   if (policyRes === 'BLOCK' || policyRes === 'FAIL' || policyRes === 'FAILED') {
     return { label: 'POLICY BLOCKED', color: 'red' };
   }
-  if (action === 'BLOCK' || runStatusUpper === 'BLOCKED') {
+
+  const hasFailedStep = stepResultsUpper.some(r => ['FAIL', 'FAILED', 'BLOCK', 'BLOCKED', 'ERROR'].includes(r));
+  if (hasFailedStep || (action === 'BLOCK' && runStatusUpper === 'BLOCKED')) {
     return { label: 'BLOCKED', color: 'red' };
   }
 
-  const allSteps = Object.values(steps);
-  if (allSteps.some(s => ['FAILED', 'FAIL', 'BLOCK', 'BLOCKED'].includes(String(s?.result || '').toUpperCase()))) {
-    return { label: 'FAILED', color: 'red' };
-  }
-
-  // 2. Check if all steps in the graph have completed successfully
-  const stepList = Object.values(steps);
-  const stepResultsUpper = stepList.map(s => String((s as any)?.result || '').toUpperCase());
+  // 3. Check if all steps in the graph have completed successfully
   const hasRunningStep = stepResultsUpper.some(r => ['RUNNING', 'PENDING', 'WAITING', 'DEPLOYING', 'IN_PROGRESS'].includes(r));
-  const hasFailedStep = stepResultsUpper.some(r => ['FAIL', 'FAILED', 'BLOCK', 'BLOCKED', 'ERROR'].includes(r));
   const hasPassedSteps = stepResultsUpper.some(r => ['PASS', 'ALLOW', 'SCANNED', 'CLEAN', 'SUCCESS', 'COMPLETE', 'PASSED'].includes(r));
   
-  // If final deploy_prod or deploy_staging is PASS, or all non-skipped steps passed with zero failures/running
   const isFullyPassed = (stepResultsUpper.includes('PASS') || hasPassedSteps) && !hasRunningStep && !hasFailedStep;
 
-  if (runStatusUpper === 'CANCELLED' || runStatusUpper === 'TIMEOUT') return { label: 'CANCELLED', color: 'gray' };
-  if (runStatusUpper === 'SKIPPED' || runStatusUpper === 'SUPERSEDED') return { label: 'SKIPPED', color: 'gray' };
   if (runStatusUpper === 'PASSED' || runStatusUpper === 'SUCCESS' || isFullyPassed) return { label: 'PASSED', color: 'green' };
 
   if (runStatusUpper === 'COMPLETE') {
