@@ -89,7 +89,7 @@ export default function Sidebar({ C }) {
   const openFindingsCount = findings?.length || 0;
   const counts = { scansCount, openFindingsCount };
   const ThemeIcon = THEME_ICONS[mode];
-  const sidebarWidth = collapsed ? 64 : 240;
+  const sidebarWidth = collapsed ? 60 : 195;
 
   return (
     <>
@@ -115,22 +115,32 @@ export default function Sidebar({ C }) {
           userSelect: "none", overflow: "hidden",
         }}
       >
-      {/* Brand Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "0 4px" : "0 8px", minHeight: 40 }}>
-        <div style={{
-          width: 32, height: 32, minWidth: 32, borderRadius: 8,
-          background: "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 0 16px rgba(99,102,241,0.3)",
-        }}>
-          <ShieldCheck size={18} color="#FFFFFF" />
+      {/* Brand Header with Real Animated Cyber Logo */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "0 2px" : "0 4px", minHeight: 38 }}>
+        <div style={{ position: "relative", width: 30, height: 30, minWidth: 30, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {/* Outer Animated Spinning Gradient Ring */}
+          <div style={{
+            position: "absolute", inset: -2, borderRadius: 9,
+            background: "conic-gradient(from 0deg, #6366F1 0%, #8B5CF6 30%, #06B6D4 60%, #EC4899 85%, #6366F1 100%)",
+            animation: "sf-logo-spin 3s linear infinite",
+            filter: "drop-shadow(0 0 8px rgba(99,102,241,0.55))",
+          }} />
+          {/* Inner Core Shield Badge */}
+          <div style={{
+            position: "relative", zIndex: 2, width: 28, height: 28, borderRadius: 7,
+            background: "linear-gradient(135deg, #1E1B4B 0%, #0F172A 100%)",
+            border: "1px solid rgba(99, 102, 241, 0.6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <ShieldCheck size={16} color="#38BDF8" style={{ animation: "sf-core-pulse 2s ease-in-out infinite" }} />
+          </div>
         </div>
         {!collapsed && (
           <div style={{ overflow: "hidden" }}>
-            <h2 style={{ fontSize: 15, fontWeight: 800, color: C.ink, letterSpacing: "-0.3px", whiteSpace: "nowrap" }}>
+            <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, letterSpacing: "-0.3px", whiteSpace: "nowrap", margin: 0, lineHeight: 1.1 }}>
               SecureFlow
             </h2>
-            <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.8px" }}>
+            <span style={{ fontSize: 8, fontWeight: 800, color: C.accent, textTransform: "uppercase", letterSpacing: "0.8px", opacity: 0.9 }}>
               CI/CD Security Intelligence
             </span>
           </div>
@@ -155,24 +165,24 @@ export default function Sidebar({ C }) {
               const count = item.countKey ? counts[item.countKey] : undefined;
 
               return (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className="sf-sidebar-nav-link"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: collapsed ? "center" : "space-between",
-                    padding: collapsed ? "10px" : "7px 10px",
-                    borderRadius: 8,
-                    position: "relative",
-                  }}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Icon size={16} color={isActive ? "#4F46E5" : C.inkLow} />
-                    {!collapsed && <span>{item.label}</span>}
-                  </div>
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className="sf-sidebar-nav-link"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: collapsed ? "center" : "space-between",
+                      padding: collapsed ? "8px" : "6px 8px",
+                      borderRadius: 6,
+                      position: "relative",
+                    }}
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Icon size={15} color={isActive ? "#6366F1" : C.inkLow} style={{ transition: "all 150ms ease" }} />
+                      {!collapsed && <span style={{ fontSize: 12 }}>{item.label}</span>}
+                    </div>
 
                   {!collapsed && item.badge && (
                     <span style={{
@@ -225,26 +235,34 @@ export default function Sidebar({ C }) {
       </nav>
 
       <style>{`
+        @keyframes sf-logo-spin {
+          0%   { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes sf-core-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); filter: drop-shadow(0 0 4px #38BDF8); }
+          50%      { opacity: 0.8; transform: scale(0.92); filter: drop-shadow(0 0 1px #38BDF8); }
+        }
         .sf-sidebar-nav-link {
           display: flex;
           align-items: center;
           text-decoration: none;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 500;
           cursor: pointer;
-          transition: background-color 100ms ease, color 100ms ease;
-          border-left: 4px solid transparent;
+          transition: background-color 120ms ease, color 120ms ease;
+          border-left: 3px solid transparent;
           color: ${C.inkMid};
           background-color: transparent;
         }
         .sf-sidebar-nav-link:hover {
-          background-color: #F8FAFC;
+          background-color: ${C.isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC'};
           color: ${C.ink};
         }
         .sf-sidebar-nav-link.active {
-          background-color: #EEF2FF !important;
-          color: #4F46E5 !important;
-          border-left: 4px solid #4F46E5 !important;
+          background-color: ${C.isDark ? 'rgba(99,102,241,0.14)' : '#EEF2FF'} !important;
+          color: #6366F1 !important;
+          border-left: 3px solid #6366F1 !important;
           font-weight: 700;
         }
       `}</style>
