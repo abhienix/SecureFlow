@@ -493,7 +493,7 @@ export default function OverviewWorkspace() {
             </svg>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px', fontSize: '9px', color: textSecondary, fontWeight: 600, padding: '0 4px' }}>
-              {runLabels.map((lbl, idx) => (
+              {runLabels.map((lbl: string, idx: number) => (
                 <span key={idx}>{lbl}</span>
               ))}
             </div>
