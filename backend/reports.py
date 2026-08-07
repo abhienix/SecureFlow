@@ -12,7 +12,9 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -20,6 +22,18 @@ from sqlalchemy import select
 logger = logging.getLogger("secureflow.reports")
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
+
+EXPORT_PASSWORD = os.getenv("EXPORT_PASSWORD", "xoxo")
+
+
+def _verify_export_password(password: str = "", x_password: str = ""):
+    """Verify that password equals 'xoxo' before allowing export downloads."""
+    pwd = (password or x_password or "").strip().lower()
+    if pwd != EXPORT_PASSWORD.lower():
+        raise HTTPException(
+            status_code=403,
+            detail="Access Denied: Invalid export password. Enter password 'xoxo' to download report.",
+        )
 
 
 def _utc_iso(dt):
@@ -292,11 +306,17 @@ async def _get_db():
 
 
 @router.get("/pipeline/{scan_id}/json")
-async def export_pipeline_json(scan_id: str, db: AsyncSession = Depends(_get_db)):
+async def export_pipeline_json(
+    scan_id: str,
+    password: str = Query("", alias="password"),
+    x_export_password: str = Header("", alias="X-Export-Password"),
+    db: AsyncSession = Depends(_get_db),
+):
     """
     Download a complete pipeline audit report as detailed structured JSON.
-    Includes all 4 scanner finding lists, pipeline stages, and AI patches.
+    Requires password 'xoxo' to export.
     """
+    _verify_export_password(password, x_export_password)
     scan = await _fetch_scan(scan_id, db)
     report = _build_report_dict(scan)
 
@@ -311,12 +331,17 @@ async def export_pipeline_json(scan_id: str, db: AsyncSession = Depends(_get_db)
 
 
 @router.get("/pipeline/{scan_id}/pdf")
-async def export_pipeline_pdf(scan_id: str, db: AsyncSession = Depends(_get_db)):
+async def export_pipeline_pdf(
+    scan_id: str,
+    password: str = Query("", alias="password"),
+    x_export_password: str = Header("", alias="X-Export-Password"),
+    db: AsyncSession = Depends(_get_db),
+):
     """
     Download a formatted, publication-ready PDF of the pipeline security report.
-    Includes executive metadata, PASSED xoxo / BLOCKED badges, severity matrices,
-    finding details, and AI remediation patches.
+    Requires password 'xoxo' to export.
     """
+    _verify_export_password(password, x_export_password)
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
