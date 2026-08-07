@@ -4,7 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Clock, GitBranch, Shield, Zap, Terminal,
   CheckCircle, XCircle, AlertTriangle, Ban, HelpCircle, Loader2,
-  SkipForward, Lock, ExternalLink, ChevronDown, ChevronUp
+  SkipForward, Lock, ExternalLink, ChevronDown, ChevronUp,
+  FileJson, FileText
 } from 'lucide-react';
 import { DrawerPanel } from '../../components/ui/DrawerPanel';
 import { LogViewer } from '../../components/ui/LogViewer';
@@ -171,7 +172,51 @@ export default function PipelineDetailPage() {
             {effectiveRun.repo_name} | {effectiveRun.branch} | {effectiveRun.commit_sha?.substring(0, 8)}
           </p>
         </div>
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            id="btn-export-json-detail"
+            onClick={() => window.open(`/api/v1/reports/pipeline/${id}/json`, '_blank')}
+            title="Export audit report as JSON"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: 'rgba(99, 102, 241, 0.12)',
+              border: '1px solid rgba(99, 102, 241, 0.4)',
+              borderRadius: '6px',
+              color: '#818cf8',
+              padding: '6px 12px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            <FileJson size={14} />
+            Export JSON
+          </button>
+
+          <button
+            id="btn-export-pdf-detail"
+            onClick={() => window.open(`/api/v1/reports/pipeline/${id}/pdf`, '_blank')}
+            title="Export audit report as PDF"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              borderRadius: '6px',
+              color: '#f87171',
+              padding: '6px 12px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            <FileText size={14} />
+            Export PDF
+          </button>
+
           <Badge variant={effectiveRun.action_taken === 'BLOCK' ? 'failed' : effectiveRun.status === STATUS.RUNNING ? 'warning' : 'success'}>
             {effectiveRun.action_taken === 'BLOCK' ? 'BLOCKED' : effectiveRun.status}
           </Badge>
