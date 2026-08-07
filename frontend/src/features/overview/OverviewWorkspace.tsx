@@ -620,23 +620,30 @@ export default function OverviewWorkspace() {
             </h4>
           </div>
 
-          <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', padding: '6px 0', minHeight: '90px' }}>
-            {engineData.map((eng: any, idx: number) => (
-              <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                <span style={{ fontFamily: C.display, fontSize: '10px', fontWeight: 800, color: eng.color }}>{eng.count}</span>
-                <div style={{
-                  width: '26px',
-                  height: `${Math.max(8, Math.min(80, ((eng.count || 0) / 30) * 70))}px`,
-                  backgroundColor: eng.color,
-                  borderRadius: '4px 4px 0 0',
-                  boxShadow: `0 0 8px ${eng.color}40`,
-                  transition: 'height 400ms ease'
-                }} />
-                <span style={{ fontSize: '9px', fontWeight: 600, color: textSecondary, textAlign: 'center' }}>
-                  {eng.label}
-                </span>
-              </div>
-            ))}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', padding: '6px 0', minHeight: '95px' }}>
+            {(() => {
+              const maxVal = Math.max(...engineData.map((e: any) => e.count || 0), 1);
+              return engineData.map((eng: any, idx: number) => {
+                const count = eng.count || 0;
+                const heightPx = Math.max(14, Math.round((Math.log10(count + 1) / Math.log10(maxVal + 1)) * 65));
+                return (
+                  <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontFamily: C.display, fontSize: '10px', fontWeight: 800, color: eng.color }}>{count}</span>
+                    <div style={{
+                      width: '28px',
+                      height: `${heightPx}px`,
+                      backgroundColor: eng.color,
+                      borderRadius: '4px 4px 0 0',
+                      boxShadow: `0 0 8px ${eng.color}40`,
+                      transition: 'height 400ms ease'
+                    }} />
+                    <span style={{ fontSize: '9px', fontWeight: 700, color: textSecondary, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {eng.label}
+                    </span>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
 
