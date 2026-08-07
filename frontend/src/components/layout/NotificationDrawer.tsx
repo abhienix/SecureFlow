@@ -165,7 +165,14 @@ export default function NotificationDrawer() {
                 <div style={{ marginTop: 2 }}>{getCategoryIcon(item.category)}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{item.title}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{item.title}</span>
+                      {item.category === 'slack' && (
+                        <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 4, background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B', border: '1px solid rgba(245, 158, 11, 0.35)' }}>
+                          #devsecops-alerts
+                        </span>
+                      )}
+                    </div>
                     <span style={{ fontSize: 10, color: C.inkMuted }}>
                       {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
