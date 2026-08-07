@@ -21,13 +21,6 @@ It runs four security scanners (**Gitleaks**, **Semgrep**, **Trivy**, **OWASP ZA
 
 ## Architecture
 
-SecureFlow operates across eight layers:
-
-<p align="center">
-  <img src="docs/images/SecureFlow_Architecture_Diagram.png" alt="SecureFlow Architecture Diagram" width="100%" />
-</p>
-
-> 📄 **[Download Architecture PDF (PDF)](docs/SecureFlow_Architecture_Diagram.pdf)** | 🖼️ **[View High-Res Image (PNG)](docs/images/SecureFlow_Architecture_Diagram.png)**
 
 ```mermaid
 flowchart TD
