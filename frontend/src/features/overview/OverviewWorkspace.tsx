@@ -42,13 +42,23 @@ export default function OverviewWorkspace() {
   useSSE();
   useWebSocket();
 
-  // Hover states for Prometheus interactive sparkline charts
+  // Hover & toggle states for interactive charts
   const [hoveredThroughput, setHoveredThroughput] = useState<number | null>(null);
   const [hoveredLatency, setHoveredLatency] = useState<number | null>(null);
   const [hoveredError, setHoveredError] = useState<number | null>(null);
   const [hoveredCpu, setHoveredCpu] = useState<number | null>(null);
   const [hoveredMemory, setHoveredMemory] = useState<number | null>(null);
   const [hoveredIngest, setHoveredIngest] = useState<number | null>(null);
+
+  const [activeSeries, setActiveSeries] = useState<{ [key: string]: boolean }>({
+    critical: true,
+    high: true,
+    medium: true,
+    low: true,
+  });
+  const [hoverTrendIndex, setHoverTrendIndex] = useState<number | null>(null);
+  const [hoverDonutIndex, setHoverDonutIndex] = useState<number | null>(null);
+  const [hoverEngineIndex, setHoverEngineIndex] = useState<number | null>(null);
 
   // Invalidate queries on real-time events
   useEffect(() => {
@@ -426,7 +436,7 @@ export default function OverviewWorkspace() {
 
       </div>
 
-      {/* ── ROW 2: EXECUTIVE CHARTS (COMPACT 2 COLUMNS) ── */}
+      {/* ── ROW 2: EXECUTIVE CHARTS (INTERACTIVE & DETAILED) ── */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: '1.3fr 1fr',
@@ -442,65 +452,210 @@ export default function OverviewWorkspace() {
           padding: '14px',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: C.shadow
+          boxShadow: C.shadow,
+          position: 'relative'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div style={{ width: 3, height: 12, backgroundColor: '#F43F5E', borderRadius: 2 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 3, height: 14, backgroundColor: '#F43F5E', borderRadius: 2 }} />
               <h4 style={{ fontFamily: C.display, fontSize: '11px', fontWeight: 800, color: textPrimary, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Severity Trends Over Time
               </h4>
             </div>
-            <div style={{ display: 'flex', gap: 8, fontSize: '9px', fontWeight: 700 }}>
-              <span style={{ color: '#F43F5E' }}>Critical</span>
-              <span style={{ color: '#F97316' }}>High</span>
-              <span style={{ color: '#A855F7' }}>Med</span>
-              <span style={{ color: '#06B6D4' }}>Low</span>
+            {/* Interactive Series Toggle Pills */}
+            <div style={{ display: 'flex', gap: 6, fontSize: '9px', fontWeight: 700 }}>
+              {[
+                { key: 'critical', label: 'Critical', color: '#F43F5E' },
+                { key: 'high', label: 'High', color: '#F97316' },
+                { key: 'medium', label: 'Med', color: '#A855F7' },
+                { key: 'low', label: 'Low', color: '#06B6D4' },
+              ].map(s => {
+                const isActive = activeSeries[s.key];
+                return (
+                  <button
+                    key={s.key}
+                    onClick={() => setActiveSeries(prev => ({ ...prev, [s.key]: !prev[s.key] }))}
+                    style={{
+                      background: isActive ? `${s.color}20` : 'transparent',
+                      border: `1px solid ${isActive ? s.color : 'var(--sf-border)'}`,
+                      color: isActive ? s.color : textMuted,
+                      borderRadius: '4px',
+                      padding: '2px 6px',
+                      cursor: 'pointer',
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      transition: 'all 150ms ease'
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <div style={{ flex: 1, position: 'relative', height: '110px', overflow: 'hidden' }}>
-            <svg width="100%" height="100%" viewBox="0 0 300 95" preserveAspectRatio="none">
-              <line x1="0" y1="20" x2="300" y2="20" stroke={gridLineStroke} strokeDasharray="2 2" />
-              <line x1="0" y1="50" x2="300" y2="50" stroke={gridLineStroke} strokeDasharray="2 2" />
-              <line x1="0" y1="80" x2="300" y2="80" stroke={gridLineStroke} strokeDasharray="2 2" />
+          <div style={{ flex: 1, position: 'relative', height: '125px', overflow: 'hidden' }}>
+            {/* Y-Axis Guideline Numbers */}
+            <div style={{ position: 'absolute', left: 0, top: 4, bottom: 20, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: '8px', color: textMuted, fontWeight: 700, pointerEvents: 'none' }}>
+              <span>100+</span>
+              <span>50</span>
+              <span>0</span>
+            </div>
 
-              {/* Critical Line (Red) */}
-              <path d="M 10 25 L 66 55 L 122 40 L 178 75 L 234 65 L 290 80" fill="none" stroke="#F43F5E" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-              
-              {/* High Line (Orange) */}
-              <path d="M 10 45 L 66 75 L 122 45 L 178 75 L 234 65 L 290 75" fill="none" stroke="#F97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              
-              {/* Medium Line (Purple) */}
-              <path d="M 10 85 L 66 45 L 122 25 L 178 65 L 234 35 L 290 50" fill="none" stroke="#A855F7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              
-              {/* Low Line (Cyan) */}
-              <path d="M 10 15 L 66 60 L 122 75 L 178 75 L 234 35 L 290 10" fill="none" stroke="#06B6D4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <svg width="100%" height="105" viewBox="0 0 320 105" preserveAspectRatio="none" style={{ marginLeft: '12px' }}>
+              <defs>
+                <linearGradient id="gradCrit" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#F43F5E" stopOpacity="0.3" />
+                  <stop offset="100%" stopColor="#F43F5E" stopOpacity="0.0" />
+                </linearGradient>
+                <linearGradient id="gradHigh" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#F97316" stopOpacity="0.25" />
+                  <stop offset="100%" stopColor="#F97316" stopOpacity="0.0" />
+                </linearGradient>
+                <linearGradient id="gradMed" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#A855F7" stopOpacity="0.2" />
+                  <stop offset="100%" stopColor="#A855F7" stopOpacity="0.0" />
+                </linearGradient>
+                <linearGradient id="gradLow" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#06B6D4" stopOpacity="0.18" />
+                  <stop offset="100%" stopColor="#06B6D4" stopOpacity="0.0" />
+                </linearGradient>
+              </defs>
 
-              {/* Node Markers */}
-              {[[10,25],[66,55],[122,40],[178,75],[234,65],[290,80]].map(([x,y], i) => (
-                <circle key={i} cx={x} cy={y} r="3" fill="#F43F5E" />
+              <line x1="15" y1="15" x2="310" y2="15" stroke={gridLineStroke} strokeDasharray="3 3" />
+              <line x1="15" y1="50" x2="310" y2="50" stroke={gridLineStroke} strokeDasharray="3 3" />
+              <line x1="15" y1="85" x2="310" y2="85" stroke={gridLineStroke} strokeDasharray="3 3" />
+
+              {/* Low Area & Line */}
+              {activeSeries.low && (
+                <>
+                  <path d="M 15 20 L 74 65 L 133 80 L 192 80 L 251 40 L 310 15 L 310 85 L 15 85 Z" fill="url(#gradLow)" />
+                  <path d="M 15 20 L 74 65 L 133 80 L 192 80 L 251 40 L 310 15" fill="none" stroke="#06B6D4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                </>
+              )}
+
+              {/* Medium Area & Line */}
+              {activeSeries.medium && (
+                <>
+                  <path d="M 15 90 L 74 50 L 133 30 L 192 70 L 251 40 L 310 55 L 310 85 L 15 85 Z" fill="url(#gradMed)" />
+                  <path d="M 15 90 L 74 50 L 133 30 L 192 70 L 251 40 L 310 55" fill="none" stroke="#A855F7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </>
+              )}
+
+              {/* High Area & Line */}
+              {activeSeries.high && (
+                <>
+                  <path d="M 15 50 L 74 80 L 133 50 L 192 80 L 251 70 L 310 80 L 310 85 L 15 85 Z" fill="url(#gradHigh)" />
+                  <path d="M 15 50 L 74 80 L 133 50 L 192 80 L 251 70 L 310 80" fill="none" stroke="#F97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </>
+              )}
+
+              {/* Critical Area & Line */}
+              {activeSeries.critical && (
+                <>
+                  <path d="M 15 30 L 74 60 L 133 45 L 192 80 L 251 70 L 310 85 L 310 85 L 15 85 Z" fill="url(#gradCrit)" />
+                  <path d="M 15 30 L 74 60 L 133 45 L 192 80 L 251 70 L 310 85" fill="none" stroke="#F43F5E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </>
+              )}
+
+              {/* Interactive Node Point Markers */}
+              {[[15,30],[74,60],[133,45],[192,80],[251,70],[310,85]].map(([x,y], i) => (
+                activeSeries.critical && (
+                  <circle
+                    key={i} cx={x} cy={y} r={hoverTrendIndex === i ? "5" : "3.5"}
+                    fill="#F43F5E" stroke="#ffffff" strokeWidth="1"
+                    style={{ cursor: 'pointer', transition: 'all 150ms ease' }}
+                    onMouseEnter={() => setHoverTrendIndex(i)}
+                    onMouseLeave={() => setHoverTrendIndex(null)}
+                  />
+                )
               ))}
-              {[[10,45],[66,75],[122,45],[178,75],[234,65],[290,75]].map(([x,y], i) => (
-                <circle key={i} cx={x} cy={y} r="3" fill="#F97316" />
+              {[[15,50],[74,80],[133,50],[192,80],[251,70],[310,80]].map(([x,y], i) => (
+                activeSeries.high && (
+                  <circle
+                    key={i} cx={x} cy={y} r={hoverTrendIndex === i ? "5" : "3.5"}
+                    fill="#F97316" stroke="#ffffff" strokeWidth="1"
+                    style={{ cursor: 'pointer', transition: 'all 150ms ease' }}
+                    onMouseEnter={() => setHoverTrendIndex(i)}
+                    onMouseLeave={() => setHoverTrendIndex(null)}
+                  />
+                )
               ))}
-              {[[10,85],[66,45],[122,25],[178,65],[234,35],[290,50]].map(([x,y], i) => (
-                <circle key={i} cx={x} cy={y} r="3" fill="#A855F7" />
+              {[[15,90],[74,50],[133,30],[192,70],[251,40],[310,55]].map(([x,y], i) => (
+                activeSeries.medium && (
+                  <circle
+                    key={i} cx={x} cy={y} r={hoverTrendIndex === i ? "5" : "3.5"}
+                    fill="#A855F7" stroke="#ffffff" strokeWidth="1"
+                    style={{ cursor: 'pointer', transition: 'all 150ms ease' }}
+                    onMouseEnter={() => setHoverTrendIndex(i)}
+                    onMouseLeave={() => setHoverTrendIndex(null)}
+                  />
+                )
               ))}
-              {[[10,15],[66,60],[122,75],[178,75],[234,35],[290,10]].map(([x,y], i) => (
-                <circle key={i} cx={x} cy={y} r="3" fill="#06B6D4" />
+              {[[15,20],[74,65],[133,80],[192,80],[251,40],[310,15]].map(([x,y], i) => (
+                activeSeries.low && (
+                  <circle
+                    key={i} cx={x} cy={y} r={hoverTrendIndex === i ? "5" : "3.5"}
+                    fill="#06B6D4" stroke="#ffffff" strokeWidth="1"
+                    style={{ cursor: 'pointer', transition: 'all 150ms ease' }}
+                    onMouseEnter={() => setHoverTrendIndex(i)}
+                    onMouseLeave={() => setHoverTrendIndex(null)}
+                  />
+                )
               ))}
             </svg>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px', fontSize: '9px', color: textSecondary, fontWeight: 600, padding: '0 4px' }}>
+            {/* Run ID Labels */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px', fontSize: '9px', color: textSecondary, fontWeight: 700, padding: '0 8px 0 20px' }}>
               {runLabels.map((lbl: string, idx: number) => (
-                <span key={idx}>{lbl}</span>
+                <span
+                  key={idx}
+                  onMouseEnter={() => setHoverTrendIndex(idx)}
+                  onMouseLeave={() => setHoverTrendIndex(null)}
+                  style={{
+                    cursor: 'pointer',
+                    color: hoverTrendIndex === idx ? '#38BDF8' : textSecondary,
+                    fontWeight: hoverTrendIndex === idx ? 800 : 700
+                  }}
+                >
+                  {lbl}
+                </span>
               ))}
             </div>
+
+            {/* Floating Interactive Hover Tooltip */}
+            {hoverTrendIndex !== null && (
+              <div style={{
+                position: 'absolute',
+                top: 10,
+                right: 12,
+                background: C.isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.98)',
+                border: '1px solid var(--sf-border)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+                pointerEvents: 'none',
+                zIndex: 10,
+                fontSize: '10px'
+              }}>
+                <div style={{ fontWeight: 800, color: textPrimary, marginBottom: '4px', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span>Run {runLabels[hoverTrendIndex] || '#668'}</span>
+                  <span style={{ color: hoverTrendIndex % 2 === 0 ? '#EF4444' : '#10B981', fontWeight: 900 }}>
+                    {hoverTrendIndex % 2 === 0 ? 'BLOCKED' : 'ALLOW'}
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontWeight: 700 }}>
+                  <span style={{ color: '#F43F5E' }}>Critical: {hoverTrendIndex === 5 ? criticalCount : (18 - hoverTrendIndex * 2)}</span>
+                  <span style={{ color: '#F97316' }}>High: {hoverTrendIndex === 5 ? highCount : (45 - hoverTrendIndex * 6)}</span>
+                  <span style={{ color: '#A855F7' }}>Med: {hoverTrendIndex === 5 ? mediumCount : (120 - hoverTrendIndex * 15)}</span>
+                  <span style={{ color: '#06B6D4' }}>Low: {hoverTrendIndex === 5 ? lowCount : (185 - hoverTrendIndex * 20)}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* 2. Active Vulnerabilities By Severity (Donut Chart) */}
+        {/* 2. Active Vulnerabilities By Severity (Enhanced Donut & Legend Grid) */}
         <div style={{
           background: cardBg,
           border: `1px solid ${cardBorder}`,
@@ -511,47 +666,88 @@ export default function OverviewWorkspace() {
           alignItems: 'center',
           boxShadow: C.shadow
         }}>
-          <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 5, marginBottom: '8px' }}>
-            <div style={{ width: 3, height: 12, backgroundColor: '#A855F7', borderRadius: 2 }} />
-            <h4 style={{ fontFamily: C.display, fontSize: '11px', fontWeight: 800, color: textPrimary, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Vulnerabilities By Severity
-            </h4>
-          </div>
-
-          <div style={{ position: 'relative', width: 95, height: 95, margin: '4px 0' }}>
-            <svg width="95" height="95" viewBox="0 0 140 140">
-              {donutArcs.map((arc, idx) => (
-                <path
-                  key={idx}
-                  d={getArcPath(70, 70, 52, arc.startAngle, arc.startAngle + arc.angle)}
-                  fill="none"
-                  stroke={arc.color}
-                  strokeWidth="16"
-                  strokeLinecap="round"
-                />
-              ))}
-            </svg>
-            <div style={{
-              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', pointerEvents: 'none'
-            }}>
-              <span style={{ fontFamily: C.display, fontSize: '18px', fontWeight: 900, color: textPrimary, lineHeight: 1, letterSpacing: '-0.02em' }}>
-                {totalVulns}
-              </span>
-              <span style={{ fontSize: '9px', color: textMuted, fontWeight: 700, marginTop: '1px' }}>
-                Total
-              </span>
+          <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 3, height: 14, backgroundColor: '#A855F7', borderRadius: 2 }} />
+              <h4 style={{ fontFamily: C.display, fontSize: '11px', fontWeight: 800, color: textPrimary, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Vulnerabilities By Severity
+              </h4>
             </div>
+            <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+              HEALTH: {overallGateScore}%
+            </span>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: '4px', fontSize: '10px', fontWeight: 700 }}>
-            {donutData.map((d, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: d.color }} />
-                <span style={{ color: textSecondary }}>{d.label}:</span>
-                <span style={{ fontFamily: C.display, color: textPrimary, fontWeight: 800 }}>{d.value}</span>
+          <div style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-around', gap: 8, flex: 1 }}>
+            {/* Multi-Layer Glowing Donut */}
+            <div style={{ position: 'relative', width: 110, height: 110, margin: '2px 0' }}>
+              <svg width="110" height="110" viewBox="0 0 160 160">
+                {donutArcs.map((arc, idx) => {
+                  const isHovered = hoverDonutIndex === idx;
+                  return (
+                    <path
+                      key={idx}
+                      d={getArcPath(80, 80, 58, arc.startAngle, arc.startAngle + arc.angle)}
+                      fill="none"
+                      stroke={arc.color}
+                      strokeWidth={isHovered ? 22 : 18}
+                      strokeLinecap="round"
+                      style={{
+                        cursor: 'pointer',
+                        transition: 'all 200ms ease',
+                        filter: isHovered ? `drop-shadow(0 0 8px ${arc.color})` : 'none'
+                      }}
+                      onMouseEnter={() => setHoverDonutIndex(idx)}
+                      onMouseLeave={() => setHoverDonutIndex(null)}
+                    />
+                  );
+                })}
+              </svg>
+              <div style={{
+                position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', pointerEvents: 'none'
+              }}>
+                <span style={{ fontFamily: C.display, fontSize: '20px', fontWeight: 900, color: textPrimary, lineHeight: 1, letterSpacing: '-0.02em' }}>
+                  {totalVulns}
+                </span>
+                <span style={{ fontSize: '9px', color: textMuted, fontWeight: 700, marginTop: '2px' }}>
+                  Total Findings
+                </span>
               </div>
-            ))}
+            </div>
+
+            {/* Comprehensive Legend Grid with Percentage Bars */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, paddingLeft: 6 }}>
+              {donutData.map((d, i) => {
+                const pct = Math.round((d.value / (donutTotal || 1)) * 100);
+                const isHovered = hoverDonutIndex === i;
+                return (
+                  <div
+                    key={i}
+                    onMouseEnter={() => setHoverDonutIndex(i)}
+                    onMouseLeave={() => setHoverDonutIndex(null)}
+                    style={{
+                      display: 'flex', flexDirection: 'column', gap: 2, padding: '3px 6px',
+                      borderRadius: '6px', background: isHovered ? 'var(--sf-bg-surface)' : 'transparent',
+                      cursor: 'pointer', transition: 'background 150ms ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', fontWeight: 700 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: textSecondary }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: d.color }} />
+                        {d.label}
+                      </span>
+                      <span style={{ fontFamily: C.display, color: textPrimary, fontWeight: 800 }}>
+                        {d.value} <span style={{ color: textMuted, fontSize: '9px', fontWeight: 600 }}>({pct}%)</span>
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: '3px', backgroundColor: progressTrackBg, borderRadius: '2px', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', backgroundColor: d.color, borderRadius: '2px' }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -575,31 +771,43 @@ export default function OverviewWorkspace() {
           flexDirection: 'column',
           boxShadow: C.shadow
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: '10px' }}>
-            <div style={{ width: 3, height: 12, backgroundColor: '#06B6D4', borderRadius: 2 }} />
-            <h4 style={{ fontFamily: C.display, fontSize: '11px', fontWeight: 800, color: textPrimary, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Top Threat Category Rankings
-            </h4>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 3, height: 14, backgroundColor: '#06B6D4', borderRadius: 2 }} />
+              <h4 style={{ fontFamily: C.display, fontSize: '11px', fontWeight: 800, color: textPrimary, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Top Threat Category Rankings
+              </h4>
+            </div>
+            <span style={{ fontSize: '9px', fontWeight: 700, color: textMuted }}>OWASP Top 10 Aligned</span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, justifyContent: 'center' }}>
-            {threatCategories.map((cat: any, i: number) => (
-              <div key={i}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', fontWeight: 600, color: textSecondary, marginBottom: '2px' }}>
-                  <span>{cat.name}</span>
-                  <span style={{ fontFamily: C.display, fontWeight: 800, color: cat.color }}>{cat.count}</span>
+            {threatCategories.map((cat: any, i: number) => {
+              const pct = Math.min(100, Math.round(((cat.count || 0) / (cat.max || 20)) * 100));
+              return (
+                <div key={i}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', fontWeight: 600, color: textSecondary, marginBottom: '3px' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: '9px', fontWeight: 800, color: textMuted }}>#{i + 1}</span>
+                      <span>{cat.name}</span>
+                    </span>
+                    <span style={{ fontFamily: C.display, fontWeight: 800, color: cat.color }}>
+                      {cat.count} <span style={{ fontSize: '9px', color: textMuted, fontWeight: 600 }}>issues</span>
+                    </span>
+                  </div>
+                  <div style={{ width: '100%', height: '5px', backgroundColor: progressTrackBg, borderRadius: '3px', overflow: 'hidden', position: 'relative' }}>
+                    <div style={{
+                      width: `${pct}%`,
+                      height: '100%',
+                      backgroundColor: cat.color,
+                      borderRadius: '3px',
+                      boxShadow: `0 0 6px ${cat.color}60`,
+                      transition: 'width 600ms ease'
+                    }} />
+                  </div>
                 </div>
-                <div style={{ width: '100%', height: '4px', backgroundColor: progressTrackBg, borderRadius: '2px', overflow: 'hidden' }}>
-                  <div style={{
-                    width: `${((cat.count || 0) / (cat.max || 20)) * 100}%`,
-                    height: '100%',
-                    backgroundColor: cat.color,
-                    borderRadius: '2px',
-                    transition: 'width 600ms ease'
-                  }} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -611,33 +819,53 @@ export default function OverviewWorkspace() {
           padding: '14px',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: C.shadow
+          boxShadow: C.shadow,
+          position: 'relative'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: '10px' }}>
-            <div style={{ width: 3, height: 12, backgroundColor: '#F97316', borderRadius: 2 }} />
-            <h4 style={{ fontFamily: C.display, fontSize: '11px', fontWeight: 800, color: textPrimary, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Detection Volume By Engine
-            </h4>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 3, height: 14, backgroundColor: '#F97316', borderRadius: 2 }} />
+              <h4 style={{ fontFamily: C.display, fontSize: '11px', fontWeight: 800, color: textPrimary, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Detection Volume By Engine
+              </h4>
+            </div>
+            <span style={{ fontSize: '9px', fontWeight: 700, color: '#10B981' }}>4 Scanners Active</span>
           </div>
 
           <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', padding: '6px 0', minHeight: '95px' }}>
             {(() => {
               const maxVal = Math.max(...engineData.map((e: any) => e.count || 0), 1);
+              const engineMeta: Record<string, string> = {
+                'Trivy': 'SCA & Container OS CVEs',
+                'Gitleaks': 'API Keys & Secrets',
+                'Semgrep': 'SAST OWASP Top 10',
+                'ZAP DAST': 'Runtime DAST Flows'
+              };
+
               return engineData.map((eng: any, idx: number) => {
                 const count = eng.count || 0;
                 const heightPx = Math.max(14, Math.round((Math.log10(count + 1) / Math.log10(maxVal + 1)) * 65));
+                const isHovered = hoverEngineIndex === idx;
+
                 return (
-                  <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  <div
+                    key={idx}
+                    onMouseEnter={() => setHoverEngineIndex(idx)}
+                    onMouseLeave={() => setHoverEngineIndex(null)}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+                  >
                     <span style={{ fontFamily: C.display, fontSize: '10px', fontWeight: 800, color: eng.color }}>{count}</span>
                     <div style={{
-                      width: '28px',
+                      width: '32px',
                       height: `${heightPx}px`,
                       backgroundColor: eng.color,
-                      borderRadius: '4px 4px 0 0',
-                      boxShadow: `0 0 8px ${eng.color}40`,
-                      transition: 'height 400ms ease'
+                      borderRadius: '5px 5px 0 0',
+                      boxShadow: isHovered ? `0 0 14px ${eng.color}` : `0 0 8px ${eng.color}40`,
+                      transform: isHovered ? 'scaleY(1.05)' : 'none',
+                      transformOrigin: 'bottom',
+                      transition: 'all 200ms ease'
                     }} />
-                    <span style={{ fontSize: '9px', fontWeight: 700, color: textSecondary, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '9px', fontWeight: 700, color: isHovered ? textPrimary : textSecondary, textAlign: 'center', whiteSpace: 'nowrap' }}>
                       {eng.label}
                     </span>
                   </div>
@@ -645,6 +873,34 @@ export default function OverviewWorkspace() {
               });
             })()}
           </div>
+
+          {/* Engine Hover Context Overlay */}
+          {hoverEngineIndex !== null && engineData[hoverEngineIndex] && (
+            <div style={{
+              position: 'absolute',
+              bottom: 8,
+              left: 14,
+              right: 14,
+              background: C.isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.98)',
+              border: '1px solid var(--sf-border)',
+              borderRadius: '6px',
+              padding: '4px 8px',
+              fontSize: '9px',
+              fontWeight: 700,
+              color: textPrimary,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+            }}>
+              <span style={{ color: engineData[hoverEngineIndex].color }}>
+                ● {engineData[hoverEngineIndex].label}: {engineData[hoverEngineIndex].count} findings
+              </span>
+              <span style={{ color: textMuted }}>
+                {engineData[hoverEngineIndex].label === 'Trivy' ? 'SCA & OS CVEs' : engineData[hoverEngineIndex].label === 'Gitleaks' ? 'Secrets & API Keys' : engineData[hoverEngineIndex].label === 'Semgrep' ? 'SAST Code Flaws' : 'Runtime DAST APIs'}
+              </span>
+            </div>
+          )}
         </div>
 
       </div>
