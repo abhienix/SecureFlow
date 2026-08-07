@@ -13,6 +13,7 @@ import Badge from '../../components/ui/Badge';
 import { useUIStore } from '../../stores/uiStore';
 import { useVoidStore } from '../../stores/voidStore';
 import { client } from '../../api/client';
+import { downloadReport } from '../../utils/reportExporter';
 import { AutomatedRemediationCard } from './components/AutomatedRemediationCard';
 
 // Status constants matching backend pipeline_engine.py
@@ -175,7 +176,7 @@ export default function PipelineDetailPage() {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             id="btn-export-json-detail"
-            onClick={() => window.open(`/api/v1/reports/pipeline/${id}/json`, '_blank')}
+            onClick={() => id && downloadReport(id, 'json')}
             title="Export audit report as JSON"
             style={{
               display: 'flex',
@@ -197,7 +198,7 @@ export default function PipelineDetailPage() {
 
           <button
             id="btn-export-pdf-detail"
-            onClick={() => window.open(`/api/v1/reports/pipeline/${id}/pdf`, '_blank')}
+            onClick={() => id && downloadReport(id, 'pdf')}
             title="Export audit report as PDF"
             style={{
               display: 'flex',
