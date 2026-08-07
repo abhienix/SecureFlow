@@ -1781,6 +1781,19 @@ async def update_scan_progress(run_id: int, data: dict = None, db: AsyncSession 
 
     await db.commit()
 
+    # Automatically dispatch Slack notification if pipeline was BLOCKED
+    if scan.status == "complete" and scan.action_taken == "BLOCK":
+        try:
+            scan_info = {
+                "repo_name": scan.repo_name or "SecureFlow",
+                "branch": scan.branch or "main",
+                "commit_sha": scan.commit_sha or "N/A",
+                "ai_explanation": scan.ai_explanation or "Evaluated by policy engine — Critical security findings detected.",
+            }
+            asyncio.create_task(asyncio.to_thread(send_slack_alert, scan_info, [], "BLOCK"))
+        except Exception as _ex:
+            logger.warning(f"[slack dispatch error]: {_ex}")
+
     # Broadcast per-stage WebSocket events
     for evt in broadcast_events:
         await manager.broadcast({
