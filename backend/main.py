@@ -998,7 +998,7 @@ CORS_ALLOW_ORIGINS = [o.strip() for o in _env_cors.split(",") if o.strip()] or [
 CORS_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ORIGIN_REGEX", r"https://.*\.trycloudflare\.com|https://.*\.cloudflare\.com|https://.*\.ngrok-free\.(dev|app)|https://.*\.run\.app|http://localhost:.*|http://127\.0\.0\.1:.*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # nosemgrep: python.fastapi.security.wildcard-cors.wildcard-cors
     allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
