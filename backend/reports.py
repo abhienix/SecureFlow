@@ -520,8 +520,8 @@ async def export_pipeline_pdf(
 
     story.append(Spacer(1, 0.4 * cm))
 
-    # ── AI Remediation & Analysis Section ─────────────────────────────────────
-    story.append(Paragraph("AI Copilot Analysis & Code Remediation", heading_style))
+    # ── Void AI Remediation & Analysis Section ─────────────────────────────────────
+    story.append(Paragraph("Void AI Security Analysis & Code Remediation", heading_style))
     ai_exp = Paragraph(f"<b>Root Cause Analysis:</b> {report['ai_remediation']['ai_explanation']}", body_style)
     ai_fix = Paragraph(f"<b>Suggested Code Patch:</b> {report['ai_remediation']['ai_fix']}", body_style)
     story.append(ai_exp)

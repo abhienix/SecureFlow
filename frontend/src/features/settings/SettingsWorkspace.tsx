@@ -167,7 +167,7 @@ export default function SettingsWorkspace() {
               { name: 'GitHub & Actions', desc: 'Repository webhook & CI workflow orchestration', icon: GitPullRequest, connected: true },
               { name: 'Google Cloud Run', desc: 'Target container deployment & health checking', icon: Rocket, connected: true },
               { name: 'Slack Alerts', desc: 'Channel notification webhooks on BLOCK signals', icon: MessageSquare, connected: true },
-              { name: 'Grok / OpenAI LLM', desc: 'AI Copilot RAG reasoning service', icon: Zap, connected: true },
+              { name: 'Void AI Engine (Local)', desc: 'Void AI RAG security reasoning service running locally', icon: Zap, connected: true },
             ].map((int) => {
               const Icon = int.icon;
               return (

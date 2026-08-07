@@ -353,7 +353,7 @@ Current page: ${ctx.current_page}
         /delete\s+all/i, /\bkill\b.*process/i
       ];
       if (FORBIDDEN_PATTERNS.some(p => p.test(aiMessage))) {
-        aiMessage = "I'm a read-only copilot. I can explain findings and suggest remediation steps, but I won't suggest destructive operations.";
+        aiMessage = "I'm Void AI, a read-only local security assistant. I can explain findings and suggest remediation steps, but I won't suggest destructive operations.";
         updateLastMessage(aiMessage);
       }
 
@@ -554,7 +554,7 @@ Current page: ${ctx.current_page}
                 fontSize: 9, color: "rgba(129,140,248,0.7)", fontWeight: 600,
                 letterSpacing: "0.5px", marginTop: 1
               }}>
-                SecureFlow Security Copilot
+                SecureFlow Void AI (Local)
               </div>
             </div>
           </div>
