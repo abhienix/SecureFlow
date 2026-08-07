@@ -7,6 +7,7 @@ import DrawerPanel from '../../components/ui/DrawerPanel';
 import ScannerBar from '../../components/security/ScannerBar';
 import { client } from '../../api/client';
 import { useSecurityStore } from '../../stores/securityStore';
+import { downloadReport } from '../../utils/reportExporter';
 
 export default function SecurityCenterWorkspace() {
   const qc = useQueryClient();
@@ -46,13 +47,11 @@ export default function SecurityCenterWorkspace() {
   });
 
   const handleExportJson = (scanId: string) => {
-    const url = `/api/v1/reports/pipeline/${scanId}/json`;
-    window.open(url, '_blank');
+    downloadReport(scanId, 'json');
   };
 
   const handleExportPdf = (scanId: string) => {
-    const url = `/api/v1/reports/pipeline/${scanId}/pdf`;
-    window.open(url, '_blank');
+    downloadReport(scanId, 'pdf');
   };
 
   // Update Status mutation
