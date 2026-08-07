@@ -37,6 +37,14 @@ export default function SecurityCenterWorkspace() {
     },
   });
 
+  const { data: latestPipeline } = useQuery({
+    queryKey: ['pipelines', 'latest'],
+    queryFn: async () => {
+      const res = await client.get('/pipelines/latest');
+      return res.data;
+    },
+  });
+
   const handleExportJson = (scanId: string) => {
     const url = `/api/v1/reports/pipeline/${scanId}/json`;
     window.open(url, '_blank');
@@ -60,8 +68,8 @@ export default function SecurityCenterWorkspace() {
   });
 
   const findings = findingsData?.findings || [];
-  // Export targets the most recently loaded scan
-  const latestScanId = findings[0]?.scan_id;
+  // Target scan ID for exports: current finding's scan, or latest pipeline run, or fallback
+  const targetScanId = findings[0]?.scan_id || latestPipeline?.scan_id || latestPipeline?.id || '665';
 
   // Grouped Scanner chart data formatting
   const comparisonData = React.useMemo(() => {
@@ -237,55 +245,51 @@ export default function SecurityCenterWorkspace() {
             Reset Filters
           </button>
 
-          {latestScanId && (
-            <>
-              <button
-                id="btn-export-json"
-                onClick={() => handleExportJson(latestScanId)}
-                title="Export report as JSON"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  background: 'rgba(99, 102, 241, 0.12)',
-                  border: '1px solid rgba(99, 102, 241, 0.4)',
-                  borderRadius: '6px',
-                  color: '#818cf8',
-                  padding: '5px 10px',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                  transition: 'background 0.15s',
-                }}
-              >
-                <FileJson size={13} />
-                Export JSON
-              </button>
+          <button
+            id="btn-export-json"
+            onClick={() => handleExportJson(targetScanId)}
+            title="Export report as JSON"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              background: 'rgba(99, 102, 241, 0.12)',
+              border: '1px solid rgba(99, 102, 241, 0.4)',
+              borderRadius: '6px',
+              color: '#818cf8',
+              padding: '5px 10px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              fontWeight: 500,
+              transition: 'background 0.15s',
+            }}
+          >
+            <FileJson size={13} />
+            Export JSON
+          </button>
 
-              <button
-                id="btn-export-pdf"
-                onClick={() => handleExportPdf(latestScanId)}
-                title="Export report as PDF"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  background: 'rgba(239, 68, 68, 0.12)',
-                  border: '1px solid rgba(239, 68, 68, 0.35)',
-                  borderRadius: '6px',
-                  color: '#f87171',
-                  padding: '5px 10px',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                  transition: 'background 0.15s',
-                }}
-              >
-                <FileText size={13} />
-                Export PDF
-              </button>
-            </>
-          )}
+          <button
+            id="btn-export-pdf"
+            onClick={() => handleExportPdf(targetScanId)}
+            title="Export report as PDF"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              borderRadius: '6px',
+              color: '#f87171',
+              padding: '5px 10px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              fontWeight: 500,
+              transition: 'background 0.15s',
+            }}
+          >
+            <FileText size={13} />
+            Export PDF
+          </button>
         </div>
       </div>
 
