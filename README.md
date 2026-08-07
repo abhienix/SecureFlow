@@ -23,103 +23,113 @@ It runs four security scanners (**Gitleaks**, **Semgrep**, **Trivy**, **OWASP ZA
 
 SecureFlow operates across eight layers:
 
+<p align="center">
+  <img src="docs/images/SecureFlow_Architecture_Diagram.png" alt="SecureFlow Architecture Diagram" width="100%" />
+</p>
+
+> 📄 **[Download Architecture PDF (PDF)](docs/SecureFlow_Architecture_Diagram.pdf)** | 🖼️ **[View High-Res Image (PNG)](docs/images/SecureFlow_Architecture_Diagram.png)**
+
 ```mermaid
-flowchart TB
-    Dev["👤 Developer<br/>git push"]
+flowchart TD
+    %% 1. DEVELOPER TRIGGER
+    Dev["👤 DEVELOPER (git push)<br/><b>Motive:</b> Trigger Security Analysis on Commit"]
 
-    subgraph CI["GitHub Actions — 9-Stage Pipeline"]
+    %% 2. GITHUB ACTIONS PIPELINE (Cloud CI)
+    subgraph CI["🐙 GITHUB ACTIONS CI/CD PIPELINE (Cloud CI)"]
         direction LR
-        S1["1 Checkout"]
-        S2["2 Code Scan<br/>Gitleaks + Semgrep"]
-        S3["3 Docker Build"]
-        S4["4 Trivy CVE Scan"]
-        S5["5 Policy Gate"]
-        S6["6 Deploy Staging<br/>Cloud Run"]
-        S7["7 OWASP ZAP"]
-        S8["8 ZAP Gate"]
-        S9["9 Deploy Prod<br/>Cloud Run"]
-        S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8 --> S9
+        S1["1. Checkout"] --> S2["2. Gitleaks"] --> S3["3. Semgrep"] --> S4["4. Docker Build"] --> S5["5. Trivy"] --> S6["6. Policy Gate"]
     end
 
-    Dev --> CI
-    CI -->|HTTP telemetry / webhooks| BE
-
-    subgraph BE["FastAPI Backend — API Gateway"]
-        PSM["Pipeline State Machine<br/>9 stages, strict transitions"]
-        POL["Policy Engine<br/>CVSS + severity blocking, CVE allowlist"]
-        WSM["WebSocket Manager<br/>Redis pub/sub, less than 15ms broadcast"]
-        AIM["AI Analysis Module<br/>Void copilot orchestration"]
-        CP["Celery Producer<br/>DAST task dispatch"]
-        ORM["SQLAlchemy ORM<br/>PostgreSQL / SQLite, 12+ tables"]
+    %% 3. GOOGLE CLOUD RUN SERVICES & DATABASE
+    subgraph CLOUD_RUN["☁️ GOOGLE CLOUD RUN (SERVERLESS CLOUD REGION)"]
+        BE["⚡ FastAPI Backend Gateway<br/>(Pipeline State Machine & Policy Engine Gate)"]
+        PG[("🗄️ PostgreSQL Database (GCP)<br/><b>Saves ALL Data:</b> CI Scans + ZAP DAST Findings + Void AI Logs")]
+        RD["🔴 Central Redis Service (Memorystore)<br/>Pub/Sub (&lt;15ms WebSockets) & Celery Task Queue"]
+        STG["🧪 Cloud Run Staging App<br/>(https://secureflow-staging.run.app)"]
+        PROD["🚀 Cloud Run Production App"]
     end
 
-    subgraph FE["React 19 Dashboard"]
+    %% 4. GCP VM WORKER NODE (DAST EXECUTION)
+    subgraph GCP_VM["🖥️ DAST WORKER NODE (DEPLOYED ON GCP VM)"]
+        CELERY["⚙️ Celery Task Consumer"]
+        ZAP["🎯 OWASP ZAP Docker Container"]
+        CALLBACK["📤 Result Parser & Callback Client"]
+        
+        CELERY --> ZAP --> CALLBACK
+    end
+
+    %% 5. VOID AI SERVER (LOCAL GPU MACHINE B)
+    subgraph GPU_VM["🤖 VOID AI SERVER (LOCAL GPU MACHINE B)"]
         direction TB
-        F1["Overview"]
-        F2["Pipeline Timeline"]
-        F3["Security Center"]
-        F4["Deployments / Rollback"]
-        F5["Observability / Topology"]
-        F6["Policy Editor (live YAML)"]
-        F7["Void AI Copilot (streaming)"]
-        F8["Settings & Notifications"]
+        AI_GW["🔒 1. FastAPI AI Gateway (:8100)<br/><i>JWT Header Validation</i>"]
+        GRD["🛡️ 2. Guardrails Engine<br/><i>Off-topic Filter & Secret Redactor</i>"]
+        MR["🔀 3. Model Router<br/><i>Intent Classifier</i>"]
+        
+        subgraph OLLAMA_BOX["🧠 OLLAMA LOCAL INFERENCE ENGINE"]
+            QWEN["Qwen2.5:3b<br/>(Security Analysis)"]
+            DEEPSEEK["DeepSeek-coder:6.7b<br/>(Automated Code Fixes)"]
+        end
+
+        CDB[("📚 4. ChromaDB RAG Store<br/><i>nomic-embed-text Vectors</i>")]
+        FALLBACK["⚡ 5. Smart Fallback Engine<br/><i>590-Line DB Offline Answer Engine</i>"]
+
+        %% INTERNAL AI WORKFLOW CONNECTIONS
+        AI_GW -->|"Validated JWT"| GRD
+        GRD -->|"Sanitized Prompt"| MR
+        MR -->|"Security Intent"| QWEN
+        MR -->|"Code Fix Intent"| DEEPSEEK
+        AI_GW <-->|"RAG Context Lookup"| CDB
+        AI_GW -.->|"Offline Fallback"| FALLBACK
     end
 
-    subgraph AISRV["Local GPU AI Server — Machine B"]
-        direction TB
-        AG["FastAPI Gateway :8100"]
-        OL["Ollama<br/>Qwen2.5:3b"]
-        DS["DeepSeek-coder:6.7b"]
-        CDB["ChromaDB<br/>RAG vector store"]
-        MR["Model Router"]
-        GR["Guardrails Engine"]
-        JWT["JWT Authentication"]
-    end
+    %% 6. CLIENT BROWSER DASHBOARD
+    FE["🎨 REACT 19 DASHBOARD (CLIENT BROWSER)<br/>Unified Security Visibility & Streaming Void AI Assistant"]
 
-    subgraph WORKER["Celery Worker Node"]
-        RC["Redis Task Consumer"]
-        ZAPD["Docker-based ZAP Scanner"]
-        RP["Result Parser + Callback"]
-    end
+    %% EXTERNAL DATA FLOW CONNECTIONS
+    Dev -->|"git push code"| S1
 
-    subgraph DATA["Data Layer"]
-        PG[("PostgreSQL<br/>production")]
-        SQ[("SQLite<br/>local dev")]
-        RD[("Redis<br/>pub/sub + queue")]
-        CH[("ChromaDB<br/>vector store")]
-    end
+    S2 -->|"Secrets"| BE
+    S3 -->|"SAST"| BE
+    S5 <-->|"Policy Check"| BE
+    S6 -->|"Deploy Image"| STG
 
-    WSM <--> FE
-    AIM <-->|JWT-secured requests| AG
-    CP -->|enqueue task| RD
-    RD --> RC
-    RC --> ZAPD --> RP
-    RP -->|findings callback| BE
+    BE -->|"Persist CI Scans"| PG
+    BE -->|"Publish Events"| RD
+    BE -->|"Enqueue DAST"| RD
 
-    ORM --> PG
-    ORM --> SQ
-    WSM --> RD
-    AG --> MR
-    MR --> OL
-    MR --> DS
-    AG --> CDB
-    AG --> GR
-    AG --> JWT
-    CDB -.->|vectors| CH
+    RD -->|"Fetch Task (TCP 6379)"| CELERY
+    ZAP -->|"Dynamic Scan"| STG
+    CALLBACK -->|"Callback DAST Findings"| BE
+    BE -->|"Persist ZAP Scans"| PG
 
-    classDef ci fill:#1e3a5f,stroke:#4a90d9,color:#fff
-    classDef backend fill:#2d1e4f,stroke:#8a5fd9,color:#fff
-    classDef frontend fill:#1e4f3a,stroke:#4ad98a,color:#fff
-    classDef ai fill:#4f2d1e,stroke:#d98a4a,color:#fff
-    classDef worker fill:#4f1e3a,stroke:#d94a8a,color:#fff
-    classDef data fill:#333,stroke:#999,color:#fff
+    %% AI SERVER DATA FLOWS
+    BE <-->|"Scan Context & AI Requests"| AI_GW
+    AI_GW -->|"Save AI Logs to PostgreSQL"| PG
+    AI_GW -->|"Streaming SSE Void AI Responses"| FE
+    RD -->|"Live WebSockets (&lt;15ms)"| FE
 
-    class S1,S2,S3,S4,S5,S6,S7,S8,S9 ci
-    class PSM,POL,WSM,AIM,CP,ORM backend
-    class F1,F2,F3,F4,F5,F6,F7,F8 frontend
-    class AG,OL,DS,CDB,MR,GR,JWT ai
-    class RC,ZAPD,RP worker
-    class PG,SQ,RD,CH data
+    BE -->|"Promote Verified Build"| PROD
+
+    %% ELEGANT EXECUTIVE LIGHT PASTEL ACCENT COLOR PALETTE!
+    classDef devStyle fill:#f0f7ff,stroke:#2563eb,stroke-width:2px,color:#0f172a;
+    classDef ciStyle fill:#f8fafc,stroke:#475569,stroke-width:2px,color:#0f172a;
+    classDef beStyle fill:#eff6ff,stroke:#4f46e5,stroke-width:2px,color:#0f172a;
+    classDef dbStyle fill:#ecfdf5,stroke:#059669,stroke-width:2px,color:#0f172a;
+    classDef redisStyle fill:#fff1f2,stroke:#e11d48,stroke-width:2px,color:#0f172a;
+    classDef gcpStyle fill:#fff7ed,stroke:#ea580c,stroke-width:2px,color:#0f172a;
+    classDef gpuStyle fill:#faf5ff,stroke:#9333ea,stroke-width:2px,color:#0f172a;
+    classDef aiInternal fill:#f3e8ff,stroke:#7e22ce,stroke-width:1px,color:#0f172a;
+    classDef feStyle fill:#f0fdf4,stroke:#0d9488,stroke-width:2px,color:#0f172a;
+
+    class Dev devStyle
+    class S1,S2,S3,S4,S5,S6 ciStyle
+    class BE,STG,PROD beStyle
+    class PG dbStyle
+    class RD redisStyle
+    class CELERY,ZAP,CALLBACK gcpStyle
+    class GPU_VM,OLLAMA_BOX gpuStyle
+    class AI_GW,GRD,MR,QWEN,DEEPSEEK,CDB,FALLBACK aiInternal
+    class FE feStyle
 ```
 
 ---
