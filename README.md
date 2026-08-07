@@ -155,7 +155,25 @@ The policy engine (`policy.yaml`) enforces security gates before code reaches pr
 - **CVSS threshold**: Secondary block trigger — a `MEDIUM` CVE with a CVSS score above the threshold still blocks the pipeline.
 - **CVE allowlisting**: Individual CVEs can be exempted with a reason and expiry date. Expired allowlist entries automatically revert to normal evaluation.
 - **Multi-scanner evaluation**: ZAP findings → immediate `BLOCK`. Gitleaks findings → immediate `BLOCK`. Semgrep findings → immediate `BLOCK`. Trivy findings → evaluated against severity/CVSS policy.
-- **Slack notifications**: Triggered on `BLOCK` actions only.
+- **Slack notifications**: Triggered automatically on `BLOCK` actions via Slack Block Kit webhooks and broadcast to the dashboard Notification Center.
+
+---
+
+## Slack Incident Alerting
+
+SecureFlow features real-time Slack notification dispatch for security incident response:
+
+- **Automated Block Kit Dispatch**: When the Policy Engine evaluates a `BLOCK` decision on any pipeline run (due to exposed secrets, SAST flaws, container CVEs, or DAST API vulnerabilities), SecureFlow automatically constructs a formatted Slack Block Kit card and posts it to `#devsecops-alerts`.
+- **Payload Contents**:
+  - `🚨 BLOCK` status indicator color-coded in red (`#F43F5E`)
+  - Target Repository & Branch (e.g., `abhienix/SecureFlow` / `main`)
+  - 7-character Commit SHA (e.g., `e1638fa`)
+  - Void AI Root-Cause Explanation of the blocking policy violation
+  - UTC timestamp and link to SecureFlow Dashboard audit details
+- **Dashboard Notification Center Integration**: Real-time WebSocket events (`slack.alert_sent`) update the top-bar Bell icon badge and stream live alerts directly into the **Slack** tab of the Notification Drawer.
+- **API Endpoints**:
+  - `GET /api/slack/status` — Checks Slack webhook configuration and target channel status
+  - `POST /api/slack/test` — Dispatches a live Block Kit test message to verify Slack channel delivery
 
 ---
 

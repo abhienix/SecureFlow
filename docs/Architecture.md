@@ -279,6 +279,29 @@ sequenceDiagram
     UI->>User: Display Explanation & Fix Recommendations
 ```
 
+### Slack Incident Notification Sequence Flow
+This sequence shows automated Slack Block Kit dispatch and real-time Notification Center synchronization:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CI as GitHub Actions Runner
+    participant Gateway as FastAPI Backend
+    participant Policy as Policy Engine
+    participant Slack as Slack Webhook (#devsecops-alerts)
+    participant WS as WebSocket Dispatcher
+    participant Dashboard as React UI (Bell Notification Drawer)
+
+    CI->>Gateway: PATCH /api/progress (Scan Complete + Findings)
+    Gateway->>Policy: Evaluate Policy Rules & Thresholds
+    Policy-->>Gateway: Result: BLOCK (Critical Secret / DAST Flaw)
+    Gateway->>Slack: POST /services/... (Block Kit Payload)
+    Slack-->>Gateway: HTTP 200 OK (Posted to #devsecops-alerts)
+    Gateway->>WS: Broadcast event: slack.alert_sent & notification
+    WS-->>Dashboard: Sub-15ms WebSocket Push
+    Dashboard->>Dashboard: Pulse Red Bell Badge & Stream Alert into Slack Notification Tab
+```
+
 ### Automated Code Remediation Sequence
 This sequence shows the path for automated code remediation:
 
