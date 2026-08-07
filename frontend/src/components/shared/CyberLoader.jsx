@@ -6,7 +6,7 @@ const TELEMETRY_MESSAGES = [
   "Connecting to Distributed DAST Scanner Engine...",
   "Synchronizing Real-Time CI/CD Security Gates...",
   "Authenticating Cryptographic Agent Signatures...",
-  "Engaging Void AI Copilot Telemetry Engine...",
+  "Engaging Void AI Security Telemetry Engine...",
 ];
 
 export default function CyberLoader({ fullScreen = false, label, size = "md" }) {
