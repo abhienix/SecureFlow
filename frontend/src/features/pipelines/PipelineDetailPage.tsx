@@ -14,6 +14,7 @@ import { useUIStore } from '../../stores/uiStore';
 import { useVoidStore } from '../../stores/voidStore';
 import { client } from '../../api/client';
 import { downloadReport } from '../../utils/reportExporter';
+import { getOverallBadge } from './utils/statusMapping';
 import { AutomatedRemediationCard } from './components/AutomatedRemediationCard';
 
 // Status constants matching backend pipeline_engine.py
@@ -218,9 +219,15 @@ export default function PipelineDetailPage() {
             Export PDF
           </button>
 
-          <Badge variant={effectiveRun.action_taken === 'BLOCK' ? 'failed' : effectiveRun.status === STATUS.RUNNING ? 'warning' : 'success'}>
-            {effectiveRun.action_taken === 'BLOCK' ? 'BLOCKED' : effectiveRun.status}
-          </Badge>
+          {(() => {
+            const badge = getOverallBadge(effectiveRun);
+            const variant = badge.color === 'red' ? 'failed' : badge.color === 'indigo' ? 'warning' : badge.color === 'green' ? 'success' : 'cancelled';
+            return (
+              <Badge variant={variant}>
+                {badge.label}
+              </Badge>
+            );
+          })()}
         </div>
       </div>
 
