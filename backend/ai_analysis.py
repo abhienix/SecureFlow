@@ -370,10 +370,15 @@ def smart_fallback(question: str, context: dict) -> str:
         )
 
     # ── 1. Flexible Greeting Check (hi, hiii, hello, hey, yo, sup, etc.) ──
-    is_greeting = bool(re.search(r'\b(h+i+|h+e+y+|h+e+l+o+|y+o+|s+u+p+|greetings|who are you|what are you)\b', q))
-    is_short_prompt = len(q.split()) <= 4
+    is_greeting = bool(re.search(r'^\s*(h+i+|h+e+y+|h+e+l+o+|y+o+|s+u+p+|greetings|who are you|hi there|hello there)\s*$', q))
+    security_keywords = [
+        "commit", "scan", "run", "cve", "vuln", "finding", "policy", "pipeline", "#",
+        "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "sql", "injection", "xss",
+        "csrf", "rce", "fix", "explain", "patch", "secret", "owasp", "code", "remediate"
+    ]
+    is_short_prompt = len(q.split()) <= 4 and not any(k in q for k in security_keywords)
 
-    if is_greeting or (is_short_prompt and not any(k in q for k in ["commit", "scan", "run", "cve", "vuln", "finding", "policy", "pipeline", "#", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"])):
+    if is_greeting or is_short_prompt:
         c_count = sev.get("CRITICAL", 0)
         h_count = sev.get("HIGH", 0)
         status_line = f"⚠️ **{c_count} Critical** and **{h_count} High** findings need review." if (c_count + h_count > 0) else "🟢 All security policy checks are healthy!"
