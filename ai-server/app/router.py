@@ -29,7 +29,11 @@ class TaskLLMRouter:
         code_patch_keywords = [
             "code patch", "fix vulnerability", "remediate", "dockerfile", "patch snippet",
             "fix sql injection", "refactor", "sanitize input", "parameterized query",
-            "suppression rule", "cwe fix", "owasp remediation", "diff"
+            "suppression rule", "cwe fix", "owasp remediation", "diff",
+            "step-by-step remediation", "how to fix", "fix the", "unblock",
+            "root cause", "remediation plan", "code fix", "security fix",
+            "upgrade package", "patch cve", "fix cve", "harden", "mitigation",
+            "fix blocked", "resolve vulnerability", "secure code"
         ]
 
         is_code_task = any(kw in p_lower for kw in code_patch_keywords) or bool(re.search(r'```[a-z]*', p_lower))

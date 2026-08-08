@@ -308,10 +308,20 @@ def answer_copilot_question(question, context):
     question = _sanitize(question, max_len=500)
     context_json = _sanitize(json.dumps(context, default=str), max_len=6000)
 
+    # Include RAG knowledge base context if available
+    rag_knowledge = context.get("rag_security_knowledge", "")
+    rag_section = ""
+    if rag_knowledge:
+        rag_section = (
+            "\n\nRELEVANT SECURITY KNOWLEDGE (from knowledge base — use this for accurate remediation advice):\n"
+            + _sanitize(rag_knowledge, max_len=2000)
+        )
+
     prompt = (
         COPILOT_SYSTEM_INSTRUCTIONS
         + "\n\nContext (recent scan history as JSON):\n"
         + context_json
+        + rag_section
         + "\n\nQuestion: "
         + question
     )
@@ -711,4 +721,4 @@ def smart_fallback(question: str, context: dict) -> str:
         f"  - _'Show top critical CVEs'_\n"
         f"  - _'How do I fix SQL injection in FastAPI?'_\n"
         f"  - _'List the first 5 blocked commits'_"
-    )
+    )
