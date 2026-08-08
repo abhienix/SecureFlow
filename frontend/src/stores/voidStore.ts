@@ -98,8 +98,12 @@ export const useVoidStore = create<VoidStore>()(
       setStreaming: (isStreaming) => set({ isStreaming }),
       setTriggerPrompt: (triggerPrompt) => set({ triggerPrompt }),
       autoAnalyzePipeline: (runId: string, stageName: string) => {
-        const prompt = `Automatically analyze this blocked/failed pipeline run #${runId} at stage "${stageName}". Provide root cause, specific CVE findings, policy violations, and step-by-step remediation.`;
+        const prompt = `Pipeline run #${runId} is blocked at stage "${stageName}". Analyze the root cause, list specific CVE findings or policy violations, and provide detailed step-by-step remediation with code fixes.`;
         set({ triggerPrompt: prompt, isOpen: true });
+        setTimeout(() => {
+          const panel = document.querySelector('[data-void-panel]');
+          if (panel) panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 100);
       },
     }),
     {

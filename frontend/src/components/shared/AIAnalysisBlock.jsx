@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Brain, Wrench, Copy, Check, Loader2, ThumbsUp, ThumbsDown } from "lucide-react";
+import { AlertTriangle, Brain, Wrench, Copy, Check, Loader2, ThumbsUp, ThumbsDown, Zap } from "lucide-react";
 import { BACKEND } from "../../theme";
+import { useVoidStore } from "../../stores/voidStore";
+import { useUIStore } from "../../stores/uiStore";
 import VoidCoreIcon from "./VoidCoreIcon";
 import FormattedRemedyView from "./FormattedRemedyView";
 
@@ -86,18 +88,41 @@ export function AIAnalysisBlock({ scan, compact=false, feedback, onFeedback, onA
         </div>
         {onAskCopilot && (
           <button
-            onClick={() => onAskCopilot(scan)}
+            onClick={() => {
+              // If onAskCopilot is provided, use it; otherwise trigger VoidAI directly
+              onAskCopilot(scan);
+            }}
             style={{
               padding: "5px 12px", borderRadius: 8,
-              background: "linear-gradient(135deg, #0f172a 0%, #090d16 100%)",
-              border: "1px solid rgba(0, 242, 254, 0.4)",
+              background: C.isDark ? "linear-gradient(135deg, #0f172a 0%, #090d16 100%)" : "linear-gradient(135deg, #4F46E5 0%, #3730A3 100%)",
+              border: C.isDark ? "1px solid rgba(0, 242, 254, 0.4)" : "1px solid rgba(79, 70, 229, 0.4)",
               color: "#FFFFFF", fontSize: 11, fontWeight: 800, cursor: "pointer",
               display: "flex", alignItems: "center", gap: 6,
-              boxShadow: "0 2px 10px rgba(121,40,202,0.3)"
+              boxShadow: C.isDark ? "0 2px 10px rgba(121,40,202,0.3)" : "0 2px 10px rgba(79,70,229,0.3)"
             }}
           >
             <div style={{ transform: "scale(0.6)", display: "flex", alignItems: "center", margin: "-6px -2px" }}><VoidCoreIcon /></div>
             Discuss with Void
+          </button>
+        )}
+        {!onAskCopilot && (
+          <button
+            onClick={() => {
+              const prompt = `Analyze the blocked pipeline run and provide step-by-step remediation. Explanation: ${scan.ai_explanation || 'unknown'}. Remedy: ${scan.ai_fix || scan.ai_remedy || 'none available'}.`;
+              useVoidStore.getState().setTriggerPrompt(prompt);
+              useUIStore.getState().setCopilotOpen(true);
+            }}
+            style={{
+              padding: "5px 12px", borderRadius: 8,
+              background: C.isDark ? "linear-gradient(135deg, #0f172a 0%, #090d16 100%)" : "linear-gradient(135deg, #4F46E5 0%, #3730A3 100%)",
+              border: C.isDark ? "1px solid rgba(0, 242, 254, 0.4)" : "1px solid rgba(79, 70, 229, 0.4)",
+              color: "#FFFFFF", fontSize: 11, fontWeight: 800, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+              boxShadow: C.isDark ? "0 2px 10px rgba(121,40,202,0.3)" : "0 2px 10px rgba(79,70,70,229,0.3)"
+            }}
+          >
+            <Zap size={12} />
+            Ask Void AI to Fix
           </button>
         )}
       </div>

@@ -34,8 +34,8 @@ export function renderFormattedInline(str, C, onCveClick) {
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
         <code key={idx} style={{
-          background: C?.bgSurface || "rgba(99,102,241,0.1)",
-          color: C?.accent || "#6366F1", padding: "1px 6px", borderRadius: 4,
+          background: C?.isDark ? "rgba(99,102,241,0.1)" : "rgba(79,70,229,0.08)",
+          color: C?.isDark ? "#6366F1" : "#4F46E5", padding: "1px 6px", borderRadius: 4,
           fontSize: 12, fontFamily: C?.mono || "monospace", fontWeight: 600,
           wordBreak: "break-all"
         }}>
@@ -71,13 +71,13 @@ export function FormattedCopilotMessage({ text, C, onCveClick }) {
     elements.push(
       <div key={`code-${match.index}`} style={{
         margin: "10px 0", borderRadius: 8, overflow: "hidden",
-        border: `1px solid ${C?.border || "#1e293b"}`,
-        background: "#090d16", boxShadow: C?.shadow || "0 2px 8px rgba(0,0,0,0.2)",
+        border: `1px solid ${C?.isDark ? "#1e293b" : "#E2E8F0"}`,
+        background: C?.isDark ? "#090d16" : "#F8FAFC", boxShadow: C?.shadow || "0 2px 8px rgba(0,0,0,0.2)",
         maxWidth: "100%", boxSizing: "border-box"
       }}>
         <div style={{
-          padding: "6px 12px", background: "#111827", borderBottom: "1px solid #1e293b",
-          fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase",
+          padding: "6px 12px", background: C?.isDark ? "#111827" : "#F1F5F9", borderBottom: `1px solid ${C?.isDark ? "#1e293b" : "#E2E8F0"}`,
+          fontSize: 10, fontWeight: 700, color: C?.isDark ? "#64748b" : "#94A3B8", textTransform: "uppercase",
           fontFamily: C?.mono || "monospace", display: "flex", justifyContent: "space-between"
         }}>
           <span>{lang}</span>
@@ -85,8 +85,8 @@ export function FormattedCopilotMessage({ text, C, onCveClick }) {
         </div>
         <pre style={{
           margin: 0, padding: 12, overflowX: "auto", maxWidth: "100%",
-          fontSize: 12, lineHeight: 1.5, color: "#38bdf8",
-          fontFamily: C?.mono || "monospace", background: "#090d16",
+          fontSize: 12, lineHeight: 1.5, color: C?.isDark ? "#38bdf8" : "#0F172A",
+          fontFamily: C?.mono || "monospace", background: "transparent",
           whiteSpace: "pre-wrap", wordBreak: "break-all", boxSizing: "border-box"
         }}>
           <code>{codeContent}</code>

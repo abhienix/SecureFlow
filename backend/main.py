@@ -4097,6 +4097,30 @@ async def get_v1_events(db: AsyncSession = Depends(get_db)):
     events = res.scalars().all()
     return events
 
+AI_SERVER_URL_FOR_RAG = os.getenv("AI_SERVER_URL", "http://localhost:8100")
+AI_SERVER_TOKEN_FOR_RAG = os.getenv("AI_SERVER_TOKEN", "")
+
+
+def _fetch_rag_context(question: str) -> str:
+    """Fetch relevant security knowledge from AI server's ChromaDB RAG store."""
+    try:
+        headers = {"Content-Type": "application/json"}
+        if AI_SERVER_TOKEN_FOR_RAG:
+            headers["Authorization"] = f"Bearer {AI_SERVER_TOKEN_FOR_RAG}"
+        resp = requests.get(
+            f"{AI_SERVER_URL_FOR_RAG}/api/v1/rag/search",
+            params={"query": question, "n_results": 5},
+            headers=headers,
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("results", "")
+    except Exception as e:
+        logger.debug(f"[RAG] context fetch failed (non-critical): {e}")
+    return ""
+
+
 async def process_copilot_query(question: str, db: AsyncSession) -> str:
     """
     Core reasoning function: fetches real database context via SQLAlchemy
@@ -4191,6 +4215,14 @@ async def process_copilot_query(question: str, db: AsyncSession) -> str:
         "active_deployments": deployments_list,
         "security_policy": "Block on CRITICAL/HIGH findings, enforce signed commits, zero plain-text secrets (Gitleaks), container CVE scans (Trivy), and DAST API checks (OWASP ZAP)."
     }
+
+    # Enrich with RAG knowledge base context from ChromaDB
+    try:
+        rag_context = await asyncio.to_thread(_fetch_rag_context, question)
+        if rag_context:
+            db_context["rag_security_knowledge"] = rag_context
+    except Exception:
+        pass  # RAG is optional enrichment, not critical
 
     try:
         ans_text = await asyncio.to_thread(answer_copilot_question, question, db_context)
