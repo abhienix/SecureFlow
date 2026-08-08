@@ -2166,6 +2166,8 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
         "action_taken": "BLOCK" if explicit_action == "BLOCK" else policy_result["action"],
     })
 
+    asyncio.create_task(_trigger_rag_ingest(scan.id, repo_name, policy_result["severity"], normalized_findings))
+
     final_action = "BLOCK" if explicit_action == "BLOCK" else policy_result["action"]
 
     await manager.broadcast(scan_to_broadcast_payload(scan))
@@ -2176,6 +2178,67 @@ async def receive_scan_results(data: dict, db: AsyncSession = Depends(get_db)):
         "action": final_action,
         "reason": policy_result["reason"],
     }
+
+
+async def _trigger_rag_ingest(scan_id: int, repo_name: str, severity: str, findings: dict):
+    """Asynchronously dispatches scan findings to AI Server /api/v1/rag/ingest for ChromaDB vector indexing."""
+    ai_server_url = os.getenv("AI_SERVER_URL", "http://127.0.0.1:8100").rstrip("/")
+    ai_token = os.getenv("AI_SERVER_TOKEN", "")
+
+    flattened = []
+    if isinstance(findings, dict):
+        for gl in findings.get("gitleaks") or []:
+            flattened.append({
+                "name": f"Gitleaks Secret ({gl.get('RuleID', 'secret')})",
+                "severity": "HIGH",
+                "description": f"File {gl.get('File', '?')}:{gl.get('StartLine', '?')}",
+                "solution": "Rotate leaked credentials immediately and remove from code history."
+            })
+        for sg in findings.get("semgrep") or []:
+            flattened.append({
+                "name": f"Semgrep Pattern ({sg.get('check_id', '?').split('.')[-1]})",
+                "severity": "HIGH",
+                "description": f"File {sg.get('path', '?')}",
+                "solution": (sg.get("extra") or {}).get("message", "Fix insecure code pattern.")
+            })
+        for res in findings.get("Results") or []:
+            for v in res.get("Vulnerabilities") or []:
+                flattened.append({
+                    "name": v.get("VulnerabilityID", "CVE"),
+                    "severity": v.get("Severity", "UNKNOWN"),
+                    "description": f"Package {v.get('PkgName', '?')}",
+                    "solution": f"Upgrade to {v.get('FixedVersion', 'latest')}"
+                })
+        zap = findings.get("zap")
+        if isinstance(zap, list):
+            for z in zap:
+                flattened.append({
+                    "name": z.get("name") or z.get("alert", "ZAP Alert"),
+                    "severity": z.get("riskdesc") or z.get("risk", "MEDIUM"),
+                    "description": z.get("url", ""),
+                    "solution": z.get("solution", "")
+                })
+
+    if not flattened:
+        return
+
+    payload = {
+        "scan_id": str(scan_id),
+        "repo_name": repo_name,
+        "severity": str(severity),
+        "findings": flattened[:50]
+    }
+    headers = {"Content-Type": "application/json"}
+    if ai_token:
+        headers["Authorization"] = f"Bearer {ai_token}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"{ai_server_url}/api/v1/rag/ingest", json=payload, headers=headers)
+            if resp.status_code == 200:
+                logger.info(f"[rag ingest] successfully indexed scan #{scan_id} into ChromaDB")
+    except Exception as e:
+        logger.warning(f"[rag ingest] could not trigger RAG ingest for scan #{scan_id}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -2434,11 +2497,21 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
     return {"answer": answer}
 
 
+async def verify_user_or_api_secret(request: Request):
+    """Permit requests from authenticated UI users (JWT/Bearer) or BACKEND_API_SECRET."""
+    auth = request.headers.get("Authorization", "")
+    if auth:
+        return
+    if BACKEND_API_SECRET:
+        token = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else ""
+        if not token or not secrets.compare_digest(token, BACKEND_API_SECRET):
+            raise HTTPException(status_code=403, detail="Forbidden: invalid or missing API secret")
+
 # ---------------------------------------------------------------------------
 # AI Copilot — re-analyze a single scan
 # ---------------------------------------------------------------------------
 
-@app.post("/api/scan-results/{scan_id}/reanalyze", dependencies=[Depends(verify_api_secret)])
+@app.post("/api/scan-results/{scan_id}/reanalyze", dependencies=[Depends(verify_user_or_api_secret)])
 async def reanalyze_scan(scan_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ScanResult).filter(ScanResult.id == scan_id))
     scan = result.scalars().first()

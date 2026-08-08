@@ -5,6 +5,7 @@ import { usePipelineRuns } from './hooks/usePipelineRuns';
 import { usePipelinePolling } from './hooks/usePipelinePolling';
 import PipelineCard from './PipelineCard';
 import PipelineDrawer from './PipelineDrawer';
+import EmptyState from '../../components/common/EmptyState';
 import { PipelineRun } from './types/pipeline.types';
 
 export default function PipelinesPage() {
@@ -115,14 +116,25 @@ export default function PipelinesPage() {
 
       {/* Runs List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {runs.map((run, index) => (
-          <PipelineCard
-            key={run.id}
-            run={run}
-            isLatest={index === 0}
-            onNodeClick={handleNodeClick}
+        {runs.length === 0 ? (
+          <EmptyState
+            title="No Pipeline Runs Executed Yet"
+            description="Trigger a security analysis scan by pushing a commit to your git repository or running a CI/CD workflow."
+            actionLabel="View Policy Engine"
+            onAction={() => navigate('/policies')}
+            secondaryLabel="Refresh Runs Feed"
+            onSecondaryAction={() => refetch()}
           />
-        ))}
+        ) : (
+          runs.map((run, index) => (
+            <PipelineCard
+              key={run.id}
+              run={run}
+              isLatest={index === 0}
+              onNodeClick={handleNodeClick}
+            />
+          ))
+        )}
       </div>
 
       {/* Pagination Load More */}

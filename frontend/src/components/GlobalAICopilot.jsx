@@ -468,14 +468,14 @@ Current page: ${ctx.current_page}
       {/* Floating Panel */}
       <div style={{
         position: "fixed",
-        bottom: 24,
+        bottom: 16,
         ...(hasRightDrawer
-          ? { left: "min(280px, calc(100vw - 400px))", right: "auto" }
-          : { right: 24, left: "auto" }
+          ? { left: "min(280px, calc(100vw - 360px))", right: "auto" }
+          : { right: "min(24px, 8px)", left: "auto" }
         ),
-        width: 380,
-        maxWidth: "calc(100vw - 48px)",
-        maxHeight: "calc(100vh - 48px)",
+        width: "min(380px, calc(100vw - 16px))",
+        maxWidth: "100vw",
+        maxHeight: "calc(100vh - 32px)",
         display: "flex",
         flexDirection: "column",
         borderRadius: 20,

@@ -394,7 +394,9 @@ export default function RepositoriesPage() {
         columns={columns}
         data={data?.repositories || []}
         isLoading={isLoading}
-        emptyMessage="No repositories registered."
+        emptyIcon={ShieldCheck}
+        emptyHeading="No Repositories Registered"
+        emptyBody="Register a GitHub repository workspace to enforce DevSecOps policy gates, automated container scans, and DAST checks."
       />
     </div>
   );

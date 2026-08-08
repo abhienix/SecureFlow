@@ -231,9 +231,39 @@ export default function PipelineDetailPage() {
         </div>
       </div>
 
-      {/* Enterprise Execution Timeline */}
+      {/* Enterprise Execution Timeline (#1 Progress Bar & #4 Mobile Responsiveness) */}
       <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '12px', padding: '24px', overflowX: 'auto' }}>
-        <div style={{ display: 'flex', gap: 0, minWidth: 'max-content', alignItems: 'flex-start' }}>
+        {(() => {
+          const completedCount = stagesSorted.filter((s: any) => s.status === STATUS.PASSED || s.status === STATUS.SKIPPED).length;
+          const totalCount = stagesSorted.length || 1;
+          const progressPct = Math.min(100, Math.round((completedCount / totalCount) * 100));
+          const hasFailure = stagesSorted.some((s: any) => s.status === STATUS.BLOCKED || s.status === STATUS.FAILED);
+          const barColor = hasFailure ? '#ef4444' : progressPct === 100 ? '#10b981' : '#06b6d4';
+
+          return (
+            <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 700, color: 'var(--sf-ink)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: barColor, boxShadow: `0 0 8px ${barColor}` }} />
+                  Execution Progress
+                </span>
+                <span>{progressPct}% Complete ({completedCount}/{totalCount} Stages)</span>
+              </div>
+              <div style={{ height: '8px', width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${progressPct}%`,
+                  backgroundColor: barColor,
+                  borderRadius: '4px',
+                  transition: 'width 400ms cubic-bezier(0.4, 0, 0.2, 1)',
+                  boxShadow: `0 0 10px ${barColor}`,
+                }} />
+              </div>
+            </div>
+          );
+        })()}
+
+        <div style={{ display: 'flex', gap: 0, minWidth: '100%', width: 'max-content', alignItems: 'flex-start', overflowX: 'auto', paddingBottom: '8px' }}>
           {stagesSorted.map((stage: any, idx: number) => {
             const meta = STATUS_META[stage.status] || STATUS_META[STATUS.WAITING];
             const isLast = idx === stagesSorted.length - 1;
