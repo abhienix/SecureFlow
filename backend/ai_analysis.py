@@ -21,18 +21,26 @@ if not AI_SERVER_TOKEN:
     )
 
 
+def _get_ai_config():
+    url = (os.getenv("AI_SERVER_URL") or "http://127.0.0.1:8100").rstrip("/")
+    token = os.getenv("AI_SERVER_TOKEN") or "bf84de64b1d98b7768be582e888003c47f3fc11da134f598be04cdcb5f4dc8a2"
+    ollama_url = (os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
+    model_name = os.getenv("MODEL_NAME") or "qwen2.5:3b"
+    return url, token, ollama_url, model_name
+
+
 def _call_ai_server(prompt):
     """Calls standalone Machine B AI Server via FastAPI Gateway endpoint with JWT auth."""
+    url, token, _, _ = _get_ai_config()
     headers = {
-        "Authorization": f"Bearer {AI_SERVER_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-    # Try configured AI_SERVER_URL, fallback to 127.0.0.1:8100 if local
-    urls_to_try = [AI_SERVER_URL, "http://127.0.0.1:8100", "http://localhost:8100"]
-    for url in urls_to_try:
+    urls_to_try = [url, "http://127.0.0.1:8100", "http://localhost:8100"]
+    for endpoint in urls_to_try:
         try:
             resp = requests.post(
-                f"{url}/api/v1/chat",
+                f"{endpoint}/api/v1/chat",
                 headers=headers,
                 json={"message": prompt, "stream": False},
                 timeout=30,
@@ -46,9 +54,10 @@ def _call_ai_server(prompt):
 
 def _call_ollama_direct(prompt):
     """Fallback direct Ollama call on port 11434 if AI Server Gateway is local."""
+    _, _, ollama_url, model_name = _get_ai_config()
     resp = requests.post(
-        f"{OLLAMA_URL}/api/generate",
-        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+        f"{ollama_url}/api/generate",
+        json={"model": model_name, "prompt": prompt, "stream": False},
         timeout=120,
     )
     resp.raise_for_status()
