@@ -152,17 +152,26 @@ export default function TopBar({ C }: { C: any }) {
           <span>Void AI</span>
         </button>
 
-        {/* Connection Status */}
+        {/* Connection Status Pill (#14) */}
         <div style={{
-          display: "flex", alignItems: "center", gap: 5, padding: "5px 10px",
-          borderRadius: 8, fontSize: 11, fontWeight: 600,
-          background: wsConnected ? C.greenSoft : (lastApiResponse ? C.accentSoft : C.redSoft),
-          color: wsConnected ? C.green : (lastApiResponse ? C.accent : C.red),
-          border: `1px solid ${wsConnected ? C.greenBorder : (lastApiResponse ? C.accentBorder : C.redBorder)}`,
-        }}>
-          {wsConnected ? <Wifi size={12} /> : (lastApiResponse ? <RefreshCw size={12} /> : <WifiOff size={12} />)}
+          display: "flex", alignItems: "center", gap: 6, padding: "5px 11px",
+          borderRadius: 20, fontSize: 11, fontWeight: 700,
+          background: wsConnected
+            ? "rgba(16, 185, 129, 0.12)"
+            : (lastApiResponse ? "rgba(245, 158, 11, 0.12)" : "rgba(239, 68, 68, 0.12)"),
+          color: wsConnected ? "#10b981" : (lastApiResponse ? "#f59e0b" : "#ef4444"),
+          border: `1px solid ${wsConnected ? "rgba(16, 185, 129, 0.35)" : (lastApiResponse ? "rgba(245, 158, 11, 0.35)" : "rgba(239, 68, 68, 0.35)")}`,
+          boxShadow: wsConnected ? "0 0 10px rgba(16, 185, 129, 0.2)" : "none",
+        }} title={wsConnected ? "Real-time WebSocket feed active" : "Attempting WebSocket connection / HTTP polling fallback"}>
+          <span style={{
+            width: 7, height: 7, borderRadius: "50%",
+            background: wsConnected ? "#10b981" : (lastApiResponse ? "#f59e0b" : "#ef4444"),
+            boxShadow: wsConnected ? "0 0 8px #10b981" : "none",
+            animation: wsConnected ? "sfDotPulse 1.5s infinite ease-in-out" : "none",
+          }} />
+          {wsConnected ? <Wifi size={12} /> : (lastApiResponse ? <RefreshCw size={12} className="sf-spin-slow" /> : <WifiOff size={12} />)}
           <span>
-            {wsConnected ? "Live" : lastApiResponse ? `Polling ${Math.floor((now - lastApiResponse) / 1000)}s` : "Offline"}
+            {wsConnected ? "Connected 🟢" : lastApiResponse ? "Reconnecting 🟠" : "Disconnected 🔴"}
           </span>
         </div>
       </div>
