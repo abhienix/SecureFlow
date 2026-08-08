@@ -24,95 +24,83 @@ It runs four security scanners (**Gitleaks**, **Semgrep**, **Trivy**, **OWASP ZA
 
 ```mermaid
 flowchart TD
-    %% 1. DEVELOPER TRIGGER
-    Dev["👤 DEVELOPER (git push)<br/><b>Motive:</b> Trigger Security Analysis on Commit"]
+    %% TOP LEVEL LAYOUT
+    Dev["👤 DEVELOPER <i>(git push)</i>"]
 
-    %% 2. GITHUB ACTIONS PIPELINE (Cloud CI)
-    subgraph CI["🐙 GITHUB ACTIONS CI/CD PIPELINE (Cloud CI)"]
+    subgraph CI["🐙 GITHUB ACTIONS CI/CD"]
         direction LR
-        S1["1. Checkout"] --> S2["2. Gitleaks"] --> S3["3. Semgrep"] --> S4["4. Docker Build"] --> S5["5. Trivy"] --> S6["6. Policy Gate"]
+        S1["1. Checkout"] --> S2["2. Gitleaks"] --> S3["3. Semgrep"] --> S4["4. Build"] --> S5["5. Trivy"] --> S6["6. Policy Gate"]
     end
 
-    %% 3. GOOGLE CLOUD RUN SERVICES & DATABASE
-    subgraph CLOUD_RUN["☁️ GOOGLE CLOUD RUN (SERVERLESS CLOUD REGION)"]
-        BE["⚡ FastAPI Backend Gateway<br/>(Pipeline State Machine & Policy Engine Gate)"]
-        PG[("🗄️ PostgreSQL Database (GCP)<br/><b>Saves ALL Data:</b> CI Scans + ZAP DAST Findings + Void AI Logs")]
-        RD["🔴 Central Redis Service (Memorystore)<br/>Pub/Sub (&lt;15ms WebSockets) & Celery Task Queue"]
-        STG["🧪 Cloud Run Staging App<br/>(https://secureflow-staging.run.app)"]
+    subgraph GCP_VM["🖥️ DAST WORKER (GCP VM)"]
+        direction LR
+        CELERY["⚙️ Celery Consumer"] --> ZAP["🎯 OWASP ZAP Docker"] --> CALLBACK["📤 Result Parser"]
+    end
+
+    subgraph CLOUD_RUN["☁️ GOOGLE CLOUD RUN (SERVERLESS)"]
+        direction TB
+        BE["⚡ FastAPI Backend Gateway"]
+        PG[("🗄️ PostgreSQL (GCP)<br/><i>All Scans + ZAP + AI Logs</i>")]
         PROD["🚀 Cloud Run Production App"]
-    end
-
-    %% 4. GCP VM WORKER NODE (DAST EXECUTION)
-    subgraph GCP_VM["🖥️ DAST WORKER NODE (DEPLOYED ON GCP VM)"]
-        CELERY["⚙️ Celery Task Consumer"]
-        ZAP["🎯 OWASP ZAP Docker Container"]
-        CALLBACK["📤 Result Parser & Callback Client"]
+        RD["🔴 Central Redis (Memorystore)<br/><i>Pub/Sub & Celery Queue</i>"]
+        STG["🧪 Cloud Run Staging App"]
         
-        CELERY --> ZAP --> CALLBACK
+        BE -->|"Persist CI"| PG
+        BE -->|"Promote"| PROD
+        BE -->|"Events & DAST"| RD
+        BE -->|"Deploy"| STG
     end
 
-    %% 5. VOID AI SERVER (LOCAL GPU MACHINE B)
     subgraph GPU_VM["🤖 VOID AI SERVER (LOCAL GPU MACHINE B)"]
         direction TB
-        AI_GW["🔒 1. FastAPI AI Gateway (:8100)<br/><i>JWT Header Validation</i>"]
-        GRD["🛡️ 2. Guardrails Engine<br/><i>Off-topic Filter & Secret Redactor</i>"]
-        MR["🔀 3. Model Router<br/><i>Intent Classifier</i>"]
+        AI_GW["🔒 1. FastAPI AI Gateway (:8100)"]
+        CDB[("📚 4. ChromaDB RAG Store")]
+        GRD["🛡️ 2. Guardrails Engine"]
+        MR["🔀 3. Model Router"]
+        FALLBACK["⚡ 5. Smart Fallback Engine"]
         
-        subgraph OLLAMA_BOX["🧠 OLLAMA LOCAL INFERENCE ENGINE"]
-            QWEN["Qwen2.5:3b<br/>(Security Analysis)"]
-            DEEPSEEK["DeepSeek-coder:6.7b<br/>(Automated Code Fixes)"]
+        subgraph OLLAMA["🧠 OLLAMA INFERENCE"]
+            direction LR
+            QWEN["Qwen2.5:3b <i>(Security)</i>"]
+            DEEPSEEK["DeepSeek-coder:6.7b <i>(Fixes)</i>"]
         end
 
-        CDB[("📚 4. ChromaDB RAG Store<br/><i>nomic-embed-text Vectors</i>")]
-        FALLBACK["⚡ 5. Smart Fallback Engine<br/><i>590-Line DB Offline Answer Engine</i>"]
-
-        %% INTERNAL AI WORKFLOW CONNECTIONS
-        AI_GW -->|"Validated JWT"| GRD
-        GRD -->|"Sanitized Prompt"| MR
-        MR -->|"Security Intent"| QWEN
-        MR -->|"Code Fix Intent"| DEEPSEEK
-        AI_GW <-->|"RAG Context Lookup"| CDB
-        AI_GW -.->|"Offline Fallback"| FALLBACK
+        AI_GW <-->|"RAG Lookup"| CDB
+        AI_GW -->|"Validated JWT"| GRD -->|"Sanitized"| MR
+        AI_GW -.->|"Offline"| FALLBACK
+        MR -->|"Security"| QWEN
+        MR -->|"Code Fix"| DEEPSEEK
     end
 
-    %% 6. CLIENT BROWSER DASHBOARD
-    FE["🎨 REACT 19 DASHBOARD (CLIENT BROWSER)<br/>Unified Security Visibility & Streaming Void AI Assistant"]
+    FE["🎨 REACT 19 DASHBOARD (CLIENT BROWSER)"]
 
-    %% EXTERNAL DATA FLOW CONNECTIONS
-    Dev -->|"git push code"| S1
-
+    %% CROSS-BOX CONNECTIONS
+    Dev -->|"git push"| S1
     S2 -->|"Secrets"| BE
     S3 -->|"SAST"| BE
-    S5 <-->|"Policy Check"| BE
-    S6 -->|"Deploy Image"| STG
+    S5 -->|"Policy"| BE
+    S6 -->|"Deploy"| STG
 
-    BE -->|"Persist CI Scans"| PG
-    BE -->|"Publish Events"| RD
-    BE -->|"Enqueue DAST"| RD
-
-    RD -->|"Fetch Task (TCP 6379)"| CELERY
+    RD -->|"TCP 6379"| CELERY
     ZAP -->|"Dynamic Scan"| STG
-    CALLBACK -->|"Callback DAST Findings"| BE
-    BE -->|"Persist ZAP Scans"| PG
+    CALLBACK -->|"DAST Findings"| BE
+    CALLBACK -->|"Persist ZAP"| PG
 
-    %% AI SERVER DATA FLOWS
-    BE <-->|"Scan Context & AI Requests"| AI_GW
-    AI_GW -->|"Save AI Logs to PostgreSQL"| PG
-    AI_GW -->|"Streaming SSE Void AI Responses"| FE
-    RD -->|"Live WebSockets (&lt;15ms)"| FE
+    BE <-->|"AI Context"| AI_GW
+    AI_GW -->|"Save Logs"| PG
+    AI_GW -->|"SSE Stream"| FE
+    RD -->|"WebSockets"| FE
 
-    BE -->|"Promote Verified Build"| PROD
-
-    %% ELEGANT EXECUTIVE LIGHT PASTEL ACCENT COLOR PALETTE!
-    classDef devStyle fill:#f0f7ff,stroke:#2563eb,stroke-width:2px,color:#0f172a;
-    classDef ciStyle fill:#f8fafc,stroke:#475569,stroke-width:2px,color:#0f172a;
-    classDef beStyle fill:#eff6ff,stroke:#4f46e5,stroke-width:2px,color:#0f172a;
-    classDef dbStyle fill:#ecfdf5,stroke:#059669,stroke-width:2px,color:#0f172a;
-    classDef redisStyle fill:#fff1f2,stroke:#e11d48,stroke-width:2px,color:#0f172a;
-    classDef gcpStyle fill:#fff7ed,stroke:#ea580c,stroke-width:2px,color:#0f172a;
-    classDef gpuStyle fill:#faf5ff,stroke:#9333ea,stroke-width:2px,color:#0f172a;
-    classDef aiInternal fill:#f3e8ff,stroke:#7e22ce,stroke-width:1px,color:#0f172a;
-    classDef feStyle fill:#f0fdf4,stroke:#0d9488,stroke-width:2px,color:#0f172a;
+    %% STYLING
+    classDef devStyle fill:#f0f7ff,stroke:#2563eb,stroke-width:1.5px;
+    classDef ciStyle fill:#f8fafc,stroke:#475569,stroke-width:1.5px;
+    classDef beStyle fill:#eff6ff,stroke:#4f46e5,stroke-width:1.5px;
+    classDef dbStyle fill:#ecfdf5,stroke:#059669,stroke-width:1.5px;
+    classDef redisStyle fill:#fff1f2,stroke:#e11d48,stroke-width:1.5px;
+    classDef gcpStyle fill:#fff7ed,stroke:#ea580c,stroke-width:1.5px;
+    classDef gpuStyle fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px;
+    classDef aiInternal fill:#f3e8ff,stroke:#7e22ce,stroke-width:1px;
+    classDef feStyle fill:#f0fdf4,stroke:#0d9488,stroke-width:1.5px;
 
     class Dev devStyle
     class S1,S2,S3,S4,S5,S6 ciStyle
@@ -120,7 +108,7 @@ flowchart TD
     class PG dbStyle
     class RD redisStyle
     class CELERY,ZAP,CALLBACK gcpStyle
-    class GPU_VM,OLLAMA_BOX gpuStyle
+    class GPU_VM,OLLAMA gpuStyle
     class AI_GW,GRD,MR,QWEN,DEEPSEEK,CDB,FALLBACK aiInternal
     class FE feStyle
 ```
