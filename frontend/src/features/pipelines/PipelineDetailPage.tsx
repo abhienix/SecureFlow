@@ -12,6 +12,7 @@ import { LogViewer } from '../../components/ui/LogViewer';
 import Badge from '../../components/ui/Badge';
 import { useUIStore } from '../../stores/uiStore';
 import { useVoidStore } from '../../stores/voidStore';
+import { useTheme } from '../../contexts/ThemeContext';
 import { client } from '../../api/client';
 import { downloadReport } from '../../utils/reportExporter';
 import { getOverallBadge } from './utils/statusMapping';
@@ -51,6 +52,7 @@ export default function PipelineDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { C } = useTheme();
   const [selectedStage, setSelectedStage] = useState<any | null>(null);
   const [expandedBlocked, setExpandedBlocked] = useState<string | null>(null);
   const [liveStages, setLiveStages] = useState<any[] | null>(null);
@@ -145,14 +147,14 @@ export default function PipelineDetailPage() {
   }, [blockedStage, id, autoAnalyzePipeline]);
 
   if (isLoading && !effectiveRun) {
-    return <div className="skeleton" style={{ height: '400px', borderRadius: '12px' }} />;
+    return <div className="skeleton" style={{ height: '400px', borderRadius: '12px', background: C.skeleton }} />;
   }
 
   if (!run && !liveRun) {
     return (
       <div style={{ textAlign: 'center', padding: '48px' }}>
-        <h2 style={{ color: 'var(--sf-danger)' }}>Pipeline run not found</h2>
-        <button onClick={() => navigate('/pipelines')} style={{ marginTop: '16px' }}>
+        <h2 style={{ color: C.red }}>Pipeline run not found</h2>
+        <button onClick={() => navigate('/pipelines')} style={{ marginTop: '16px', color: C.accent, background: 'transparent', border: `1px solid ${C.border}`, padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>
           Back to List
         </button>
       </div>
@@ -232,7 +234,7 @@ export default function PipelineDetailPage() {
       </div>
 
       {/* Enterprise Execution Timeline */}
-      <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '12px', padding: '24px', overflowX: 'auto' }}>
+      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '12px', padding: '24px', overflowX: 'auto' }}>
         <div style={{ display: 'flex', gap: 0, minWidth: 'max-content', alignItems: 'flex-start' }}>
           {stagesSorted.map((stage: any, idx: number) => {
             const meta = STATUS_META[stage.status] || STATUS_META[STATUS.WAITING];
@@ -299,31 +301,31 @@ export default function PipelineDetailPage() {
 
       {/* Blocked Pipeline Section — detailed failure analysis */}
       {blockedStage && (
-        <div style={{ backgroundColor: '#7F1D1D15', border: '1px solid #EF4444', borderRadius: '12px', padding: '20px' }}>
+        <div style={{ backgroundColor: C.isDark ? 'rgba(127,29,29,0.08)' : 'rgba(239,68,68,0.04)', border: `1px solid ${C.red}`, borderRadius: '12px', padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-            <AlertTriangle size={20} color="#EF4444" />
-            <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#EF4444', margin: 0 }}>
+            <AlertTriangle size={20} color={C.red} />
+            <h2 style={{ fontSize: '16px', fontWeight: 800, color: C.red, margin: 0 }}>
               Pipeline Blocked at {blockedStage.name}
             </h2>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
             <div>
-              <div style={{ fontSize: '10px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase' }}>Status</div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: '#EF4444' }}>BLOCKED</div>
+              <div style={{ fontSize: '10px', fontWeight: 600, color: C.textSecondary, textTransform: 'uppercase' }}>Status</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: C.red }}>BLOCKED</div>
             </div>
             <div>
-              <div style={{ fontSize: '10px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase' }}>Blocked Stage</div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: '#E2E8F0' }}>{blockedStage.name}</div>
+              <div style={{ fontSize: '10px', fontWeight: 600, color: C.textSecondary, textTransform: 'uppercase' }}>Blocked Stage</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: C.ink }}>{blockedStage.name}</div>
             </div>
             <div>
-              <div style={{ fontSize: '10px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase' }}>Reason</div>
-              <div style={{ fontSize: '14px', fontWeight: 500, color: '#E2E8F0' }}>{blockedStage.detail || 'Security policy violation'}</div>
+              <div style={{ fontSize: '10px', fontWeight: 600, color: C.textSecondary, textTransform: 'uppercase' }}>Reason</div>
+              <div style={{ fontSize: '14px', fontWeight: 500, color: C.ink }}>{blockedStage.detail || 'Security policy violation'}</div>
             </div>
             {blockedStage.exit_code !== null && blockedStage.exit_code !== undefined && (
               <div>
-                <div style={{ fontSize: '10px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase' }}>Exit Code</div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: '#E2E8F0', fontFamily: 'var(--sf-font-mono)' }}>{blockedStage.exit_code}</div>
+                <div style={{ fontSize: '10px', fontWeight: 600, color: C.textSecondary, textTransform: 'uppercase' }}>Exit Code</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: C.ink, fontFamily: C.mono }}>{blockedStage.exit_code}</div>
               </div>
             )}
           </div>
@@ -350,32 +352,32 @@ export default function PipelineDetailPage() {
       )}
 
       {/* Metadata Panel */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '12px', padding: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '12px', padding: '20px' }}>
         <div>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Commit</div>
-          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sf-text-primary)', marginTop: '4px', fontFamily: 'var(--sf-font-mono)' }}>{effectiveRun.commit_sha?.substring(0, 8) || 'HEAD'}</div>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: C.textSecondary, textTransform: 'uppercase' }}>Commit</div>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: C.textPrimary, marginTop: '4px', fontFamily: C.mono }}>{effectiveRun.commit_sha?.substring(0, 8) || 'HEAD'}</div>
         </div>
         <div>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Message</div>
-          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--sf-text-primary)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{effectiveRun.commit_message || 'Manual scan trigger'}</div>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: C.textSecondary, textTransform: 'uppercase' }}>Message</div>
+          <div style={{ fontSize: '14px', fontWeight: 500, color: C.textPrimary, marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{effectiveRun.commit_message || 'Manual scan trigger'}</div>
         </div>
         <div>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Policy</div>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: C.textSecondary, textTransform: 'uppercase' }}>Policy</div>
           <div style={{ marginTop: '4px' }}><Badge variant={effectiveRun.action_taken === 'BLOCK' ? 'failed' : 'success'}>{effectiveRun.action_taken || 'ALLOW'}</Badge></div>
         </div>
         <div>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Duration</div>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sf-text-primary)', marginTop: '4px' }}>{effectiveRun.duration || 45}s</div>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: C.textSecondary, textTransform: 'uppercase' }}>Duration</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: C.textPrimary, marginTop: '4px' }}>{effectiveRun.duration || '45s'}</div>
         </div>
         <div>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sf-text-secondary)', textTransform: 'uppercase' }}>Branch</div>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sf-text-primary)', marginTop: '4px' }}>{effectiveRun.branch}</div>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: C.textSecondary, textTransform: 'uppercase' }}>Branch</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: C.textPrimary, marginTop: '4px' }}>{effectiveRun.branch}</div>
         </div>
       </div>
 
       {/* All Stages Detail Table */}
-      <div style={{ backgroundColor: 'var(--sf-bg-card)', border: '1px solid var(--sf-border)', borderRadius: '12px', padding: '20px' }}>
-        <h3 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sf-text-primary)', margin: '0 0 16px 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '12px', padding: '20px' }}>
+        <h3 style={{ fontSize: '14px', fontWeight: 700, color: C.textPrimary, margin: '0 0 16px 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
           Stage Details ({stagesSorted.length})
         </h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -387,7 +389,7 @@ export default function PipelineDetailPage() {
                 onClick={() => setSelectedStage(stage)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '16px', padding: '12px 16px',
-                  backgroundColor: '#0F172A', borderRadius: '8px', cursor: 'pointer',
+                  backgroundColor: C.isDark ? '#0F172A' : C.bgSurface, borderRadius: '8px', cursor: 'pointer',
                   border: `1px solid transparent`,
                   transition: 'border-color 150ms ease',
                 }}
@@ -395,7 +397,7 @@ export default function PipelineDetailPage() {
                 onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; }}
               >
                 <div style={{ color: meta.color }}>{meta.icon}</div>
-                <div style={{ flex: 1, fontSize: '13px', fontWeight: 600, color: '#E2E8F0' }}>{stage.name}</div>
+                <div style={{ flex: 1, fontSize: '13px', fontWeight: 600, color: C.ink }}>{stage.name}</div>
                 <Badge variant={
                   stage.status === STATUS.PASSED ? 'passed' :
                   stage.status === STATUS.FAILED || stage.status === STATUS.BLOCKED ? 'failed' :
@@ -423,14 +425,14 @@ export default function PipelineDetailPage() {
           )}
         </div>
         {selectedStage && isFailure(selectedStage.status) && (
-          <div style={{ borderTop: '1px solid var(--sf-border)', paddingTop: '16px' }}>
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <AlertTriangle size={16} color="#EF4444" />
-              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#EF4444', margin: 0 }}>
+              <AlertTriangle size={16} color={C.red} />
+              <h4 style={{ fontSize: '13px', fontWeight: 700, color: C.red, margin: 0 }}>
                 Remediation for {selectedStage.name}
               </h4>
             </div>
-            <div style={{ fontSize: '12px', color: '#94A3B8', lineHeight: 1.6 }}>
+            <div style={{ fontSize: '12px', color: C.textSecondary, lineHeight: 1.6 }}>
               {selectedStage.detail && (
                 <p style={{ margin: '0 0 8px 0' }}><strong>Root cause:</strong> {selectedStage.detail}</p>
               )}
@@ -445,6 +447,21 @@ export default function PipelineDetailPage() {
                 <li>Verify the fix passes all stages before deploying to production</li>
               </ol>
             </div>
+            <button
+              onClick={() => {
+                const prompt = `Provide detailed remediation for the ${selectedStage.name} stage failure in pipeline run #${id}. Root cause: ${selectedStage.detail || 'unknown'}. Give step-by-step fix instructions.`;
+                useVoidStore.getState().setTriggerPrompt(prompt);
+                useUIStore.getState().setCopilotOpen(true);
+              }}
+              style={{
+                marginTop: '8px', padding: '8px 16px', borderRadius: 8,
+                background: `linear-gradient(135deg, ${C.accent}, #4F46E5)`,
+                color: '#fff', border: 'none', fontWeight: 700, fontSize: 12,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
+              }}
+            >
+              <Zap size={14} /> Ask Void AI for Detailed Fix
+            </button>
           </div>
         )}
       </DrawerPanel>

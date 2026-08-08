@@ -2,8 +2,9 @@ import os
 import time
 import httpx
 import psutil
+import logging
 from fastapi import FastAPI, Depends, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
@@ -11,6 +12,8 @@ from app.config import settings
 from app.auth import get_current_user
 from app.guardrails import GuardrailsEngine
 from app.router import TaskLLMRouter
+
+logger = logging.getLogger("secureflow.ai_server")
 
 app = FastAPI(
     title="SecureFlow AI Server",
@@ -25,12 +28,134 @@ REQUEST_LATENCY = Histogram("http_request_duration_seconds", "HTTP request laten
 class ChatRequest(BaseModel):
     message: str
     stream: bool = False
+    context: dict = {}
+
 
 class ChatResponse(BaseModel):
     response: str
     model: str
     task_type: str = "SECURITY_COPILOT"
     guardrails_passed: bool = True
+    rag_context_used: int = 0
+
+
+def _rag_search(query: str, n_results: int = 5) -> tuple:
+    """Search ChromaDB for relevant security context to augment the LLM prompt."""
+    try:
+        import chromadb
+        chroma_client = chromadb.PersistentClient(path=settings.CHROMADB_PATH)
+        collection = chroma_client.get_or_create_collection("secureflow_findings")
+
+        if collection.count() == 0:
+            return "", 0
+
+        results = collection.query(
+            query_texts=[query],
+            n_results=min(n_results, collection.count())
+        )
+
+        if not results["documents"] or not results["documents"][0]:
+            return "", 0
+
+        context_parts = []
+        for doc in results["documents"][0]:
+            context_parts.append(f"- {doc}")
+
+        return "\n".join(context_parts), len(context_parts)
+    except Exception as e:
+        logger.warning(f"[RAG] Search failed: {e}")
+        return "", 0
+
+
+@app.on_event("startup")
+async def seed_security_knowledge():
+    """
+    Pre-seed ChromaDB with essential DevSecOps security knowledge on startup.
+    This ensures the RAG layer always has baseline context even before any scans run.
+    """
+    try:
+        import chromadb
+        chroma_client = chromadb.PersistentClient(path=settings.CHROMADB_PATH)
+        collection = chroma_client.get_or_create_collection("secureflow_findings")
+
+        # Only seed if collection is empty (first startup)
+        if collection.count() > 0:
+            logger.info(f"[RAG] ChromaDB already has {collection.count()} documents, skipping seed")
+            return
+
+        knowledge_docs = [
+            {
+                "id": "kb-sql-injection",
+                "text": "SQL Injection (CWE-89): Attacker injects malicious SQL via user input. Fix: Use parameterized queries with SQLAlchemy: `db.session.execute(text('SELECT * FROM users WHERE id = :id'), {'id': user_id})`. Never concatenate user input into SQL strings. Add input validation with Pydantic models.",
+                "metadata": {"category": "SAST", "severity": "CRITICAL", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-xss",
+                "text": "Cross-Site Scripting XSS (CWE-79): Attacker injects JavaScript via unsanitized output. Fix: Use auto-escaping templates (Jinja2 default), set Content-Security-Policy header `default-src 'self'`, use DOMPurify for client-side sanitization, set HttpOnly flag on cookies.",
+                "metadata": {"category": "DAST", "severity": "HIGH", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-hardcoded-secrets",
+                "text": "Hardcoded Secrets (CWE-798): Credentials embedded in source code exposed via git history. Fix: Move to environment variables `process.env.API_KEY` or secrets manager (AWS Secrets Manager, HashiCorp Vault). Add `.env` to `.gitignore`. Rotate exposed credentials immediately. Use `git filter-repo` to purge from history.",
+                "metadata": {"category": "SAST", "severity": "CRITICAL", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-security-headers",
+                "text": "Missing Security Headers (CWE-693): OWASP ZAP flags missing response headers. Fix for FastAPI: Add middleware setting `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'self'`, `Referrer-Policy: strict-origin-when-cross-origin`.",
+                "metadata": {"category": "DAST", "severity": "MEDIUM", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-csrf",
+                "text": "Missing Anti-CSRF Tokens (CWE-352): State-changing endpoints lack CSRF protection. Fix: Enable CSRF middleware in FastAPI using `starlette-csrf`, add `csrf_token` validation on POST/PUT/DELETE forms. For APIs using JWT Bearer tokens, CSRF is mitigated by the Authorization header requirement.",
+                "metadata": {"category": "DAST", "severity": "MEDIUM", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-docker-cve",
+                "text": "Docker Container CVEs: Outdated base images contain known vulnerabilities. Fix: Pin base image to specific digest `FROM python:3.11.9-slim@sha256:abc123...`, run `trivy image --severity CRITICAL,HIGH` before deploy, use distroless images, run containers as non-root `USER appuser`, scan in CI pipeline before push.",
+                "metadata": {"category": "container", "severity": "HIGH", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-path-traversal",
+                "text": "Path Traversal (CWE-22): Attacker accesses arbitrary files via `../../etc/passwd`. Fix: Use `pathlib.Path.resolve()` and validate path stays within allowed directory. Never pass raw user input to `open()` or `os.path.join()`. Use `werkzeug.utils.secure_filename()` for uploads.",
+                "metadata": {"category": "SAST", "severity": "HIGH", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-ssrf",
+                "text": "Server-Side Request Forgery SSRF (CWE-918): Attacker makes server fetch internal resources. Fix: Validate and whitelist target URLs, block private IP ranges (10.x, 172.16-31.x, 192.168.x), use `requests` timeout, never pass user URLs to `urllib` or `requests` without validation.",
+                "metadata": {"category": "SAST", "severity": "HIGH", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-cors",
+                "text": "Overly Permissive CORS (CWE-942): `Access-Control-Allow-Origin: *` allows any domain. Fix: Set explicit allowed origins in FastAPI: `CORSMiddleware(allow_origins=['https://app.example.com'], allow_methods=['GET','POST'], allow_headers=['Authorization'])`. Never use wildcard with credentials.",
+                "metadata": {"category": "DAST", "severity": "MEDIUM", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-insecure-deserialization",
+                "text": "Insecure Deserialization (CWE-502): Using `pickle.loads()` or `yaml.load()` on untrusted data allows RCE. Fix: Use `yaml.safe_load()` instead of `yaml.load()`, never unpickle untrusted data, use JSON for data exchange, validate schema with Pydantic before processing.",
+                "metadata": {"category": "SAST", "severity": "CRITICAL", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-policy-threshold",
+                "text": "Pipeline Policy Gate Block: SecureFlow blocks deployment when Critical CVE count exceeds threshold. Fix: Update `policy.yaml` to adjust `severity_threshold` or add temporary exemption with `expires_at` date. Better fix: upgrade vulnerable packages to patched versions to eliminate CVEs.",
+                "metadata": {"category": "pipeline", "severity": "INFO", "type": "knowledge_base"}
+            },
+            {
+                "id": "kb-gitleaks-false-positive",
+                "text": "Gitleaks False Positive: Test/mock tokens flagged as secrets. Fix: Add suppression in `.gitleaksignore` with `[allowlist]` section specifying regex pattern and file paths. Only suppress confirmed non-production test values. Never suppress real credentials.",
+                "metadata": {"category": "SAST", "severity": "INFO", "type": "knowledge_base"}
+            },
+        ]
+
+        collection.upsert(
+            documents=[d["text"] for d in knowledge_docs],
+            metadatas=[d["metadata"] for d in knowledge_docs],
+            ids=[d["id"] for d in knowledge_docs]
+        )
+        logger.info(f"[RAG] Seeded {len(knowledge_docs)} security knowledge documents into ChromaDB")
+
+    except Exception as e:
+        logger.warning(f"[RAG] Failed to seed knowledge base: {e}")
+
 
 @app.get("/")
 def root():
@@ -50,6 +175,8 @@ def root():
             "/metrics",
             "/api/v1/chat",
             "/api/v1/router/dispatch",
+            "/api/v1/rag/search",
+            "/api/v1/rag/ingest",
             "/api/v1/mcp/tools"
         ]
     }
@@ -150,9 +277,21 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
             guardrails_passed=False
         )
 
+    # RAG: Search ChromaDB for relevant security context
+    rag_context, rag_count = _rag_search(request.message)
+
     route_res = TaskLLMRouter.select_model(request.message)
     selected_model = route_res["model_name"]
     task_type = route_res["task_type"]
+
+    # Build enriched prompt with RAG context
+    enriched_message = request.message
+    if rag_context:
+        enriched_message = (
+            f"RELEVANT SECURITY KNOWLEDGE (use this context to give accurate answers):\n"
+            f"{rag_context}\n\n"
+            f"USER QUESTION: {request.message}"
+        )
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -160,7 +299,7 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
                 f"{settings.OLLAMA_URL}/api/generate",
                 json={
                     "model": selected_model,
-                    "prompt": request.message,
+                    "prompt": enriched_message,
                     "stream": False
                 }
             )
@@ -171,7 +310,7 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
                     f"{settings.OLLAMA_URL}/api/generate",
                     json={
                         "model": settings.MODEL_NAME,
-                        "prompt": request.message,
+                        "prompt": enriched_message,
                         "stream": False
                     }
                 )
@@ -190,7 +329,8 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
                 response=sanitized_response,
                 model=selected_model,
                 task_type=task_type,
-                guardrails_passed=True
+                guardrails_passed=True,
+                rag_context_used=rag_count
             )
     except Exception as e:
         REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/chat", status="500").inc()
@@ -226,6 +366,13 @@ class RagIngestRequest(BaseModel):
     severity: str = "UNKNOWN"
 
 
+@app.get("/api/v1/rag/search")
+async def rag_search(query: str, n_results: int = 5, user: dict = Depends(get_current_user)):
+    """Search the ChromaDB knowledge base for relevant security context."""
+    context, count = _rag_search(query, n_results)
+    return {"results": context, "count": count}
+
+
 @app.post("/api/v1/rag/ingest")
 async def rag_ingest(request: RagIngestRequest, user: dict = Depends(get_current_user)):
     """
@@ -245,7 +392,7 @@ async def rag_ingest(request: RagIngestRequest, user: dict = Depends(get_current
         metadatas = []
         ids = []
 
-        for i, finding in enumerate(request.findings[:50]):
+        for i, finding in enumerate(request.findings[:100]):
             doc_text = (
                 f"Scan ID: {request.scan_id} | Repo: {request.repo_name} | "
                 f"Severity: {finding.get('risk') or finding.get('severity') or request.severity} | "
