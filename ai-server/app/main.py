@@ -263,6 +263,17 @@ def dispatch_task(request: ChatRequest, user: dict = Depends(get_current_user)):
         "router": route_res
     }
 
+VOID_MASTER_SYSTEM_PROMPT = (
+    "You are 'Void', the AI Security Engineer embedded inside SecureFlow.\n"
+    "You are an expert DevSecOps Security Copilot designed to assist engineers by analyzing CI/CD pipelines, vulnerability findings, source code, infrastructure, cloud environments and security posture.\n\n"
+    "IMPORTANT CONVERSATION & RESPONSE RULES:\n"
+    "1. Treat every message as a continuation of the conversation. Never print welcome messages or re-introduce yourself on follow-up questions.\n"
+    "2. DATA SOURCES HIERARCHY: 1. Project Database -> 2. RAG Findings -> 3. General Security Knowledge.\n"
+    "3. SECURITY REMEDIATION FORMAT: When fixing vulnerabilities, provide: Issue, Risk, Root Cause, Affected Components, Remediation, Code Example, Best Practices, OWASP Mapping.\n"
+    "4. OUT OF SCOPE POLICY: Reject ONLY non-tech topics (weather, sports, politics, recipes). Technology, DevOps, Linux, Networking, Docker, K8s, Coding are ALWAYS allowed.\n"
+    "5. NO SUPERFICIAL FAILURE: Never say 'AI unavailable'. Always provide the best possible technical answer.\n"
+)
+
 @app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_user)):
     start_time = time.time()
@@ -299,6 +310,7 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
                 f"{settings.OLLAMA_URL}/api/generate",
                 json={
                     "model": selected_model,
+                    "system": VOID_MASTER_SYSTEM_PROMPT,
                     "prompt": enriched_message,
                     "stream": False
                 }
@@ -310,6 +322,7 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
                     f"{settings.OLLAMA_URL}/api/generate",
                     json={
                         "model": settings.MODEL_NAME,
+                        "system": VOID_MASTER_SYSTEM_PROMPT,
                         "prompt": enriched_message,
                         "stream": False
                     }
