@@ -522,29 +522,27 @@ def smart_fallback(question: str, context: dict) -> str:
             is_blocked = action == "BLOCK" or target.get("status") in ("failed", "blocked")
             icon = "🔴" if is_blocked else "🟢"
 
-            wants_why_blocked = any(w in q for w in ["why", "reason", "block", "fail", "issue"])
-            is_push_query = "push" in q
+        if target:
+            action = target.get("action_taken", "ALLOW")
+            is_blocked = action == "BLOCK" or target.get("status") in ("failed", "blocked")
+            status_badge = "🔴 **BLOCKED**" if is_blocked else "🟢 **PASSED (ALLOW)**"
 
-            out_lines = []
-            if has_not_prefix or is_push_query:
-                out_lines.append(f"Got it! In SecureFlow, each `git push` triggers a CI/CD pipeline scan run, so **Push #{position}** and **Commit #{position}** refer to the exact same scan run in repository history.\n")
-            
-            out_lines.append(f"📌 **Commit / Push #{position} Details (Scan Run #{target['id']})**:")
-            out_lines.append(f"{icon} **Commit SHA**: `{target.get('commit_sha', '?')[:7]}` — _{target.get('commit_message') or 'no message'}_")
-            out_lines.append(f"• **Branch**: `{target.get('branch', 'main')}`")
-            out_lines.append(f"• **Date & Time**: `{target.get('created_at', 'N/A')}` UTC")
-            
+            out = [
+                f"### 📌 Pipeline Execution Record — Push #{position}\n",
+                "| Parameter | Telemetry Detail |",
+                "|---|---|",
+                f"| **Pipeline Run ID** | `#{target['id']}` |",
+                f"| **Commit SHA** | `{target.get('commit_sha', '?')[:7]}` |",
+                f"| **Commit Message** | _{target.get('commit_message') or 'No message'}_ |",
+                f"| **Branch** | `{target.get('branch', 'main')}` |",
+                f"| **Timestamp** | `{target.get('created_at', 'N/A')} UTC` |",
+                f"| **Gate Action** | {status_badge} |",
+            ]
             if is_blocked:
                 reason = target.get("ai_explanation") or "Security scanner policy gate thresholds exceeded."
-                out_lines.append(f"• **Result**: 🔴 **BLOCKED**")
-                out_lines.append(f"• **Reason Why Blocked**: {reason}")
-            else:
-                out_lines.append(f"• **Result**: 🟢 **PASSED (ALLOW)**")
-                if wants_why_blocked:
-                    out_lines.append(f"• **Block Status**: **Not Blocked!** This commit/push passed all security scanner gates (Gitleaks, Semgrep, Trivy, ZAP) cleanly.")
-
-            out_lines.append(f"\n_(Position {position} of {total} total scans tracked in history)_")
-            return "\n".join(out_lines)
+                out.append(f"| **Block Reason** | {reason} |")
+            out.append(f"\n_(Index {position} of {total} total repository pipeline runs)_")
+            return "\n".join(out)
         else:
             return (
                 f"Position **#{position}** is outside the currently tracked database range (total scans: **{total}**)."
@@ -737,48 +735,91 @@ def smart_fallback(question: str, context: dict) -> str:
             "• **Prevention in SecureFlow**: React 19 escapes variables automatically in JSX. Avoid `dangerouslySetInnerHTML` and enforce `Content-Security-Policy` headers."
         )
 
-    if "trivy" in q:
+    if "cvss" in q:
         return (
-            "🛡️ **Trivy Vulnerability Scanner in SecureFlow**:\n\n"
-            "**Trivy** is a comprehensive, open-source container and filesystem vulnerability scanner.\n"
-            "• **Role in SecureFlow**: Scans Docker container images during build stage for known CVEs in OS packages and language dependencies.\n"
-            "• **Policy Evaluation**: Evaluated against `policy.yaml` CVSS thresholds to block deployments if Critical/High CVEs are found."
+            "### 📊 CVSS (Common Vulnerability Scoring System) Framework\n\n"
+            "**CVSS** provides an open framework for communicating the characteristics and severity of software vulnerabilities.\n\n"
+            "| Severity Rating | CVSS v3.1 Score Range | SecureFlow Policy Gate Action |\n"
+            "|---|---|---|\n"
+            "| **CRITICAL** | `9.0 – 10.0` | 🔴 **Immediate BLOCK** |\n"
+            "| **HIGH** | `7.0 – 8.9` | 🔴 **Immediate BLOCK** |\n"
+            "| **MEDIUM** | `4.0 – 6.9` | 🟡 **Warn / Evaluate CVSS Threshold (9.8)** |\n"
+            "| **LOW** | `0.1 – 3.9` | 🟢 **ALLOW** |\n\n"
+            "💡 *Suggested Follow-up:* Ask **'Show top critical CVEs'** or **'Explain Trivy container scan'**."
+        )
+
+    if any(k in q for k in ["trivy", "tricy"]):
+        return (
+            "### 🛡️ Trivy Container & File System Vulnerability Scanner\n\n"
+            "**Trivy** is a high-precision, open-source vulnerability scanner engineered for container images and application dependencies.\n\n"
+            "| Parameter | Pipeline Integration Detail |\n"
+            "|---|---|\n"
+            "| **Pipeline Stage** | Stage 4 (Docker Build & Container CVE Audit) |\n"
+            "| **Detection Scope** | OS packages (Debian/Alpine) & dependency CVEs (Pip/Npm/Go) |\n"
+            "| **Policy Enforcement** | Blocks build if CVSS score exceeds `policy.yaml` thresholds |\n\n"
+            "💡 *Suggested Actions:* Ask **'Show latest Trivy findings'** or **'Generate Docker container patch'**."
         )
 
     if "gitleaks" in q:
         return (
-            "🛡️ **Gitleaks Secret Scanner in SecureFlow**:\n\n"
-            "**Gitleaks** is a lightweight secret detection scanner that audits repositories for hardcoded API keys, JWT tokens, AWS credentials, and passwords.\n"
-            "• **Role in SecureFlow**: Evaluates every `git push` on commit. Hardcoded secret findings trigger an immediate `BLOCK` signal."
+            "### 🛡️ Gitleaks Automated Secret Detection Engine\n\n"
+            "**Gitleaks** audits source code commits for hardcoded credentials, JWT tokens, AWS keys, and private SSH certificates.\n\n"
+            "| Parameter | Pipeline Integration Detail |\n"
+            "|---|---|\n"
+            "| **Pipeline Stage** | Stage 2 (Pre-Build Commit Scan) |\n"
+            "| **Detection Scope** | API Tokens, Private Keys, Passwords, Cloud Secrets |\n"
+            "| **Policy Enforcement** | Hardcoded secrets trigger an immediate 🔴 **BLOCK** action |\n\n"
+            "💡 *Suggested Actions:* Ask **'Show latest Gitleaks findings'** or **'Rotate exposed credentials'**."
         )
 
     if "semgrep" in q:
         return (
-            "🛡️ **Semgrep SAST Scanner in SecureFlow**:\n\n"
-            "**Semgrep** is a fast Static Application Security Testing (SAST) engine that analyzes source code for OWASP Top 10 vulnerabilities, insecure functions, and code flaws."
+            "### 🛡️ Semgrep SAST Static Code Analysis Engine\n\n"
+            "**Semgrep** performs static code analysis to enforce OWASP security standards and catch code flaws before compilation.\n\n"
+            "| Parameter | Pipeline Integration Detail |\n"
+            "|---|---|\n"
+            "| **Pipeline Stage** | Stage 2 (SAST Static Analysis) |\n"
+            "| **Detection Scope** | OWASP Top 10, SQLi, XSS, Path Traversal, Insecure ORM |\n"
+            "| **Policy Enforcement** | `CRITICAL` / `HIGH` SAST rules trigger a 🔴 **BLOCK** action |\n\n"
+            "💡 *Suggested Actions:* Ask **'Show latest Semgrep findings'** or **'Generate Semgrep suppression rule'**."
         )
 
     if "zap" in q or "owasp zap" in q:
         return (
-            "🛡️ **OWASP ZAP DAST Scanner in SecureFlow**:\n\n"
-            "**OWASP ZAP** is a Dynamic Application Security Testing (DAST) web vulnerability scanner that actively probes running web applications and APIs for security flaws like XSS, SQLi, and missing security headers."
+            "### 🛡️ OWASP ZAP DAST Dynamic Vulnerability Scanner\n\n"
+            "**OWASP ZAP** actively probes live running staging endpoints to identify dynamic web application vulnerabilities.\n\n"
+            "| Parameter | Pipeline Integration Detail |\n"
+            "|---|---|\n"
+            "| **Pipeline Stage** | Stage 7 (Celery Worker → Staging Container DAST Audit) |\n"
+            "| **Detection Scope** | Dynamic XSS, SQLi, CSRF, Missing CSP/STS Headers |\n"
+            "| **Policy Enforcement** | Dynamic findings trigger staging alert and block production deploy |\n\n"
+            "💡 *Suggested Actions:* Ask **'Show latest ZAP findings'** or **'Configure security headers'**."
         )
 
     if "sqli" in q or "sql injection" in q:
         return (
-            "🛡️ **SQL Injection (SQLi) Overview & Mitigation**:\n\n"
-            "SQLi occurs when un-sanitized user input is concatenated into raw database queries.\n"
-            "• **Prevention**: Use SQLAlchemy ORM or parameterized queries (`text('SELECT * FROM users WHERE id = :id')`)."
+            "### 🛡️ SQL Injection (SQLi) Overview & Remediation\n\n"
+            "SQLi occurs when un-sanitized user input is concatenated directly into SQL query strings.\n\n"
+            "| Defense Technique | Implementation Strategy |\n"
+            "|---|---|\n"
+            "| **Parameterized Queries** | `db.execute(text('SELECT * FROM users WHERE id = :id'), {'id': uid})` |\n"
+            "| **ORM Usage** | SQLAlchemy / Prisma ORM automatically parameterize queries |\n"
+            "| **Input Validation** | Pydantic regex pattern constraints |\n\n"
+            "💡 *Suggested Actions:* Ask **'Generate SQLi fix in FastAPI'** or **'Show Semgrep SQLi findings'**."
         )
 
-    # ── 9. Dynamic Concept & Posture Fallback Response ──
+    # ── 9. Executive Security Intelligence Briefing ──
     c_count = sev.get("CRITICAL", 0)
     h_count = sev.get("HIGH", 0)
-    status_line = f"⚠️ **{c_count} Critical** and **{h_count} High** findings need review." if (c_count + h_count > 0) else "🟢 All security policy checks are passing!"
+    status_line = f"⚠️ `{c_count} Critical` and `{h_count} High` findings need review." if (c_count + h_count > 0) else "🟢 All security policy checks are passing!"
 
     return (
-        f"🔍 **DevSecOps Security Intelligence Summary**:\n\n"
-        f"Regarding your query on *\"{question[:50]}\"*: SecureFlow enforces automated security scanners (**Gitleaks**, **Semgrep**, **Trivy**, **OWASP ZAP**) across all pipeline runs.\n\n"
-        f"📊 **Current System Posture**: {status_line} ({total} total scans tracked).\n"
-        f"💡 *Tip: Ensure Machine B GPU AI Gateway (`:8100`) and Cloudflare Tunnel are active for full real-time Qwen2.5 / DeepSeek-Coder LLM responses.*"
+        f"### 🔍 DevSecOps Intelligence Briefing\n\n"
+        f"**Query**: `{question[:60]}`\n\n"
+        f"| Parameter | Telemetry Status |\n"
+        f"|---|---|\n"
+        f"| **Monitored Pipeline Runs** | `{total} total runs` |\n"
+        f"| **Recent Gate Status** | 🟢 `{len(passed)} ALLOW` \| 🔴 `{len(blocked)} BLOCK` |\n"
+        f"| **Vulnerability Posture** | {status_line} |\n\n"
+        f"💡 *Suggested Actions:* Ask **'Show last 20 blocked commits'**, **'Explain SAST vs DAST'**, or **'How do I fix SQL injection in FastAPI?'**."
     )
