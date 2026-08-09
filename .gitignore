@@ -36,3 +36,10 @@ trivy*.json
 gitleaks*.json
 cloud-sql-proxy.exe
 test_secureflow.db
+
+# Documents, Presentations & Scratch Files
+*.pdf
+*.docx
+*.pptx
+scratch/
+
