@@ -109,44 +109,105 @@ export function FormattedCopilotMessage({ text, C, onCveClick }) {
 
 function RenderTextLines({ text, C, onCveClick }) {
   const lines = text.split("\n");
-  return (
-    <>
-      {lines.map((line, i) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={i} style={{ height: 4 }} />;
+  const renderedElements = [];
+  let i = 0;
 
-        if (trimmed.startsWith("#")) {
-          const title = trimmed.replace(/^#+\s*/, "");
-          return (
-            <div key={i} style={{ fontWeight: 800, fontSize: 14, color: C?.accent || "#6366F1", marginTop: 8, marginBottom: 4, wordBreak: "break-word", overflowWrap: "anywhere" }}>
-              {title}
-            </div>
-          );
-        }
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
 
-        if (trimmed.startsWith("* ") || trimmed.startsWith("- ") || trimmed.startsWith("+ ") || /^\d+\.\s/.test(trimmed)) {
-          const isPlus = trimmed.startsWith("+ ");
-          const content = trimmed.replace(/^(\*|-|\+|\d+\.)\s*/, "");
-          return (
-            <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", paddingLeft: 4, width: "100%", minWidth: 0 }}>
-              <span style={{ color: isPlus ? (C?.amber || "#f59e0b") : (C?.accent || "#6366F1"), fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
-                {isPlus ? "⚡" : "•"}
-              </span>
-              <span style={{ flex: 1, minWidth: 0, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere" }}>
-                {renderFormattedInline(content, C, onCveClick)}
-              </span>
-            </div>
-          );
-        }
+    // Check if line starts a markdown table (e.g. | Header 1 | Header 2 |)
+    if (trimmed.startsWith("|") && trimmed.endsWith("|") && i + 1 < lines.length && lines[i + 1].trim().includes("---")) {
+      const tableLines = [];
+      while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
+        tableLines.push(lines[i].trim());
+        i++;
+      }
 
-        return (
-          <div key={i} style={{ lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere", width: "100%" }}>
-            {renderFormattedInline(trimmed, C, onCveClick)}
+      if (tableLines.length >= 2) {
+        const parseRow = (rowStr) => rowStr.split("|").slice(1, -1).map(c => c.trim());
+        const headerRow = parseRow(tableLines[0]);
+        // Skip index 1 if it's the divider row (e.g. |---|---|)
+        const dataRows = tableLines.slice(2).map(parseRow);
+
+        renderedElements.push(
+          <div key={`table-${i}`} style={{
+            overflowX: "auto", margin: "10px 0", borderRadius: 8,
+            border: `1px solid ${C?.isDark ? "rgba(255,255,255,0.1)" : "#E2E8F0"}`,
+            background: C?.isDark ? "#0f172a" : "#FFFFFF",
+            boxShadow: C?.shadow || "0 2px 8px rgba(0,0,0,0.15)"
+          }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "left" }}>
+              <thead>
+                <tr style={{ background: C?.isDark ? "#1e293b" : "#F1F5F9", color: C?.accent || "#6366F1" }}>
+                  {headerRow.map((h, hIdx) => (
+                    <th key={hIdx} style={{ padding: "8px 12px", borderBottom: `1px solid ${C?.isDark ? "#334155" : "#E2E8F0"}`, fontWeight: 700 }}>
+                      {renderFormattedInline(h, C, onCveClick)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {dataRows.map((row, rIdx) => (
+                  <tr key={rIdx} style={{ background: rIdx % 2 === 0 ? "transparent" : (C?.isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)") }}>
+                    {row.map((cell, cIdx) => (
+                      <td key={cIdx} style={{ padding: "7px 12px", borderBottom: rIdx === dataRows.length - 1 ? "none" : `1px solid ${C?.isDark ? "rgba(255,255,255,0.05)" : "#F1F5F9"}` }}>
+                        {renderFormattedInline(cell, C, onCveClick)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         );
-      })}
-    </>
-  );
+        continue;
+      }
+    }
+
+    if (!trimmed) {
+      renderedElements.push(<div key={i} style={{ height: 4 }} />);
+      i++;
+      continue;
+    }
+
+    if (trimmed.startsWith("#")) {
+      const title = trimmed.replace(/^#+\s*/, "");
+      renderedElements.push(
+        <div key={i} style={{ fontWeight: 800, fontSize: 14, color: C?.accent || "#6366F1", marginTop: 8, marginBottom: 4, wordBreak: "break-word", overflowWrap: "anywhere" }}>
+          {title}
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    if (trimmed.startsWith("* ") || trimmed.startsWith("- ") || trimmed.startsWith("+ ") || /^\d+\.\s/.test(trimmed)) {
+      const isPlus = trimmed.startsWith("+ ");
+      const content = trimmed.replace(/^(\*|-|\+|\d+\.)\s*/, "");
+      renderedElements.push(
+        <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", paddingLeft: 4, width: "100%", minWidth: 0 }}>
+          <span style={{ color: isPlus ? (C?.amber || "#f59e0b") : (C?.accent || "#6366F1"), fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+            {isPlus ? "⚡" : "•"}
+          </span>
+          <span style={{ flex: 1, minWidth: 0, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere" }}>
+            {renderFormattedInline(content, C, onCveClick)}
+          </span>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    renderedElements.push(
+      <div key={i} style={{ lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere", width: "100%" }}>
+        {renderFormattedInline(trimmed, C, onCveClick)}
+      </div>
+    );
+    i++;
+  }
+
+  return <>{renderedElements}</>;
 }
 
 export default FormattedCopilotMessage;

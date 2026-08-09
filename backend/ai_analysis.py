@@ -499,9 +499,26 @@ def smart_fallback(question: str, context: dict) -> str:
                     out.append(f"{icon} **#{s['id']}** `{s.get('commit_sha', '?')[:7]}` — _{s.get('commit_message', 'no message')[:50]}_ (Branch: `{s.get('branch', 'main')}`, Date: `{s.get('created_at', 'N/A')}`)")
             return "\n".join(out)
 
-    # ── 2b. Ordinal position lookup: "87th commit", "87th push", "5th scan" ───
+    # ── 2b. Ordinal position lookup vs Plural List Query ─────────────────
+    is_list_query = any(w in q for w in ["last", "recent", "list", "all", "results", "commits", "scans"])
+    
+    if is_list_query and any(w in q for w in ["commit", "scan", "run", "result", "push", "history"]):
+        scans_to_show = context.get("query_results") or recent_scans
+        limit_match = re.search(r'\b(\d+)\b', q)
+        limit = int(limit_match.group(1)) if limit_match else 20
+        limit = min(max(limit, 1), 30)
+
+        out = [f"### 📊 Repository Pipeline History — Last {min(limit, len(scans_to_show))} Commits & Results\n"]
+        out.append("| ID | Commit SHA | Commit Message | Branch | Gate Action |")
+        out.append("|---|---|---|---|---|")
+        for s in scans_to_show[:limit]:
+            icon = "🔴 BLOCK" if (s.get("action_taken") == "BLOCK" or s.get("status") in ("failed", "blocked")) else "🟢 ALLOW"
+            out.append(f"| #{s['id']} | `{s.get('commit_sha', '?')[:7]}` | _{s.get('commit_message', 'no message')[:45]}_ | `{s.get('branch', 'main')}` | {icon} |")
+        out.append(f"\n_(Showing {min(limit, len(scans_to_show))} of {total} total scans tracked in database)_")
+        return "\n".join(out)
+
     ordinal_match = re.search(r'\b(\d+)\s*(st|nd|rd|th)?\b', q)
-    if ordinal_match and any(w in q for w in ["commit", "scan", "run", "pipeline", "push"]):
+    if ordinal_match and not is_list_query and any(w in q for w in ["commit", "scan", "run", "pipeline", "push"]):
         position = int(ordinal_match.group(1))
         
         # Check if query contains a negation prefix like "not 87th commit"
