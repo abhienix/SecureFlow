@@ -1754,24 +1754,35 @@ async def update_scan_progress(run_id: int, data: dict = None, db: AsyncSession 
         except Exception as e:
             logger.warning(f"[progress] Error creating event record: {e}")
 
-    # Update PipelineRun and ScanResult overall status based on latest stage states
+    # ── Calculate overall pipeline action_taken & status from BOTH DB stages AND existing_steps JSON ──
+    step_results = []
+    for sk, sv in existing_steps.items():
+        if isinstance(sv, dict):
+            step_results.append(str(sv.get("result", "")).strip().upper())
+        elif isinstance(sv, str):
+            step_results.append(sv.strip().upper())
+
+    has_step_block = any(r in ("BLOCK", "BLOCKED") for r in step_results)
+    has_step_fail = any(r in ("FAIL", "FAILED", "ERROR") for r in step_results)
+
     all_stages = await db.execute(
         select(PipelineStage).filter(PipelineStage.run_id == run_id_str).order_by(PipelineStage.order_index)
     )
     stages = all_stages.scalars().all()
-    if stages:
+    if stages or existing_steps:
         running_stages = [st for st in stages if st.status == StageStatus.RUNNING.value]
         failed_stages = [st for st in stages if StageStatus.is_failure(st.status)]
-        all_terminal = all(StageStatus.is_terminal(st.status) for st in stages)
+        all_terminal = all(StageStatus.is_terminal(st.status) for st in stages) if stages else False
+
         if running_stages:
             if run: run.status = StageStatus.RUNNING.value
             scan.status = "running"
-        elif failed_stages:
-            has_block = any(st.status == StageStatus.BLOCKED.value for st in failed_stages)
+        elif failed_stages or has_step_block or has_step_fail:
+            has_block = has_step_block or any(st.status == StageStatus.BLOCKED.value for st in failed_stages)
             if run: run.status = StageStatus.BLOCKED.value if has_block else StageStatus.FAILED.value
             scan.status = "complete"
             scan.action_taken = "BLOCK"
-        elif all_terminal or ("deploy_prod" in existing_steps or "deploy_staging" in existing_steps):
+        elif (all_terminal or "deploy_prod" in existing_steps or "deploy_staging" in existing_steps) and not (has_step_block or has_step_fail):
             if run: run.status = StageStatus.PASSED.value
             scan.status = "complete"
             if not scan.action_taken:

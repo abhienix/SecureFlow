@@ -95,7 +95,7 @@ export function getOverallBadge(run: PipelineRun) {
   }
 
   const hasFailedStep = stepResultsUpper.some(r => ['FAIL', 'FAILED', 'BLOCK', 'BLOCKED', 'ERROR'].includes(r));
-  if (hasFailedStep || (action === 'BLOCK' && runStatusUpper === 'BLOCKED')) {
+  if (hasFailedStep || action === 'BLOCK' || runStatusUpper === 'BLOCKED' || runStatusUpper === 'FAILED') {
     return { label: 'BLOCKED', color: 'red' };
   }
 
