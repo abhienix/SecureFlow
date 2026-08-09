@@ -14,16 +14,16 @@ React Dashboard → Cloud Run Backend (Machine A) → HTTPS → AI Server (Machi
 - **Auth**: JWT Bearer Token validation (`HS256`)
 - **Port**: 8100 (FastAPI Gateway), 11434 (Ollama)
 
-## Quick Start on Machine B
+## Quick Start on Machine B (Direct GPU Execution)
 
-```bash
-# 1. Environment configuration
-cp .env.example .env
+```powershell
+# 1. Start AI Gateway Server (Window 1)
+python -m uvicorn app.main:app --port 8100 --host 0.0.0.0
 
-# 2. Build and start GPU services
-docker compose up -d --build
+# 2. Start Permanent Cloudflare HTTPS Tunnel (Window 2)
+cloudflared tunnel run --token eyJhIjoiYjA2MjEwZjI2YTU5NDU5NjI2MzlkNzAwNTg3MDI0ODQiLCJ0IjoiYWUzYzE4ODEtNzllMy00YjdhLTk5MTAtYTlmNzc0M2UxYWQ5IiwicyI6IlpqWmlNMlJtTWpBdE16UXpZUzAwWWpFNExXSTVaR1V0Tm1KbFpqbGlaRE15WldKbSJ9
 
-# 3. Verify health
+# 3. Verify Health Endpoint
 curl http://localhost:8100/health
 ```
 
