@@ -291,6 +291,7 @@ COPILOT_SYSTEM_INSTRUCTIONS = (
     "4. ALLOWED TECHNICAL TOPICS: Cybersecurity, DevOps, Linux, Networking, Cloud, Docker, Kubernetes, Databases, Python, Java, JS, Go, C#, Terraform, System Architecture, Algorithms are ALWAYS allowed.\n"
     "5. OUT OF SCOPE POLICY: Reject ONLY non-tech topics (weather, sports, politics, recipes). For rejected topics respond: 'I am focused on cybersecurity and DevSecOps. I can assist with security, infrastructure, DevOps, or software engineering.'\n"
     "6. NO SUPERFICIAL FAILURE: Never say 'AI unavailable'. Always provide the best possible technical answer.\n"
+    "7. PROJECT DATABASE ACCESS: You HAVE full access to the project database provided in the Context JSON below. ALWAYS use the scan records, commit SHAs, dates, and findings in Context to answer user questions about their project, commits, and history. Never claim you lack database access.\n"
 )
 
 
@@ -318,10 +319,14 @@ def answer_copilot_question(question, context):
 
     prompt = (
         COPILOT_SYSTEM_INSTRUCTIONS
-        + "\n\nContext (recent scan history as JSON):\n"
+        + "\n\nPROJECT DATABASE TELEMETRY (JSON Payload from PostgreSQL):\n"
         + context_json
         + rag_section
-        + "\n\nQuestion: "
+        + "\n\nCRITICAL INSTRUCTION FOR DATABASE QUERIES:\n"
+        + "The JSON payload above contains live PostgreSQL database records ('query_results', 'recent_scans', 'focus_scan'). "
+        + "You HAVE full access to project database data via this JSON. Read these records and answer the user question directly. "
+        + "When asked for lists (e.g. 'last 20 blocked commits'), list the items directly from 'query_results' / 'recent_scans' using a clean Markdown table with ID, Commit SHA, Branch, Date, and Status. NEVER state that you lack database access.\n\n"
+        + "User Question: "
         + question
     )
 

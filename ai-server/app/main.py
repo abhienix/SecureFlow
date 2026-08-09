@@ -272,6 +272,7 @@ VOID_MASTER_SYSTEM_PROMPT = (
     "3. SECURITY REMEDIATION FORMAT: When fixing vulnerabilities, provide: Issue, Risk, Root Cause, Affected Components, Remediation, Code Example, Best Practices, OWASP Mapping.\n"
     "4. OUT OF SCOPE POLICY: Reject ONLY non-tech topics (weather, sports, politics, recipes). Technology, DevOps, Linux, Networking, Docker, K8s, Coding are ALWAYS allowed.\n"
     "5. NO SUPERFICIAL FAILURE: Never say 'AI unavailable'. Always provide the best possible technical answer.\n"
+    "6. PROJECT DATABASE ACCESS: You HAVE full access to the project database provided in the Context JSON payload. ALWAYS use the scan records, commit SHAs, dates, and findings in Context to answer user questions about their project, commits, and history. Never claim you lack database access.\n"
 )
 
 @app.post("/api/v1/chat", response_model=ChatResponse)

@@ -2367,32 +2367,75 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="question is required")
 
     # ── Auto-detect run ID mentioned in the question ──────────────────────────
-    id_match = re.search(r'#?(\d+)', question)
-    auto_id = int(id_match.group(1)) if id_match and int(id_match.group(1)) > 10 else None
+    # ── Dynamic Natural Language PostgreSQL Query Parser ───────────────────────
+    q_lower = question.lower()
+    
+    # Limit parsing ("last 20", "first 10", "top 5")
+    limit_match = re.search(r'\b(\d+)\b', q_lower)
+    limit = int(limit_match.group(1)) if limit_match and int(limit_match.group(1)) not in (1, 8110546, 674) else 25
+    limit = min(max(limit, 1), 50)
+
+    # Action / Status filtering
+    want_blocked = any(w in q_lower for w in ["block", "fail", "broken"])
+    want_passed = any(w in q_lower for w in ["pass", "allow", "success"])
+
+    # Scanner filtering
+    scanner_kw = None
+    if "gitleaks" in q_lower: scanner_kw = "gitleaks"
+    elif "semgrep" in q_lower: scanner_kw = "semgrep"
+    elif "trivy" in q_lower: scanner_kw = "trivy"
+    elif "zap" in q_lower or "owasp" in q_lower: scanner_kw = "zap"
+
+    # Severity filtering
+    sev_kw = None
+    if "critical" in q_lower: sev_kw = "CRITICAL"
+    elif "high" in q_lower: sev_kw = "HIGH"
+
+    # Sorting direction
+    is_oldest = any(w in q_lower for w in ["first", "oldest", "earliest", "start"])
+    sort_order = ScanResult.created_at.asc() if is_oldest else ScanResult.created_at.desc()
+
+    # Base Query Construction
+    stmt = select(ScanResult)
+
+    # Apply filters
+    if want_blocked:
+        stmt = stmt.where(or_(ScanResult.action_taken == 'BLOCK', ScanResult.status.in_(['failed', 'blocked'])))
+    elif want_passed:
+        stmt = stmt.where(ScanResult.action_taken == 'ALLOW')
+
+    if sev_kw:
+        stmt = stmt.where(ScanResult.severity == sev_kw)
+
+    # Commit / Pipeline ID lookup
+    commit_match = re.search(r'\b([a-f0-9]{7,40})\b', q_lower)
+    if commit_match:
+        stmt = stmt.where(ScanResult.commit_sha.like(f"{commit_match.group(1)}%"))
+
+    pipe_id_match = re.search(r'#?(\d+)', question)
+    auto_id = int(pipe_id_match.group(1)) if pipe_id_match and int(pipe_id_match.group(1)) > 10 else None
 
     focus_scan_id = data.get("scan_id") or auto_id
     focus_scan = None
     if focus_scan_id:
-        res = await db.execute(select(ScanResult).filter(ScanResult.id == focus_scan_id))
-        focus_scan = res.scalars().first()
+        res_focus = await db.execute(select(ScanResult).filter(ScanResult.id == focus_scan_id))
+        focus_scan = res_focus.scalars().first()
 
-    # ── Recent scans (last 25) ────────────────────────────────────────────────
-    res = await db.execute(
-        select(ScanResult)
-        .order_by(ScanResult.created_at.desc())
-        .limit(25)
-    )
-    recent = res.scalars().all()
+    # Execute dynamic query
+    stmt = stmt.order_by(sort_order).limit(limit)
+    res_query = await db.execute(stmt)
+    query_results = res_query.scalars().all()
 
-    # ── Earliest scans for ordinal queries ───────────────────────────────────
-    res2 = await db.execute(
-        select(ScanResult)
-        .order_by(ScanResult.created_at.asc())
-        .limit(10)
-    )
+    # Execute fallback baseline queries if filter gave empty set
+    if not query_results:
+        res_fallback = await db.execute(select(ScanResult).order_by(ScanResult.created_at.desc()).limit(25))
+        query_results = res_fallback.scalars().all()
+
+    # Earliest scans for ordinal reference
+    res2 = await db.execute(select(ScanResult).order_by(ScanResult.created_at.asc()).limit(15))
     earliest = res2.scalars().all()
 
-    # ── Total count + severity summary ───────────────────────────────────────
+    # Total count + severity summary
     count_res = await db.execute(select(func.count()).select_from(ScanResult))
     total_scans = count_res.scalar() or 0
 
@@ -2404,13 +2447,11 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
 
     def scan_summary(s: ScanResult) -> dict:
         """Full data for focused scan — gives LLM actual findings to work with."""
-        # Extract top gitleaks findings
         gl = s.gitleaks_findings or []
         gl_top = [{"rule": f.get("RuleID", f.get("ruleId", "secret")),
                    "file": f.get("File", f.get("file", "?")),
                    "line": f.get("StartLine", f.get("startLine", "?"))} for f in (gl[:3] if isinstance(gl, list) else [])]
 
-        # Extract top semgrep findings
         sg = s.semgrep_findings or []
         sg_results = (sg.get("results") or sg) if isinstance(sg, dict) else (sg if isinstance(sg, list) else [])
         sg_top = [{"rule": f.get("check_id", "?").split(".")[-1],
@@ -2418,14 +2459,12 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
                    "line": (f.get("start") or {}).get("line", "?"),
                    "message": (f.get("extra") or {}).get("message", "")[:120]} for f in (sg_results[:3] if isinstance(sg_results, list) else [])]
 
-        # Extract top ZAP findings
         zap = s.zap_findings or []
         zap_top = [{"name": f.get("name", f.get("alert", "?")),
                     "risk": f.get("riskdesc", f.get("risk", "?")),
                     "url": f.get("url", "")[:80],
                     "solution": f.get("solution", "")[:120]} for f in (zap[:3] if isinstance(zap, list) else [])]
 
-        # Trivy CVEs
         trivy_vulns = []
         for result_set in ((s.findings or {}).get("Results") or []):
             for v in (result_set.get("Vulnerabilities") or [])[:3]:
@@ -2458,7 +2497,7 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
         }
 
     def scan_brief(s: ScanResult) -> dict:
-        """Lightweight summary for list context — keeps prompt small."""
+        """Lightweight summary for list context."""
         return {
             "id": s.id,
             "commit_sha": (s.commit_sha or "")[:8],
@@ -2478,10 +2517,19 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
     context = {
         "total_scans": total_scans,
         "findings_summary": findings_summary,
-        "recent_scans": [scan_brief(s) for s in recent],
+        "query_results": [scan_brief(s) for s in query_results],
+        "recent_scans": [scan_brief(s) for s in query_results[:25]],
         "earliest_scans": [scan_brief(s) for s in earliest],
-        "focus_scan": scan_summary(focus_scan) if focus_scan else None,
+        "focus_scan": scan_summary(focus_scan) if focus_scan else (scan_summary(query_results[0]) if query_results else None),
         "active_policy_rules": active_policy,
+        "parsed_intent": {
+            "limit": limit,
+            "want_blocked": want_blocked,
+            "want_passed": want_passed,
+            "scanner": scanner_kw,
+            "severity": sev_kw,
+            "is_oldest": is_oldest,
+        }
     }
     if data.get("context"):
         context["client_context"] = data["context"]
