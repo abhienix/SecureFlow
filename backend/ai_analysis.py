@@ -22,7 +22,7 @@ if not AI_SERVER_TOKEN:
 
 
 def _get_ai_config():
-    url = (os.getenv("AI_SERVER_URL") or "https://shakespeare-tops-since-railroad.trycloudflare.com").rstrip("/")
+    url = (os.getenv("AI_SERVER_URL") or "https://rna-expansion-top-experiment.trycloudflare.com").rstrip("/")
     token = os.getenv("AI_SERVER_TOKEN") or "bf84de64b1d98b7768be582e888003c47f3fc11da134f598be04cdcb5f4dc8a2"
     ollama_url = (os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
     model_name = os.getenv("MODEL_NAME") or "qwen2.5:3b"
