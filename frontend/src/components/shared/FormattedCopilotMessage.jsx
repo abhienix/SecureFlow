@@ -141,7 +141,10 @@ function RenderTextLines({ text, C, onCveClick }) {
               <thead>
                 <tr style={{ background: C?.isDark ? "#1e293b" : "#F1F5F9", color: C?.accent || "#6366F1" }}>
                   {headerRow.map((h, hIdx) => (
-                    <th key={hIdx} style={{ padding: "8px 12px", borderBottom: `1px solid ${C?.isDark ? "#334155" : "#E2E8F0"}`, fontWeight: 700 }}>
+                    <th key={hIdx} style={{
+                      padding: "8px 12px", borderBottom: `1px solid ${C?.isDark ? "#334155" : "#E2E8F0"}`,
+                      fontWeight: 700, whiteSpace: hIdx === 0 ? "nowrap" : "normal", minWidth: hIdx === 0 ? 110 : 130
+                    }}>
                       {renderFormattedInline(h, C, onCveClick)}
                     </th>
                   ))}
@@ -151,7 +154,11 @@ function RenderTextLines({ text, C, onCveClick }) {
                 {dataRows.map((row, rIdx) => (
                   <tr key={rIdx} style={{ background: rIdx % 2 === 0 ? "transparent" : (C?.isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)") }}>
                     {row.map((cell, cIdx) => (
-                      <td key={cIdx} style={{ padding: "7px 12px", borderBottom: rIdx === dataRows.length - 1 ? "none" : `1px solid ${C?.isDark ? "rgba(255,255,255,0.05)" : "#F1F5F9"}` }}>
+                      <td key={cIdx} style={{
+                        padding: "7px 12px", borderBottom: rIdx === dataRows.length - 1 ? "none" : `1px solid ${C?.isDark ? "rgba(255,255,255,0.05)" : "#F1F5F9"}`,
+                        whiteSpace: cIdx === 0 ? "nowrap" : "normal", fontWeight: cIdx === 0 ? 600 : 400,
+                        minWidth: cIdx === 0 ? 110 : 130, wordBreak: cIdx === 0 ? "keep-all" : "break-word"
+                      }}>
                         {renderFormattedInline(cell, C, onCveClick)}
                       </td>
                     ))}
