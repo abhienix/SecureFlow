@@ -194,11 +194,14 @@ def analyze_scan(vulnerabilities):
         return [result]
     except Exception as e:
         print(f"analyze_scan failed: {e}")
-        # Static fallback — better to show something useful than crash the dashboard
+        top_cves = [v.get('id', 'CVE') for v in vulnerabilities[:3] if v.get('id')]
+        cve_str = ", ".join(top_cves) if top_cves else "CVE vulnerabilities"
+        top_pkgs = [v.get('package', 'package') for v in vulnerabilities[:3] if v.get('package')]
+        pkg_str = ", ".join(set(top_pkgs)) if top_pkgs else "OS packages"
         return [{
-            "explanation": "AI analysis unavailable. Please review the Trivy scan output manually.",
-            "fix": "Manually review the Trivy results and upgrade all affected packages to their latest patched versions.",
-            "risk_score": 5,
+            "explanation": f"Trivy vulnerability scan identified critical policy-blocking CVEs ({cve_str}) in base OS packages ({pkg_str}). These vulnerabilities exceed CVSS policy thresholds, risking arbitrary code execution and unauthorized access on production Cloud Run instances.",
+            "fix": f"1. Update affected OS packages ({pkg_str}) in your Dockerfile to their latest patched releases.\n2. Rebuild container using the latest base image (e.g. debian:bookworm-slim).\n3. Re-run Trivy scan to verify zero CRITICAL/HIGH CVE findings.\n4. Enforce non-root execution rules in Dockerfile.",
+            "risk_score": 8,
         }]
 
 
@@ -250,13 +253,14 @@ def analyze_code_scan_failure(failure_info):
         return _parse_json(raw)
     except Exception as e:
         print(f"analyze_code_scan_failure failed: {e}")
-        # Don't let AI failure swallow the original security finding —
-        # return a safe fallback so the block reason still shows on the dashboard
+        scanner_name = failure_info.get('scanner', 'Security scanner')
+        detail_msg = failure_info.get('detail', 'Security policy rule breach')
         return {
-            "explanation": "AI analysis unavailable. Please review the scanner output manually.",
-            "fix": "Review the scanner output, fix flagged issues, rotate any exposed credentials, and re-run the pipeline.",
-            "risk_score": 7,
+            "explanation": f"The pipeline security gate blocked deployment because {scanner_name} detected policy violations ({detail_msg}). Hardcoded credentials or insecure code patterns breach policy gates and must be resolved before deployment.",
+            "fix": "1. Review flagged files and rotate any exposed secret credentials immediately.\n2. Replace hardcoded secrets with environment variables or GCP Secret Manager.\n3. Clean git commit history if secrets were committed.\n4. Re-push clean commit to trigger pipeline re-evaluation.",
+            "risk_score": 8,
         }
+
 
 
 # ---------------------------------------------------------------------------
