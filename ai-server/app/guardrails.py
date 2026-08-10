@@ -32,10 +32,24 @@ class GuardrailsEngine:
         Validates incoming user prompt against safety rules and domain boundaries.
         Returns dict with is_valid boolean and reason.
         """
-        msg_lower = message.lower().strip()
+        # If payload contains prompt template, isolate the actual user question
+        if "User Question:" in message:
+            target_text = message.split("User Question:")[-1].lower().strip()
+        else:
+            target_text = message.lower().strip()
 
-        # 1. Check Off-Topic Guardrail (Exact word boundaries to prevent false positives on 'cookie', 'parsing', etc.)
-        if any(re.search(r'\b' + re.escape(term) + r'\b', msg_lower) for term in OFF_TOPIC_TERMS):
+        # Whitelist technical and DevSecOps queries — if any tech keyword is present, allow it!
+        tech_keywords = [
+            "pipeline", "scan", "commit", "cve", "finding", "vulnerability", "block",
+            "semgrep", "gitleaks", "trivy", "zap", "docker", "fix", "code", "repo",
+            "branch", "why", "how", "explain", "run", "patch", "deploy", "security",
+            "cwe", "owasp", "kubernetes", "linux", "python", "fastapi", "react", "sql"
+        ]
+        if any(re.search(r'\b' + re.escape(kw) + r'\b', target_text) for kw in tech_keywords):
+            return {"is_valid": True, "reason": None}
+
+        # 1. Check Off-Topic Guardrail
+        if any(re.search(r'\b' + re.escape(term) + r'\b', target_text) for term in OFF_TOPIC_TERMS):
             return {
                 "is_valid": False,
                 "reason": "OFF_TOPIC",
@@ -48,7 +62,7 @@ class GuardrailsEngine:
 
         # 2. Check Prompt Injection Guardrail
         injection_keywords = ["ignore previous instructions", "system prompt", "you are now DAN", "bypass rules"]
-        if any(kw in msg_lower for kw in injection_keywords):
+        if any(kw in target_text for kw in injection_keywords):
             logger.warning(f"[guardrails] Blocked potential prompt injection: {message[:50]}...")
             return {
                 "is_valid": False,
