@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 270" width="100%" height="100%">
+  <defs>
+    <linearGradient id="ts-l-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#f8fafc" />
+    </linearGradient>
+  </defs>
+
+  <style>
+    .ts-title-l { font-family: system-ui, sans-serif; font-weight: 800; font-size: 14px; fill: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }
+    .ts-name-l { font-family: system-ui, sans-serif; font-weight: 700; font-size: 12px; fill: #0f172a; }
+    .ts-role-l { font-family: system-ui, sans-serif; font-weight: 400; font-size: 10px; fill: #64748b; }
+  </style>
+
+  <rect width="920" height="270" rx="14" fill="url(#ts-l-bg)" stroke="#e2e8f0" stroke-width="1.5" />
+
+  <text x="30" y="32" class="ts-title-l">🛠️ Technology Stack &amp; Architectural Ecosystem</text>
+
+  <g transform="translate(30, 48)">
+    <!-- Row 1 -->
+    <g transform="translate(0, 0)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#3b82f6" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#dbeafe" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">🐍</text>
+      <text x="52" y="26" class="ts-name-l">Python 3.12</text>
+      <text x="52" y="40" class="ts-role-l">Backend Engine</text>
+    </g>
+
+    <g transform="translate(180, 0)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#d1fae5" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">⚡</text>
+      <text x="52" y="26" class="ts-name-l">FastAPI Monolith</text>
+      <text x="52" y="40" class="ts-role-l">REST &amp; WebSockets</text>
+    </g>
+
+    <g transform="translate(360, 0)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#06b6d4" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#cffafe" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">⚛️</text>
+      <text x="52" y="26" class="ts-name-l">React 19 + TS</text>
+      <text x="52" y="40" class="ts-role-l">Executive Dashboard</text>
+    </g>
+
+    <g transform="translate(540, 0)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#0284c7" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#e0f2fe" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">🗄️</text>
+      <text x="52" y="26" class="ts-name-l">PostgreSQL SQL</text>
+      <text x="52" y="40" class="ts-role-l">12+ Schema Tables</text>
+    </g>
+
+    <g transform="translate(720, 0)">
+      <rect width="140" height="58" rx="8" fill="#ffffff" stroke="#e11d48" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#ffe4e6" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">🔴</text>
+      <text x="52" y="26" class="ts-name-l">Redis Pub/Sub</text>
+      <text x="52" y="40" class="ts-role-l">Celery Queue &amp; WS</text>
+    </g>
+
+    <!-- Row 2 -->
+    <g transform="translate(0, 68)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#e11d48" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#ffe4e6" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">🔑</text>
+      <text x="52" y="26" class="ts-name-l">Gitleaks 8.24</text>
+      <text x="52" y="40" class="ts-role-l">Secret Detection</text>
+    </g>
+
+    <g transform="translate(180, 68)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#fef3c7" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">🔍</text>
+      <text x="52" y="26" class="ts-name-l">Semgrep SAST</text>
+      <text x="52" y="40" class="ts-role-l">Code Vulnerabilities</text>
+    </g>
+
+    <g transform="translate(360, 68)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#0284c7" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#e0f2fe" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">🛡️</text>
+      <text x="52" y="26" class="ts-name-l">Trivy CVE</text>
+      <text x="52" y="40" class="ts-role-l">Container SCA Scan</text>
+    </g>
+
+    <g transform="translate(540, 68)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#f3e8ff" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">🎯</text>
+      <text x="52" y="26" class="ts-name-l">OWASP ZAP</text>
+      <text x="52" y="40" class="ts-role-l">Dynamic DAST Scan</text>
+    </g>
+
+    <g transform="translate(720, 68)">
+      <rect width="140" height="58" rx="8" fill="#ffffff" stroke="#a855f7" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#faf5ff" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">🧠</text>
+      <text x="52" y="26" class="ts-name-l">Ollama Qwen</text>
+      <text x="52" y="40" class="ts-role-l">Void AI + RAG</text>
+    </g>
+
+    <!-- Row 3 -->
+    <g transform="translate(0, 136)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#ffedd5" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">☁️</text>
+      <text x="52" y="26" class="ts-name-l">GCP Cloud Run</text>
+      <text x="52" y="40" class="ts-role-l">Serverless Deploy</text>
+    </g>
+
+    <g transform="translate(180, 136)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#0284c7" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#e0f2fe" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">🐳</text>
+      <text x="52" y="26" class="ts-name-l">Docker Registry</text>
+      <text x="52" y="40" class="ts-role-l">Artifact Images</text>
+    </g>
+
+    <g transform="translate(360, 136)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#d1fae5" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">⚙️</text>
+      <text x="52" y="26" class="ts-name-l">Celery Worker</text>
+      <text x="52" y="40" class="ts-role-l">Out-of-Process Task</text>
+    </g>
+
+    <g transform="translate(540, 136)">
+      <rect width="165" height="58" rx="8" fill="#ffffff" stroke="#f97316" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#ffedd5" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">📊</text>
+      <text x="52" y="26" class="ts-name-l">Prometheus</text>
+      <text x="52" y="40" class="ts-role-l">Telemetry &amp; Alerts</text>
+    </g>
+
+    <g transform="translate(720, 136)">
+      <rect width="140" height="58" rx="8" fill="#ffffff" stroke="#e11d48" stroke-width="1.5" />
+      <circle cx="28" cy="29" r="13" fill="#ffe4e6" />
+      <text x="28" y="33" font-family="sans-serif" font-size="13" text-anchor="middle">💬</text>
+      <text x="52" y="26" class="ts-name-l">Slack Alerts</text>
+      <text x="52" y="40" class="ts-role-l">Block Kit Webhooks</text>
+    </g>
+  </g>
+</svg>

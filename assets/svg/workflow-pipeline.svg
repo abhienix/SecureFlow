@@ -1,0 +1,215 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 250" width="100%" height="100%">
+  <defs>
+    <linearGradient id="pipe-light-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#f8fafc" />
+    </linearGradient>
+
+    <linearGradient id="btn-emerald" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+
+    <linearGradient id="btn-blue" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+
+    <linearGradient id="btn-purple" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+
+    <filter id="light-card-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.08" />
+    </filter>
+  </defs>
+
+  <style>
+    .pipe-title-l { font-family: system-ui, -apple-system, sans-serif; font-weight: 800; font-size: 15px; fill: #0f172a; }
+    .pipe-sub-l { font-family: system-ui, -apple-system, sans-serif; font-weight: 500; font-size: 11px; fill: #64748b; }
+    .num-txt { font-family: system-ui, -apple-system, sans-serif; font-weight: 800; font-size: 10px; fill: #94a3b8; }
+    .name-txt { font-family: system-ui, -apple-system, sans-serif; font-weight: 700; font-size: 11px; fill: #0f172a; text-anchor: middle; }
+    .desc-txt { font-family: system-ui, -apple-system, sans-serif; font-weight: 500; font-size: 9px; fill: #64748b; text-anchor: middle; }
+    .badge-txt-white { font-family: system-ui, -apple-system, sans-serif; font-weight: 800; font-size: 9px; fill: #ffffff; text-anchor: middle; }
+  </style>
+
+  <!-- Container Box -->
+  <rect width="960" height="250" rx="16" fill="url(#pipe-light-bg)" stroke="#e2e8f0" stroke-width="1.5" />
+
+  <!-- Header -->
+  <g transform="translate(30, 24)">
+    <text x="0" y="0" class="pipe-title-l">🔄 Automated 9-Stage CI/CD Security Pipeline State Machine</text>
+    <text x="0" y="18" class="pipe-sub-l">Deterministic Finite State Transitions: WAITING → RUNNING → PASSED | BLOCKED | SKIPPED</text>
+  </g>
+
+  <!-- Laser Beam Sweep (Native SMIL Animation) -->
+  <line x1="30" y1="110" x2="70" y2="110" stroke="#3b82f6" stroke-width="3" opacity="0.8">
+    <animate attributeName="x1" values="30;890;30" dur="4s" repeatCount="indefinite" />
+    <animate attributeName="x2" values="70;930;70" dur="4s" repeatCount="indefinite" />
+  </line>
+
+  <!-- 9 Fully Positioned Stage Cards Across 960px Width -->
+  
+  <!-- Connector Lines with Native SMIL Flow Animations -->
+  <!-- C1 -> C2 -->
+  <line x1="110" y1="120" x2="124" y2="120" stroke="#10b981" stroke-width="2" stroke-dasharray="4 4">
+    <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1s" repeatCount="indefinite" />
+  </line>
+
+  <!-- C2 -> C3 -->
+  <line x1="206" y1="120" x2="220" y2="120" stroke="#10b981" stroke-width="2" stroke-dasharray="4 4">
+    <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1s" repeatCount="indefinite" />
+  </line>
+
+  <!-- C3 -> C4 -->
+  <line x1="302" y1="120" x2="316" y2="120" stroke="#10b981" stroke-width="2" stroke-dasharray="4 4">
+    <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1s" repeatCount="indefinite" />
+  </line>
+
+  <!-- C4 -> C5 -->
+  <line x1="398" y1="120" x2="412" y2="120" stroke="#10b981" stroke-width="2" stroke-dasharray="4 4">
+    <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1s" repeatCount="indefinite" />
+  </line>
+
+  <!-- C5 -> C6 -->
+  <line x1="496" y1="120" x2="510" y2="120" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4 4">
+    <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1s" repeatCount="indefinite" />
+  </line>
+
+  <!-- C6 -> C7 -->
+  <line x1="592" y1="120" x2="606" y2="120" stroke="#10b981" stroke-width="2" stroke-dasharray="4 4">
+    <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1s" repeatCount="indefinite" />
+  </line>
+
+  <!-- C7 -> C8 -->
+  <line x1="690" y1="120" x2="704" y2="120" stroke="#8b5cf6" stroke-width="2" stroke-dasharray="4 4">
+    <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1s" repeatCount="indefinite" />
+  </line>
+
+  <!-- C8 -> C9 -->
+  <line x1="786" y1="120" x2="800" y2="120" stroke="#10b981" stroke-width="2" stroke-dasharray="4 4">
+    <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1s" repeatCount="indefinite" />
+  </line>
+
+  <!-- 9 Stage Cards -->
+  <!-- Stage 1: Checkout -->
+  <g transform="translate(30, 68)" filter="url(#light-card-shadow)">
+    <rect width="80" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5" />
+    <text x="8" y="16" class="num-txt">01</text>
+    <circle cx="40" cy="32" r="12" fill="#d1fae5" stroke="#10b981" stroke-width="1" />
+    <text x="40" y="36" font-family="sans-serif" font-weight="bold" font-size="11" fill="#047857" text-anchor="middle">✓</text>
+    <text x="40" y="58" class="name-txt">Checkout</text>
+    <text x="40" y="71" class="desc-txt">Git Clone</text>
+    <rect x="10" y="80" width="60" height="16" rx="4" fill="url(#btn-emerald)" />
+    <text x="40" y="91" class="badge-txt-white">PASSED</text>
+  </g>
+
+  <!-- Stage 2: Code Scan -->
+  <g transform="translate(126, 68)" filter="url(#light-card-shadow)">
+    <rect width="80" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5" />
+    <text x="8" y="16" class="num-txt">02</text>
+    <circle cx="40" cy="32" r="12" fill="#d1fae5" stroke="#10b981" stroke-width="1" />
+    <text x="40" y="36" font-family="sans-serif" font-weight="bold" font-size="11" fill="#047857" text-anchor="middle">✓</text>
+    <text x="40" y="58" class="name-txt">Code Scan</text>
+    <text x="40" y="71" class="desc-txt">Gitleaks+Semgrep</text>
+    <rect x="10" y="80" width="60" height="16" rx="4" fill="url(#btn-emerald)" />
+    <text x="40" y="91" class="badge-txt-white">PASSED</text>
+  </g>
+
+  <!-- Stage 3: Docker Build -->
+  <g transform="translate(222, 68)" filter="url(#light-card-shadow)">
+    <rect width="80" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5" />
+    <text x="8" y="16" class="num-txt">03</text>
+    <circle cx="40" cy="32" r="12" fill="#d1fae5" stroke="#10b981" stroke-width="1" />
+    <text x="40" y="36" font-family="sans-serif" font-weight="bold" font-size="11" fill="#047857" text-anchor="middle">✓</text>
+    <text x="40" y="58" class="name-txt">Docker</text>
+    <text x="40" y="71" class="desc-txt">Build &amp; Push</text>
+    <rect x="10" y="80" width="60" height="16" rx="4" fill="url(#btn-emerald)" />
+    <text x="40" y="91" class="badge-txt-white">PASSED</text>
+  </g>
+
+  <!-- Stage 4: Trivy CVE -->
+  <g transform="translate(318, 68)" filter="url(#light-card-shadow)">
+    <rect width="80" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5" />
+    <text x="8" y="16" class="num-txt">04</text>
+    <circle cx="40" cy="32" r="12" fill="#d1fae5" stroke="#10b981" stroke-width="1" />
+    <text x="40" y="36" font-family="sans-serif" font-weight="bold" font-size="11" fill="#047857" text-anchor="middle">✓</text>
+    <text x="40" y="58" class="name-txt">Trivy CVE</text>
+    <text x="40" y="71" class="desc-txt">Image Audit</text>
+    <rect x="10" y="80" width="60" height="16" rx="4" fill="url(#btn-emerald)" />
+    <text x="40" y="91" class="badge-txt-white">PASSED</text>
+  </g>
+
+  <!-- Stage 5: Policy Gate -->
+  <g transform="translate(414, 68)" filter="url(#light-card-shadow)">
+    <rect width="82" height="104" rx="8" fill="#ffffff" stroke="#3b82f6" stroke-width="2" />
+    <text x="8" y="16" class="num-txt" fill="#3b82f6">05</text>
+    <circle cx="41" cy="32" r="12" fill="#dbeafe" stroke="#3b82f6" stroke-width="1" />
+    <text x="41" y="36" font-family="sans-serif" font-weight="bold" font-size="11" fill="#1d4ed8" text-anchor="middle">⚙️</text>
+    <text x="41" y="58" class="name-txt" fill="#1e40af">Policy Gate</text>
+    <text x="41" y="71" class="desc-txt">YAML Rules</text>
+    <rect x="11" y="80" width="60" height="16" rx="4" fill="url(#btn-blue)" />
+    <text x="41" y="91" class="badge-txt-white">ALLOW</text>
+  </g>
+
+  <!-- Stage 6: Deploy Staging -->
+  <g transform="translate(512, 68)" filter="url(#light-card-shadow)">
+    <rect width="80" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5" />
+    <text x="8" y="16" class="num-txt">06</text>
+    <circle cx="40" cy="32" r="12" fill="#d1fae5" stroke="#10b981" stroke-width="1" />
+    <text x="40" y="36" font-family="sans-serif" font-weight="bold" font-size="11" fill="#047857" text-anchor="middle">✓</text>
+    <text x="40" y="58" class="name-txt">Staging</text>
+    <text x="40" y="71" class="desc-txt">Cloud Run</text>
+    <rect x="10" y="80" width="60" height="16" rx="4" fill="url(#btn-emerald)" />
+    <text x="40" y="91" class="badge-txt-white">PASSED</text>
+  </g>
+
+  <!-- Stage 7: OWASP ZAP -->
+  <g transform="translate(608, 68)" filter="url(#light-card-shadow)">
+    <rect width="82" height="104" rx="8" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5" />
+    <text x="8" y="16" class="num-txt" fill="#8b5cf6">07</text>
+    <circle cx="41" cy="32" r="12" fill="#f3e8ff" stroke="#8b5cf6" stroke-width="1" />
+    <text x="41" y="36" font-family="sans-serif" font-weight="bold" font-size="10" fill="#6d28d9" text-anchor="middle">⚡</text>
+    <text x="41" y="58" class="name-txt">OWASP ZAP</text>
+    <text x="41" y="71" class="desc-txt">DAST Worker</text>
+    <rect x="11" y="80" width="60" height="16" rx="4" fill="url(#btn-purple)" />
+    <text x="41" y="91" class="badge-txt-white">PASSED</text>
+  </g>
+
+  <!-- Stage 8: ZAP Gate -->
+  <g transform="translate(706, 68)" filter="url(#light-card-shadow)">
+    <rect width="80" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5" />
+    <text x="8" y="16" class="num-txt">08</text>
+    <circle cx="40" cy="32" r="12" fill="#d1fae5" stroke="#10b981" stroke-width="1" />
+    <text x="40" y="36" font-family="sans-serif" font-weight="bold" font-size="11" fill="#047857" text-anchor="middle">✓</text>
+    <text x="40" y="58" class="name-txt">ZAP Gate</text>
+    <text x="40" y="71" class="desc-txt">DAST Check</text>
+    <rect x="10" y="80" width="60" height="16" rx="4" fill="url(#btn-emerald)" />
+    <text x="40" y="91" class="badge-txt-white">PASSED</text>
+  </g>
+
+  <!-- Stage 9: Deploy Prod -->
+  <g transform="translate(802, 68)" filter="url(#light-card-shadow)">
+    <rect width="82" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="2" />
+    <text x="8" y="16" class="num-txt" fill="#059669">09</text>
+    <circle cx="41" cy="32" r="12" fill="#d1fae5" stroke="#10b981" stroke-width="1" />
+    <text x="41" y="36" font-family="sans-serif" font-weight="bold" font-size="11" fill="#047857" text-anchor="middle">🚀</text>
+    <text x="41" y="58" class="name-txt">Deploy Prod</text>
+    <text x="41" y="71" class="desc-txt">Cloud Run</text>
+    <rect x="11" y="80" width="60" height="16" rx="4" fill="url(#btn-emerald)" />
+    <text x="41" y="91" class="badge-txt-white">RELEASED</text>
+  </g>
+
+  <!-- Live Status Bar -->
+  <g transform="translate(30, 194)">
+    <rect width="900" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1" />
+    <circle cx="16" cy="14" r="4" fill="#059669">
+      <animate attributeName="r" values="3;6;3" dur="2s" repeatCount="indefinite" />
+      <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite" />
+    </circle>
+    <text x="28" y="18" font-family="sans-serif" font-size="10" fill="#475569">
+      Real-Time Telemetry Stream: <tspan fill="#047857" font-weight="bold">run_id #1049</tspan> • Target: <tspan fill="#2563eb" font-weight="bold">SecureFlow:main</tspan> • WebSocket Latency: <tspan fill="#d97706" font-weight="bold">12ms</tspan> • Status: <tspan fill="#059669" font-weight="bold">PASSED</tspan>
+    </text>
+  </g>
+</svg>

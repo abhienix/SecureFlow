@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" width="100%" height="100%">
+  <defs>
+    <linearGradient id="sec-light-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#f8fafc" />
+    </linearGradient>
+
+    <linearGradient id="shield-grad-l" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="50%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+  </defs>
+
+  <style>
+    .quad-label-l { font-family: system-ui, sans-serif; font-weight: 700; font-size: 13px; fill: #0f172a; }
+    .quad-sub-l { font-family: system-ui, sans-serif; font-weight: 500; font-size: 10px; fill: #64748b; }
+  </style>
+
+  <rect width="600" height="380" rx="14" fill="url(#sec-light-bg)" stroke="#e2e8f0" stroke-width="1.5" />
+
+  <!-- Center Policy Radar Shield -->
+  <g transform="translate(300, 190)">
+    <circle cx="0" cy="0" r="130" fill="none" stroke="#e2e8f0" stroke-width="1.5" />
+    <circle cx="0" cy="0" r="95" fill="none" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="6 6" />
+    <circle cx="0" cy="0" r="65" fill="none" stroke="#93c5fd" stroke-width="1.5" />
+
+    <!-- Radar Sweep with Native SMIL Animation -->
+    <g>
+      <path d="M 0 0 L 130 0 A 130 130 0 0 0 0 -130 Z" fill="url(#shield-grad-l)" opacity="0.12" />
+      <line x1="0" y1="0" x2="130" y2="0" stroke="#2563eb" stroke-width="1.5" />
+      <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="8s" repeatCount="indefinite" />
+    </g>
+
+    <!-- Center Defense Shield Core -->
+    <g>
+      <path d="M 0 -45 L 36 -22 V 14 C 36 36 0 52 0 52 C 0 52 -36 36 -36 14 V -22 Z" fill="url(#shield-grad-l)" stroke="#2563eb" stroke-width="2" />
+      <path d="M 0 -12 L -9 2 L -4 2 L -4 14 L 4 14 L 4 2 L 9 2 Z" fill="#ffffff" />
+    </g>
+  </g>
+
+  <!-- 4 Scanner Quadrants -->
+  <!-- Gitleaks -->
+  <g transform="translate(50, 50)">
+    <rect width="175" height="80" rx="8" fill="#ffffff" stroke="#f43f5e" stroke-width="1.5" />
+    <circle cx="26" cy="26" r="12" fill="#ffe4e6" />
+    <text x="26" y="30" font-family="sans-serif" font-size="12" text-anchor="middle">🔑</text>
+    <text x="50" y="26" class="quad-label-l">Gitleaks 8.24</text>
+    <text x="50" y="40" class="quad-sub-l">Secret &amp; Token Audit</text>
+    <rect x="14" y="52" width="145" height="16" rx="4" fill="#fff1f2" />
+    <text x="86" y="64" font-family="sans-serif" font-weight="bold" font-size="9" fill="#be123c" text-anchor="middle">BLOCK ON EXPOSED SECRETS</text>
+  </g>
+
+  <!-- Semgrep -->
+  <g transform="translate(375, 50)">
+    <rect width="175" height="80" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.5" />
+    <circle cx="26" cy="26" r="12" fill="#fef3c7" />
+    <text x="26" y="30" font-family="sans-serif" font-size="12" text-anchor="middle">🔍</text>
+    <text x="50" y="26" class="quad-label-l">Semgrep SAST</text>
+    <text x="50" y="40" class="quad-sub-l">OWASP Top 10 Code Patterns</text>
+    <rect x="14" y="52" width="145" height="16" rx="4" fill="#fffbeb" />
+    <text x="86" y="64" font-family="sans-serif" font-weight="bold" font-size="9" fill="#b45309" text-anchor="middle">BLOCK ON INSECURE CODE</text>
+  </g>
+
+  <!-- Trivy -->
+  <g transform="translate(50, 250)">
+    <rect width="175" height="80" rx="8" fill="#ffffff" stroke="#0284c7" stroke-width="1.5" />
+    <circle cx="26" cy="26" r="12" fill="#e0f2fe" />
+    <text x="26" y="30" font-family="sans-serif" font-size="12" text-anchor="middle">🛡️</text>
+    <text x="50" y="26" class="quad-label-l">Trivy 0.35.0</text>
+    <text x="50" y="40" class="quad-sub-l">Container Base OS CVEs</text>
+    <rect x="14" y="52" width="145" height="16" rx="4" fill="#f0f9ff" />
+    <text x="86" y="64" font-family="sans-serif" font-weight="bold" font-size="9" fill="#0369a1" text-anchor="middle">EVALUATE CVSS THRESHOLD</text>
+  </g>
+
+  <!-- OWASP ZAP -->
+  <g transform="translate(375, 250)">
+    <rect width="175" height="80" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5" />
+    <circle cx="26" cy="26" r="12" fill="#f3e8ff" />
+    <text x="26" y="30" font-family="sans-serif" font-size="12" text-anchor="middle">🎯</text>
+    <text x="50" y="26" class="quad-label-l">OWASP ZAP</text>
+    <text x="50" y="40" class="quad-sub-l">Dynamic Staging DAST</text>
+    <rect x="14" y="52" width="145" height="16" rx="4" fill="#faf5ff" />
+    <text x="86" y="64" font-family="sans-serif" font-weight="bold" font-size="9" fill="#6d28d9" text-anchor="middle">BLOCK ON DAST VULNS</text>
+  </g>
+</svg>

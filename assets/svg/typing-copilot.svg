@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" width="100%" height="100%">
+  <defs>
+    <linearGradient id="term-light-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#f8fafc" />
+    </linearGradient>
+  </defs>
+
+  <style>
+    .t-head-l { font-family: system-ui, sans-serif; font-weight: 700; font-size: 12px; fill: #334155; }
+    .t-code-l { font-family: 'Fira Code', Consolas, monospace; font-size: 11px; fill: #0f172a; }
+    .u-lbl-l { font-family: system-ui, sans-serif; font-weight: 700; font-size: 11px; fill: #7c3aed; }
+    .ai-lbl-l { font-family: system-ui, sans-serif; font-weight: 700; font-size: 11px; fill: #0284c7; }
+  </style>
+
+  <rect width="800" height="300" rx="12" fill="url(#term-light-bg)" stroke="#e2e8f0" stroke-width="1.5" />
+
+  <!-- Terminal Title Bar -->
+  <rect width="800" height="34" rx="12" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1" />
+  <circle cx="20" cy="17" r="5" fill="#f43f5e" />
+  <circle cx="36" cy="17" r="5" fill="#d97706" />
+  <circle cx="52" cy="17" r="5" fill="#10b981" />
+  <text x="72" y="21" class="t-head-l">🧠 Void AI Security Engine — Local GPU (Qwen2.5 3B + RAG)</text>
+
+  <g transform="translate(24, 52)">
+    <!-- User Prompt -->
+    <g transform="translate(0, 0)">
+      <text x="0" y="14" class="u-lbl-l">USER &gt;</text>
+      <text x="50" y="14" class="t-code-l">How do I fix the Gitleaks policy block on commit e1638fa?</text>
+    </g>
+
+    <!-- AI Response Stream -->
+    <g transform="translate(0, 30)">
+      <text x="0" y="14" class="ai-lbl-l">VOID AI &gt;</text>
+
+      <g transform="translate(70, 0)">
+        <rect width="210" height="18" rx="4" fill="#e0e7ff" stroke="#6366f1" />
+        <text x="8" y="12" font-family="sans-serif" font-size="9" font-weight="bold" fill="#4338ca">📚 RAG Lookup: ChromaDB (Score: 0.94)</text>
+      </g>
+
+      <g transform="translate(0, 24)">
+        <text x="0" y="14" class="t-code-l">Analyzing scan results: Hardcoded GitHub PAT in <tspan fill="#e11d48" font-weight="bold">backend/config.py:42</tspan>.</text>
+        <text x="0" y="34" class="t-code-l">Secret redacted: <tspan fill="#d97706" font-weight="bold">ghp_********************</tspan>. Move token to environment variables.</text>
+      </g>
+    </g>
+
+    <!-- Automated Vulnerability Remediation Card -->
+    <g transform="translate(0, 115)">
+      <rect width="752" height="100" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5" />
+      
+      <rect width="752" height="24" rx="8" fill="#f3e8ff" />
+      <text x="12" y="16" font-family="sans-serif" font-weight="bold" font-size="10" fill="#6d28d9">🛠️ Automated Vulnerability Root Cause Analysis &amp; Code Remediation</text>
+
+      <g transform="translate(12, 40)" font-family="monospace" font-size="11">
+        <text x="0" y="0" fill="#64748b">--- a/backend/config.py</text>
+        <text x="0" y="15" fill="#64748b">+++ b/backend/config.py</text>
+        <text x="0" y="30" fill="#be123c" font-weight="bold">- GITHUB_TOKEN = "ghp_x89a1b2c3d4e5f6g7h8i9j0k1l2m3n4o"</text>
+        <text x="0" y="45" fill="#047857" font-weight="bold">+ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")</text>
+      </g>
+
+      <g transform="translate(565, 60)">
+        <rect width="170" height="26" rx="5" fill="#7c3aed" />
+        <text x="85" y="17" font-family="sans-serif" font-weight="bold" font-size="10" fill="#ffffff" text-anchor="middle">⚡ Apply Security Fix</text>
+      </g>
+    </g>
+  </g>
+</svg>

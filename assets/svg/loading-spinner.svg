@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <defs>
+    <linearGradient id="spin-grad-l" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="50%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+  </defs>
+
+  <rect width="200" height="200" rx="20" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+
+  <!-- Outer Radar Track -->
+  <circle cx="100" cy="100" r="75" fill="none" stroke="#f1f5f9" stroke-width="2" />
+  <circle cx="100" cy="100" r="55" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 4" />
+
+  <!-- Outer Rotating Ring (SMIL Animation) -->
+  <g>
+    <circle cx="100" cy="100" r="75" fill="none" stroke="url(#spin-grad-l)" stroke-width="4" stroke-linecap="round" stroke-dasharray="120 200" />
+    <circle cx="175" cy="100" r="6" fill="#2563eb" />
+    <animateTransform attributeName="transform" type="rotate" from="0 100 100" to="360 100 100" dur="3s" repeatCount="indefinite" />
+  </g>
+
+  <!-- Inner Reverse Rotating Ring (SMIL Animation) -->
+  <g>
+    <circle cx="100" cy="100" r="55" fill="none" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="80 150" />
+    <animateTransform attributeName="transform" type="rotate" from="360 100 100" to="0 100 100" dur="2s" repeatCount="indefinite" />
+  </g>
+
+  <!-- Core Pulsing Shield -->
+  <g>
+    <circle cx="100" cy="100" r="28" fill="#eff6ff" stroke="#2563eb" stroke-width="2" />
+    <path d="M 100 86 L 112 94 V 106 C 112 114 100 120 100 120 C 100 120 88 114 88 106 V 94 Z" fill="#2563eb" />
+    <animateTransform attributeName="transform" type="scale" values="0.9;1.08;0.9" dur="1.5s" repeatCount="indefinite" transform-origin="100 100" />
+  </g>
+</svg>

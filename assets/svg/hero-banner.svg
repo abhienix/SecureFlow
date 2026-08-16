@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 280" width="100%" height="100%">
+  <defs>
+    <!-- Light Theme Gradients -->
+    <linearGradient id="hero-l-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="50%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#f1f5f9" />
+    </linearGradient>
+
+    <linearGradient id="hero-brand" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="50%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+
+    <linearGradient id="hero-shield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" stroke-opacity="0.9" />
+      <stop offset="100%" stop-color="#1d4ed8" stroke-opacity="0.7" />
+    </linearGradient>
+
+    <filter id="hero-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.08" />
+    </filter>
+
+    <pattern id="hero-grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#0f172a" stroke-opacity="0.04" stroke-width="1" />
+    </pattern>
+  </defs>
+
+  <style>
+    .title-l { font-family: system-ui, -apple-system, sans-serif; font-weight: 900; font-size: 46px; fill: #0f172a; letter-spacing: -1.5px; }
+    .sub-l { font-family: system-ui, -apple-system, sans-serif; font-weight: 500; font-size: 16px; fill: #475569; letter-spacing: 0.2px; }
+    .badge-l { font-family: system-ui, -apple-system, sans-serif; font-weight: 700; font-size: 11px; fill: #2563eb; letter-spacing: 1px; }
+    .val-l { font-family: system-ui, -apple-system, sans-serif; font-weight: 800; font-size: 15px; fill: #0f172a; }
+    .lbl-l { font-family: system-ui, -apple-system, sans-serif; font-weight: 500; font-size: 10px; fill: #64748b; text-transform: uppercase; }
+  </style>
+
+  <!-- Background -->
+  <rect width="960" height="280" rx="16" fill="url(#hero-l-bg)" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect width="960" height="280" rx="16" fill="url(#hero-grid)" />
+
+  <!-- Native SMIL Flow Path -->
+  <path d="M 50 140 Q 280 60 500 140 T 770 140" stroke="#2563eb" stroke-width="2" fill="none" stroke-opacity="0.3" stroke-dasharray="6 6">
+    <animate attributeName="stroke-dashoffset" from="0" to="-36" dur="1.5s" repeatCount="indefinite" />
+  </path>
+
+  <!-- Left Content -->
+  <g transform="translate(50, 0)" filter="url(#hero-shadow)">
+    <!-- Status Pill -->
+    <g transform="translate(0, 38)">
+      <rect width="215" height="28" rx="14" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1" />
+      <circle cx="16" cy="14" r="4" fill="#059669">
+        <animate attributeName="r" values="3;6;3" dur="2s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite" />
+      </circle>
+      <text x="30" y="18" class="badge-l">ENTERPRISE DEVSECOPS</text>
+    </g>
+
+    <!-- Main Title & Subtitle -->
+    <g transform="translate(0, 112)">
+      <text x="0" y="0" class="title-l">Secure<tspan fill="url(#hero-brand)">Flow</tspan></text>
+      <text x="0" y="28" class="sub-l">Automated Security Orchestration &amp; Local GPU AI Remediation</text>
+    </g>
+
+    <!-- Metric Cards -->
+    <g transform="translate(0, 180)">
+      <rect width="440" height="58" rx="10" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" />
+
+      <!-- Metric 1 -->
+      <g transform="translate(20, 12)">
+        <text x="0" y="16" class="val-l" fill="#2563eb">4 Scanners</text>
+        <text x="0" y="32" class="lbl-l">Secrets • SAST • SCA • DAST</text>
+      </g>
+
+      <line x1="145" y1="12" x2="145" y2="46" stroke="#f1f5f9" stroke-width="1.5" />
+
+      <!-- Metric 2 -->
+      <g transform="translate(162, 12)">
+        <text x="0" y="16" class="val-l" fill="#059669">&lt; 15ms UI</text>
+        <text x="0" y="32" class="lbl-l">WebSocket Telemetry</text>
+      </g>
+
+      <line x1="285" y1="12" x2="285" y2="46" stroke="#f1f5f9" stroke-width="1.5" />
+
+      <!-- Metric 3 -->
+      <g transform="translate(302, 12)">
+        <text x="0" y="16" class="val-l" fill="#7c3aed">Air-Gapped AI</text>
+        <text x="0" y="32" class="lbl-l">Qwen2.5 + RAG</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right Visual: Light Security Radar Shield -->
+  <g transform="translate(770, 140)">
+    <circle cx="0" cy="0" r="105" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5" />
+    <circle cx="0" cy="0" r="80" fill="none" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 4" />
+    <circle cx="0" cy="0" r="55" fill="none" stroke="#93c5fd" stroke-width="1.5" />
+
+    <!-- Native SMIL Radar Sweep -->
+    <g>
+      <path d="M 0 0 L 105 0 A 105 105 0 0 0 0 -105 Z" fill="url(#hero-brand)" opacity="0.12" />
+      <line x1="0" y1="0" x2="105" y2="0" stroke="#2563eb" stroke-width="2" />
+      <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="8s" repeatCount="indefinite" />
+    </g>
+
+    <!-- Shield Core -->
+    <g>
+      <path d="M 0 -44 L 35 -22 V 10 C 35 32 0 50 0 50 C 0 50 -35 32 -35 10 V -22 Z" fill="url(#hero-shield)" stroke="#2563eb" stroke-width="2" />
+      <path d="M -8 -4 C -8 -9 -4 -14 0 -14 C 4 -14 8 -9 8 -4 V 2 H -8 Z" fill="none" stroke="#ffffff" stroke-width="2" />
+      <rect x="-10" y="2" width="20" height="15" rx="3" fill="#ffffff" />
+    </g>
+
+    <!-- Nodes -->
+    <g transform="translate(-80, -40)">
+      <circle cx="0" cy="0" r="12" fill="#ffffff" stroke="#e11d48" stroke-width="1.5" />
+      <text x="0" y="3" font-family="sans-serif" font-size="7" font-weight="bold" fill="#e11d48" text-anchor="middle">SECRET</text>
+    </g>
+    <g transform="translate(80, -40)">
+      <circle cx="0" cy="0" r="12" fill="#ffffff" stroke="#d97706" stroke-width="1.5" />
+      <text x="0" y="3" font-family="sans-serif" font-size="7" font-weight="bold" fill="#d97706" text-anchor="middle">SAST</text>
+    </g>
+    <g transform="translate(-70, 65)">
+      <circle cx="0" cy="0" r="12" fill="#ffffff" stroke="#0284c7" stroke-width="1.5" />
+      <text x="0" y="3" font-family="sans-serif" font-size="7" font-weight="bold" fill="#0284c7" text-anchor="middle">CVE</text>
+    </g>
+    <g transform="translate(70, 65)">
+      <circle cx="0" cy="0" r="12" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5" />
+      <text x="0" y="3" font-family="sans-serif" font-size="7" font-weight="bold" fill="#7c3aed" text-anchor="middle">DAST</text>
+    </g>
+  </g>
+</svg>

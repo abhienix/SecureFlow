@@ -1,345 +1,187 @@
-# SecureFlow
+<p align="center">
+  <a href="https://github.com/abhienix/SecureFlow">
+    <img src="./assets/svg/hero-banner.svg" alt="SecureFlow Hero Banner" width="100%" />
+  </a>
+</p>
 
-**Automated DevSecOps Pipeline with AI Security Analysis**
+<p align="center">
+  <strong>Automated DevSecOps Pipeline • Multi-Scanner Security Orchestration • Real-Time WebSockets • Local Air-Gapped AI</strong>
+</p>
 
-[![CI/CD Pipeline](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-blue?logo=github-actions)](https://github.com/abhienix/SecureFlow/actions)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Backend](https://img.shields.io/badge/Backend-FastAPI%20%7C%20Python%203.12-009688?logo=python)](backend/)
-[![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%7C%20TypeScript-61DAFB?logo=react)](frontend/)
-[![AI](https://img.shields.io/badge/AI-Ollama%20%7C%20Qwen2.5%20%7C%20ChromaDB-76B900?logo=nvidia)](ai-server/)
-[![DAST](https://img.shields.io/badge/DAST-OWASP%20ZAP%20%7C%20Celery-FF6F00?logo=owasp)](worker/)
-
----
-
-## What Is SecureFlow?
-
-SecureFlow is a full-stack security orchestration platform that automates vulnerability scanning across every stage of a CI/CD pipeline — from secret detection on commit to dynamic API testing on staging — and surfaces results on a real-time dashboard with an AI copilot for remediation guidance.
-
-It runs four security scanners (**Gitleaks**, **Semgrep**, **Trivy**, **OWASP ZAP**) inside a GitHub Actions workflow, evaluates findings against a YAML policy engine with CVSS thresholds and CVE allowlisting, and blocks deployments when critical issues are found. A local GPU AI server powers the **Void AI** copilot — a security-focused assistant that explains findings and generates code patches without sending source code to external APIs.
-
----
-
-## Architecture
-
-
-```mermaid
-flowchart TD
-    %% TOP LEVEL LAYOUT
-    Dev["👤 DEVELOPER <i>(git push)</i>"]
-
-    subgraph CI["🐙 GITHUB ACTIONS CI/CD"]
-        direction LR
-        S1["1. Checkout"] --> S2["2. Gitleaks"] --> S3["3. Semgrep"] --> S4["4. Build"] --> S5["5. Trivy"] --> S6["6. Policy Gate"]
-    end
-
-    subgraph GCP_VM["🖥️ DAST WORKER (GCP VM)"]
-        direction LR
-        CELERY["⚙️ Celery Consumer"] --> ZAP["🎯 OWASP ZAP Docker"] --> CALLBACK["📤 Result Parser"]
-    end
-
-    subgraph CLOUD_RUN["☁️ GOOGLE CLOUD RUN (SERVERLESS)"]
-        direction TB
-        BE["⚡ FastAPI Backend Gateway"]
-        PG[("🗄️ PostgreSQL (GCP)<br/><i>All Scans + ZAP + AI Logs</i>")]
-        PROD["🚀 Cloud Run Production App"]
-        RD["🔴 Central Redis (Memorystore)<br/><i>Pub/Sub & Celery Queue</i>"]
-        STG["🧪 Cloud Run Staging App"]
-        
-        BE -->|"Persist CI"| PG
-        BE -->|"Promote"| PROD
-        BE -->|"Events & DAST"| RD
-        BE -->|"Deploy"| STG
-    end
-
-    subgraph GPU_VM["🤖 VOID AI SERVER (LOCAL GPU MACHINE B)"]
-        direction TB
-        AI_GW["🔒 1. FastAPI AI Gateway (:8100)"]
-        CDB[("📚 4. ChromaDB RAG Store")]
-        GRD["🛡️ 2. Guardrails Engine"]
-        MR["🔀 3. Model Router"]
-        FALLBACK["⚡ 5. Smart Fallback Engine"]
-        
-        subgraph OLLAMA["🧠 OLLAMA INFERENCE"]
-            direction LR
-            QWEN["Qwen2.5:3b <i>(Security)</i>"]
-            DEEPSEEK["DeepSeek-coder:6.7b <i>(Fixes)</i>"]
-        end
-
-        AI_GW <-->|"RAG Lookup"| CDB
-        AI_GW -->|"Validated JWT"| GRD -->|"Sanitized"| MR
-        AI_GW -.->|"Offline"| FALLBACK
-        MR -->|"Security"| QWEN
-        MR -->|"Code Fix"| DEEPSEEK
-    end
-
-    FE["🎨 REACT 19 DASHBOARD (CLIENT BROWSER)"]
-
-    %% CROSS-BOX CONNECTIONS
-    Dev -->|"git push"| S1
-    S2 -->|"Secrets"| BE
-    S3 -->|"SAST"| BE
-    S5 -->|"Policy"| BE
-    S6 -->|"Deploy"| STG
-
-    RD -->|"TCP 6379"| CELERY
-    ZAP -->|"Dynamic Scan"| STG
-    CALLBACK -->|"DAST Findings"| BE
-    CALLBACK -->|"Persist ZAP"| PG
-
-    BE <-->|"AI Context"| AI_GW
-    AI_GW -->|"Save Logs"| PG
-    AI_GW -->|"SSE Stream"| FE
-    RD -->|"WebSockets"| FE
-
-    %% STYLING
-    classDef devStyle fill:#f0f7ff,stroke:#2563eb,stroke-width:1.5px;
-    classDef ciStyle fill:#f8fafc,stroke:#475569,stroke-width:1.5px;
-    classDef beStyle fill:#eff6ff,stroke:#4f46e5,stroke-width:1.5px;
-    classDef dbStyle fill:#ecfdf5,stroke:#059669,stroke-width:1.5px;
-    classDef redisStyle fill:#fff1f2,stroke:#e11d48,stroke-width:1.5px;
-    classDef gcpStyle fill:#fff7ed,stroke:#ea580c,stroke-width:1.5px;
-    classDef gpuStyle fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px;
-    classDef aiInternal fill:#f3e8ff,stroke:#7e22ce,stroke-width:1px;
-    classDef feStyle fill:#f0fdf4,stroke:#0d9488,stroke-width:1.5px;
-
-    class Dev devStyle
-    class S1,S2,S3,S4,S5,S6 ciStyle
-    class BE,STG,PROD beStyle
-    class PG dbStyle
-    class RD redisStyle
-    class CELERY,ZAP,CALLBACK gcpStyle
-    class GPU_VM,OLLAMA gpuStyle
-    class AI_GW,GRD,MR,QWEN,DEEPSEEK,CDB,FALLBACK aiInternal
-    class FE feStyle
-```
+<p align="center">
+  <a href="https://github.com/abhienix/SecureFlow/actions"><img src="https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-blue?logo=github-actions&style=for-the-badge" alt="CI/CD Status"></a>
+  <a href="./backend/"><img src="https://img.shields.io/badge/Backend-FastAPI-009688?logo=python&style=for-the-badge" alt="Backend"></a>
+  <a href="./frontend/"><img src="https://img.shields.io/badge/Frontend-React%2019-61DAFB?logo=react&style=for-the-badge" alt="Frontend"></a>
+  <a href="./ai-server/"><img src="https://img.shields.io/badge/AI-Ollama%20%2B%20ChromaDB-76B900?logo=nvidia&style=for-the-badge" alt="AI Server"></a>
+  <a href="./worker/"><img src="https://img.shields.io/badge/DAST-OWASP%20ZAP-FF6F00?logo=owasp&style=for-the-badge" alt="DAST Worker"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License"></a>
+</p>
 
 ---
 
-## Pipeline Stages
+## ⚡ Overview
 
-Every commit triggers a 9-stage pipeline executed by GitHub Actions. The backend tracks each stage as a finite state machine with strict transitions: `WAITING → RUNNING → {PASSED | FAILED | BLOCKED | SKIPPED | CANCELLED}`.
+**SecureFlow** is an automated DevSecOps security orchestration platform engineered to solve scanner noise, build runner timeouts, and cloud data leaks in CI/CD pipelines.
 
-| # | Stage | Scanner / Action | What It Catches |
-|---|-------|-----------------|-----------------|
-| 1 | **Checkout** | Git clone | — |
-| 2 | **Code Scan** | Gitleaks + Semgrep | Leaked secrets, API keys, tokens, OWASP Top 10 code patterns |
-| 3 | **Docker Build** | Multi-stage Dockerfile build | Build failures, missing dependencies |
-| 4 | **Trivy CVE** | Trivy container scan | Known CVEs in base images and OS packages |
-| 5 | **Policy Gate** | Policy engine evaluation | Severity/CVSS threshold violations, unexpired allowlist checks |
-| 6 | **Deploy Staging** | Google Cloud Run deploy | Deployment failures |
-| 7 | **OWASP ZAP** | Celery worker → ZAP container | XSS, SQLi, missing headers, CSRF on live staging endpoints |
-| 8 | **ZAP Gate** | Policy evaluation on DAST results | Dynamic security alerts from ZAP findings |
-| 9 | **Deploy Prod** | Google Cloud Run deploy | — |
-
-Failed or blocked stages cascade — downstream stages are automatically marked `SKIPPED`. The pipeline supports concurrency control (cancel-in-progress), retry logic (3 attempts for Gitleaks install), and change detection (only rebuilds when relevant files change).
+It coordinates **4 security scanners** (Gitleaks, Semgrep, Trivy, and OWASP ZAP) across a **9-stage automated pipeline**, evaluates findings against a dynamic **YAML Policy Engine** (`policy.yaml`), streams real-time scan progress to an executive **React 19 Dashboard** over WebSockets (**<15ms latency**), and provides an **air-gapped Void AI Engine** (Ollama + ChromaDB RAG) for local, secret-scrubbed root cause analysis and automated code remediation.
 
 ---
 
-## Policy Engine
+## 🎯 Key Problems Solved
 
-The policy engine (`policy.yaml`) enforces security gates before code reaches production:
-
-- **Severity-based blocking**: Default blocks `CRITICAL` + `HIGH`, warns on `MEDIUM`. Per-repo overrides available (e.g., SecureFlow itself relaxes to block `CRITICAL` only with CVSS threshold 9.8).
-- **CVSS threshold**: Secondary block trigger — a `MEDIUM` CVE with a CVSS score above the threshold still blocks the pipeline.
-- **CVE allowlisting**: Individual CVEs can be exempted with a reason and expiry date. Expired allowlist entries automatically revert to normal evaluation.
-- **Multi-scanner evaluation**: ZAP findings → immediate `BLOCK`. Gitleaks findings → immediate `BLOCK`. Semgrep findings → immediate `BLOCK`. Trivy findings → evaluated against severity/CVSS policy.
-- **Slack notifications**: Triggered automatically on `BLOCK` actions via Slack Block Kit webhooks and broadcast to the dashboard Notification Center.
+- **Scanner Noise & Format Fragmentation**: Standard tools produce incompatible JSON/text outputs. SecureFlow aggregates and normalizes all scan findings into a unified data model.
+- **Unfixable OS-Level Build Blocks**: CI pipelines frequently fail on unfixable Debian base image CVEs (e.g. `libc6`, `perl-base`). SecureFlow uses [`policy.yaml`](./policy.yaml) with time-bound expiring allowlists to grant temporary grace periods with mandatory expiration dates.
+- **Code Privacy Risks with Cloud AI**: Sending source code or credentials to external LLMs violates enterprise compliance. SecureFlow runs **Ollama locally on GPU** with regex secret scrubbing prior to vector embedding and inference.
+- **Slow DAST Scans Freezing CI Runners**: OWASP ZAP web scans take 5–10 minutes. SecureFlow offloads DAST execution asynchronously to an out-of-process **Celery worker** on Redis task queues.
+- **Lack of Real-Time Pipeline Observability**: Instead of waiting for full job completions, developers monitor real-time execution states streamed directly to the UI over **WebSockets**.
 
 ---
 
-## Slack Incident Alerting
+## 🏗️ Architecture Overview
 
-SecureFlow features real-time Slack notification dispatch for security incident response:
+<p align="center">
+  <a href="./docs/Architecture.md">
+    <img src="./assets/svg/architecture-diagram.svg" alt="SecureFlow Architecture Diagram" width="100%" />
+  </a>
+</p>
 
-- **Automated Block Kit Dispatch**: When the Policy Engine evaluates a `BLOCK` decision on any pipeline run (due to exposed secrets, SAST flaws, container CVEs, or DAST API vulnerabilities), SecureFlow automatically constructs a formatted Slack Block Kit card and posts it to `#devsecops-alerts`.
-- **Payload Contents**:
-  - `🚨 BLOCK` status indicator color-coded in red (`#F43F5E`)
-  - Target Repository & Branch (e.g., `abhienix/SecureFlow` / `main`)
-  - 7-character Commit SHA (e.g., `e1638fa`)
-  - Void AI Root-Cause Explanation of the blocking policy violation
-  - UTC timestamp and link to SecureFlow Dashboard audit details
-- **Dashboard Notification Center Integration**: Real-time WebSocket events (`slack.alert_sent`) update the top-bar Bell icon badge and stream live alerts directly into the **Slack** tab of the Notification Drawer.
-- **API Endpoints**:
-  - `GET /api/slack/status` — Checks Slack webhook configuration and target channel status
-  - `POST /api/slack/test` — Dispatches a live Block Kit test message to verify Slack channel delivery
-
----
-
-## Void AI 
-
-Void is a security-focused AI assistant that runs **100% locally** on a dedicated GPU machine (Machine B). No source code is sent to external AI providers.
-
-**Architecture:**
-- **Ollama** hosts `Qwen2.5:3b` (security reasoning) and `nomic-embed-text` (vector embeddings)
-- **ChromaDB** provides RAG (Retrieval-Augmented Generation) over security findings and policy documents
-- **Model Router** directs queries to `Qwen2.5:3b` for security analysis or `DeepSeek-coder:6.7b` for code remediation based on prompt intent classification
-- **Guardrails Engine** validates prompts against off-topic terms and prompt injection patterns; sanitizes outputs by redacting secrets (GitHub tokens, AWS keys, JWTs, Slack tokens)
-- **JWT Authentication** secures the AI server gateway
-
-**Capabilities:**
-- Scan analysis: Explains top CVEs with attacker impact scenarios and numbered remediation steps
-- Code scan failure analysis: Explains why a Gitleaks/Semgrep scan blocked the pipeline with containment steps
-- Free-form Q&A: Answers questions about scan history, pipeline status, and vulnerability remediation with context from recent scan data
-- Smart fallback: 590-line data-driven fallback engine that answers common questions from the database when the LLM is unavailable
-- Security boundary: Rejects off-topic queries (weather, sports, etc.) with a clear scope message
+### Core Subsystems:
+- **GitHub Actions Pipeline**: Triggers on push events, executing static analysis, container builds, and policy checks.
+- **FastAPI Monolith Gateway**: Serves central REST endpoints, handles policy evaluation, and brokers live WebSocket frames.
+- **Celery & Redis Worker Layer**: Executes asynchronous OWASP DAST scans out-of-process without blocking API handlers or CI runners.
+- **React 19 Executive Dashboard**: Real-time telemetry, scanner charts, and interactive AI remediation drawers.
+- **Air-Gapped Void AI Server**: Local GPU-hosted Ollama (`Qwen2.5 3B` / `DeepSeek-Coder 6.7B`) with ChromaDB RAG vector store.
 
 ---
 
-## Real-Time Dashboard
+## 🔄 9-Stage Security Pipeline
 
-The React 19 dashboard provides live visibility into the entire security pipeline:
+Every commit moves through a 9-stage pipeline state machine defined in [`.github/workflows/security-pipeline.yml`](./.github/workflows/security-pipeline.yml):
 
-**Pages:**
-- **Overview**: Security metrics (total scans, blocked count, block rate, severity distribution), Prometheus sparkline charts (throughput, latency, errors, CPU, memory), threat category rankings by scanner
-- **Pipelines**: Run history with pagination, stage timeline visualization, blocked pipeline analysis with AI remediation guidance, stage detail drawer with logs
-- **Security Center**: Unified findings from all 4 scanners, comparison chart, filters by severity/scanner/status, finding detail drawer with AI explanation and fix recommendations, status update mutation
-- **Deployments**: Cloud Run revision history, active revision banner, rollback capability, environment tracking (staging/production)
-- **Observability**: Prometheus metric cards (CPU, memory, latency, request rate), Alertmanager warnings, interactive topology graph showing service connection health
-- **Policy Editor**: Form-based editor with block/warn severity toggles, CVSS threshold slider with histogram simulation, CVE allowlist management, live `policy.yaml` preview, impact simulation on last 10 pipelines
-- **Settings**: Appearance (theme, compact mode, animations), integrations (GitHub, Cloud Run, Slack), notification thresholds, API key management, system health status
-- **Notifications**: Alert registry with category filtering (pipeline, security, deploy), severity-based icons, read/unread tracking
+<p align="center">
+  <a href="./docs/Pipeline.md">
+    <img src="./assets/svg/workflow-pipeline.svg" alt="SecureFlow 9-Stage Pipeline Workflow" width="100%" />
+  </a>
+</p>
 
-**Real-time updates** use WebSockets backed by Redis pub/sub for cross-instance broadcasting. The frontend connects to `/ws/events` and invalidates TanStack Query caches on each event, keeping the UI current with <15ms latency.
-
-**AI Copilot drawer** is globally accessible from any page — it shows conversation history, injects live pipeline context and vulnerability data into the system prompt, and streams responses token-by-token via SSE.
-
-**Tech stack:** React 19, TypeScript, TanStack Query, Zustand (state), Recharts (charts), Framer Motion (animations), Lucide (icons), React Window (virtualization).
-
----
-
-## Backend
-
-The backend is a monolithic FastAPI application serving as the API gateway, telemetry ingestor, WebSocket broadcaster, and policy evaluator.
-
-**API architecture:**
-- Dual versioning: Legacy endpoints (`/api/scan`, `/api/progress`, `/api/dast/start`) for GitHub Actions runners + modern V1 router (`/api/v1/repositories`, `/api/v1/pipelines`, `/api/v1/findings`, `/api/v1/deployments`, `/api/v1/copilot/chat`) for the dashboard
-- GitHub webhook handler processes `workflow_run` events in real-time with instant WebSocket broadcast
-- Scan result ingestion merges findings from all 4 scanners (Gitleaks, Semgrep, Trivy, ZAP) into unified security findings
-- DAST orchestration publishes Celery tasks to Redis with idempotent enqueueing via task IDs
-
-**Database:** SQLAlchemy ORM with async drivers — PostgreSQL for production, SQLite fallback for local development. 12+ tables: `scan_results`, `repositories`, `pipeline_runs`, `pipeline_stages`, `pipeline_steps`, `security_findings`, `deployments`, `policies`, `policy_violations`, `notifications`, `events`, `metric_snapshots`.
-
-**Observability:** Prometheus instrumentation via `prometheus-fastapi-instrumentator` for request counting, latency histograms, and error rates. Health check endpoints monitor FastAPI, PostgreSQL, Redis, Celery workers, and AI engine availability.
+1. **Checkout**: Fetches complete commit history (`fetch-depth: 0`) for secret auditing.
+2. **Code Scan**: Runs **Gitleaks** (secret detection) and **Semgrep** (SAST code flaws).
+3. **Docker Build**: Compiles multi-stage production container image.
+4. **Trivy CVE Scan**: Audits base OS packages and project dependencies.
+5. **Policy Gate**: Evaluates total findings against rules in [`policy.yaml`](./policy.yaml).
+6. **Staging Deploy**: Deploys container image to temporary staging environment.
+7. **OWASP ZAP DAST**: Celery worker runs dynamic HTTP vulnerability attacks against staging.
+8. **ZAP Gate**: Validates DAST scan results against dynamic policy thresholds.
+9. **Production Deploy**: Promotes verified clean builds to production.
 
 ---
 
-## DAST Worker
+## 🛡️ Integrated Security Scanners
 
-Dynamic Application Security Testing runs out-of-process via a Celery worker on a separate VM:
+<p align="center">
+  <img src="./assets/svg/security-shield.svg" alt="SecureFlow Security Shield" width="100%" />
+</p>
 
-- **Task queue**: Redis broker receives `run_zap_scan` tasks with `scan_id` and `target_url`
-- **Execution**: Worker spawns an OWASP ZAP Docker container against the staging URL using a baseline scan profile
-- **Parsing**: ZAP JSON reports are parsed into structured findings (name, risk level, confidence, description, solution, reference URLs, instance counts)
-- **Callback**: Findings are posted back to the backend for aggregation with other scanner results and policy evaluation
-
-This decoupling means ZAP's long-running scans (up to 10 minutes with 15s polling × 40 retries) never block the API server or dashboard.
-
----
-
-## Deployment
-
-SecureFlow deploys to **Google Cloud Run** with separate staging and production environments:
-
-| Service | Staging | Production |
-|---------|---------|------------|
-| Backend | `secureflow-backend-staging` | `secureflow-backend` |
-| Frontend | `secureflow-frontend-staging` | `secureflow-frontend` |
-
-Docker images are pushed to Google Artifact Registry (`us-central1-docker.pkg.dev/secureflow-499814/secureflow-repo/`).
-
-**CI/CD workflows:**
-- `security-pipeline.yml` — Full 9-stage security pipeline triggered on push/PR
-- `quick-deploy-backend.yml` — Manual or branch-triggered (`deploy/backend-*`) backend deployment to both environments
-- `quick-deploy-frontend.yml` — Manual or branch-triggered (`deploy/frontend-*`) frontend deployment to both environments
-
-Commit message tags control targeted deployments: `[deploy]`, `[deploy:backend]`, `[deploy:frontend]`.
+- **🔑 Gitleaks**: Audits git history for leaked credentials and API tokens using custom rules in [`.gitleaks.toml`](./.gitleaks.toml).
+- **🔍 Semgrep**: Audits Python backend and TypeScript frontend code for OWASP Top 10 vulnerabilities.
+- **📦 Trivy**: Audits container base layers and package locks (`requirements.txt`, `package.json`) against CVE databases.
+- **🌐 OWASP ZAP**: Runs dynamic web vulnerability attacks (XSS, SQLi, security headers) on live staging endpoints.
 
 ---
 
-## Repository Structure
+## 🧠 Air-Gapped Local AI Engine (Void AI)
+
+<p align="center">
+  <img src="./assets/svg/typing-copilot.svg" alt="Void AI Engine Terminal" width="100%" />
+</p>
+
+- **Local GPU Execution**: Operates locally via **Ollama** inside [`ai-server/`](./ai-server/) using `Qwen2.5 3B` for security reasoning and `DeepSeek-Coder 6.7B` for code patch generation.
+- **Automatic Secret Redaction**: Scrubs API keys, tokens, and passwords into `[REDACTED_SECRET]` placeholders before LLM prompt evaluation.
+- **RAG Context Integration**: Indexes `policy.yaml` rules and scanner documentation inside ChromaDB vector store.
+- **Heuristic Fallback**: Automatically activates a 590-line rule-based engine in [`ai_analysis.py`](./backend/ai_analysis.py) if the local GPU server is unreachable.
+
+---
+
+## 💡 System Design & Engineering Decisions
+
+- **FastAPI Monolith Gateway**: Chosen over microservices to support high-throughput async I/O for WebSockets and clean single-container deployment on GCP Cloud Run while eliminating microservice network latency.
+- **Out-of-Process Celery DAST Workers**: Offloads OWASP ZAP scans (5–10 mins execution) to Celery task queues on Redis, keeping HTTP API handlers responsive and preventing GitHub Actions runner timeouts.
+- **WebSockets over SSE**: Provides bi-directional persistent channels for sub-15ms server telemetry broadcasts and interactive client control actions (manual re-scans, AI remediation requests).
+- **Expiring Allowlists in `policy.yaml`**: Prevents permanent vulnerability debt by requiring mandatory expiration dates and justification notes for allowed OS CVEs.
+
+---
+
+## 📂 Repository Structure
 
 ```text
 SecureFlow/
-├── backend/              # FastAPI API gateway, pipeline engine, policy engine, AI analysis
-│   ├── main.py           #   Monolithic server: REST APIs, WebSockets, DB, GitHub webhooks
-│   ├── pipeline_engine.py#   State machine with 9 stages and strict transition validation
-│   ├── policy_engine.py  #   YAML policy evaluation with CVSS thresholds and allowlisting
-│   ├── ai_analysis.py    #   Void AI: scan analysis, copilot Q&A, smart fallback (590 lines)
-│   ├── models.py         #   SQLAlchemy ORM: 12+ tables for scans, pipelines, findings, deployments
-│   ├── celery_client.py  #   DAST task publisher to Redis queue
-│   └── redis_pubsub.py   #   Cross-instance WebSocket broadcast via Redis pub/sub
-├── ai-server/            # Local GPU AI server (Machine B)
-│   ├── app/main.py       #   FastAPI gateway with health checks, GPU detection, chat endpoint
-│   ├── app/router.py     #   TaskLLMRouter: security reasoning vs code remediation intent
-│   ├── app/guardrails.py #   Prompt validation + output secret redaction
-│   ├── app/auth.py       #   JWT authentication (HS256)
-│   └── docker-compose.yml#   Ollama + NVIDIA GPU + ChromaDB orchestration
-├── worker/               # Distributed DAST scanner
-│   ├── app/tasks/zap.py  #   Celery task definition for ZAP baseline scan
-│   ├── app/scanners/     #   Docker-based ZAP execution
-│   └── app/parsers/      #   ZAP JSON report parser
-├── frontend/             # React 19 executive security dashboard
-│   └── src/
-│       ├── App.jsx       #   Router: 8 pages + command palette
-│       ├── features/     #   Page components (overview, pipelines, security, deployments, etc.)
-│       └── components/   #   GlobalAICopilot drawer with streaming SSE responses
-├── .github/workflows/    # CI/CD pipelines (security-pipeline, quick-deploy-backend/frontend)
-├── docs/                 # Architecture, API, Backend, Frontend, Worker, AI, Pipeline docs
-├── policy.yaml           # Security policy rules, CVE allowlists with expiry dates
-└── .gitleaks.toml        # Secret scan allowlist configuration
+├── .github/workflows/       # 9-Stage CI/CD GitHub Actions pipeline
+├── ai-server/              # Local GPU AI server (Ollama + ChromaDB RAG)
+├── assets/svg/             # Visual SVG architecture diagrams & banners
+├── backend/                # FastAPI Gateway, Policy Engine & database layer
+├── docker/                 # Production Dockerfile
+├── docs/                   # Full documentation (Architecture, API, AI, Pipeline)
+├── frontend/               # React 19 Executive Dashboard (TypeScript + TanStack)
+├── worker/                 # Out-of-process Celery DAST worker (OWASP ZAP)
+├── policy.yaml             # Dynamic security rules & CVE allowlists
+└── README.md               # You are here!
 ```
 
 ---
 
-## Quick Start
+## ⚡ Quick Start (Local Setup)
 
-### 1. AI Server (Machine B — GPU required)
-```bash
-cd ai-server
-docker compose up -d --build
-# Starts Ollama (qwen2.5:3b + nomic-embed-text) + ChromaDB + FastAPI on :8100
-```
+### Prerequisites:
+- Python 3.12+
+- Node.js 18+ & npm
+- Docker & Docker Compose
+- Redis Server
 
-### 2. Backend API
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
+### Setup Steps:
 
-### 3. DAST Worker
-```bash
-cd worker
-pip install -r requirements.txt
-celery -A app.celery_app worker --loglevel=info
-```
+1. **Backend API**:
+   ```bash
+   cd backend
+   python -m venv venv
+   source venv/bin/activate  # Windows: .\venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   uvicorn main:app --reload --port 8000
+   ```
 
-### 4. Frontend Dashboard
-```bash
-cd frontend
-npm install
-npm start
-```
+2. **React Dashboard**:
+   ```bash
+   cd frontend
+   npm install
+   npm start  # Opens http://localhost:3000
+   ```
 
-Open `http://localhost:3000` to access the dashboard.
+3. **Celery DAST Worker**:
+   ```bash
+   cd worker
+   pip install -r requirements.txt
+   celery -A app.celery_app worker --loglevel=info
+   ```
 
----
-
-## Tech Stack
-
-| Layer | Technologies |
-|-------|-------------|
-| Backend | Python 3.12, FastAPI, SQLAlchemy, asyncpg/aiosqlite, Celery, Redis, PyYAML, Prometheus |
-| AI Server | Python 3.11, FastAPI, Ollama, Qwen2.5:3b, DeepSeek-coder:6.7b, ChromaDB, nomic-embed-text, python-jose (JWT) |
-| Worker | Python 3.12, Celery, Redis, Docker SDK, OWASP ZAP |
-| Frontend | React 19, TypeScript, TanStack Query, Zustand, Recharts, Framer Motion, Lucide Icons, React Window |
-| CI/CD | GitHub Actions, Gitleaks, Semgrep, Trivy, OWASP ZAP, Docker |
-| Infrastructure | Google Cloud Run, Artifact Registry, PostgreSQL, Redis, Nginx |
+4. **Local AI Server**:
+   ```bash
+   cd ai-server
+   docker compose up -d --build
+   ```
 
 ---
 
-## Author
+## 📄 License & System Documentation
 
-Designed and built by **Abhimanyu Kumar**. Licensed under the [MIT License](LICENSE).
+- **License**: Released under the [MIT License](./LICENSE).
+- **System Documentation**:
+  - [`docs/Architecture.md`](./docs/Architecture.md) — Technical Architecture & Data Flow
+  - [`docs/API.md`](./docs/API.md) — REST API & Telemetry Endpoints
+  - [`docs/AI.md`](./docs/AI.md) — Void AI RAG Architecture & Local Setup
+  - [`docs/Pipeline.md`](./docs/Pipeline.md) — 9-Stage CI/CD Pipeline Guide
+  - [`docs/Worker.md`](./docs/Worker.md) — Out-of-Process DAST Worker Setup
+
+---
+
+<p align="center">
+  <img src="./assets/svg/animated-footer.svg" alt="SecureFlow Footer" width="100%" />
+</p>
