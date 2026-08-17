@@ -97,11 +97,7 @@ export default function Sidebar({ C }) {
       {mobileSidebarOpen && (
         <div
           onClick={() => setMobileSidebarOpen(false)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-            zIndex: 999, display: 'none',
-          }}
-          className="mobile-hamburger"
+          className="mobile-sidebar-backdrop"
         />
       )}
       <aside
@@ -168,6 +164,7 @@ export default function Sidebar({ C }) {
                   <NavLink
                     key={item.path}
                     to={item.path}
+                    onClick={() => setMobileSidebarOpen(false)}
                     className="sf-sidebar-nav-link"
                     style={{
                       display: "flex",

@@ -44,27 +44,34 @@ export default function TopBar({ C }: { C: any }) {
       gap: 16,
     }}>
       {/* Left: Hamburger + Breadcrumbs */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <button onClick={toggleMobileSidebar} style={{
-          display: "none", background: "none", border: "none", color: C.inkLow,
-          cursor: "pointer", padding: 4, marginRight: 4,
-        }} className="mobile-hamburger" title="Toggle sidebar">
-          <Menu size={18} />
+      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
+        <button 
+          onClick={toggleMobileSidebar} 
+          style={{
+            background: "none", border: "none", color: C.inkLow,
+            cursor: "pointer", padding: 6, marginRight: 2, borderRadius: 6,
+            alignItems: "center", justifyContent: "center"
+          }} 
+          className="mobile-hamburger" 
+          title="Toggle sidebar"
+          aria-label="Toggle navigation sidebar"
+        >
+          <Menu size={20} color={C.ink} />
         </button>
         <button onClick={() => navigate("/overview")} style={{
           background: "none", border: "none", color: C.inkMuted,
           fontSize: 12, fontWeight: 500, cursor: "pointer", padding: 0,
-        }}>SecureFlow</button>
+        }} className="mobile-hide-breadcrumb">SecureFlow</button>
 
         {parentLabel && (
-          <>
+          <span className="mobile-hide-breadcrumb" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <ChevronRight size={12} color={C.inkMuted} />
             <span style={{ fontSize: 12, fontWeight: 500, color: C.inkMuted }}>{parentLabel}</span>
-          </>
+          </span>
         )}
 
-        <ChevronRight size={12} color={C.inkMuted} />
-        <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{currentLabel}</span>
+        <ChevronRight size={12} color={C.inkMuted} className="mobile-hide-breadcrumb" />
+        <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentLabel}</span>
       </div>
 
       {/* Center/Right Actions */}

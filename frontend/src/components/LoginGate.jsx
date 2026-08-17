@@ -69,14 +69,14 @@ export function LoginGate({ onAuthenticate }) {
     <div style={{
       display: "flex", alignItems: "center", justifyContent: "center",
       minHeight: "100vh", background: "#0b0f19", color: "#f9fafb",
-      fontFamily: "'Inter', system-ui, -apple-system, sans-serif", padding: 20,
+      fontFamily: "'Inter', system-ui, -apple-system, sans-serif", padding: 16,
     }}>
       {/* Login Card */}
       <div style={{
-        width: "100%", maxWidth: 420, padding: "36px 32px",
+        width: "100%", maxWidth: "min(420px, calc(100vw - 32px))", padding: "32px 24px",
         background: "#111827", border: "1px solid #1f2937",
         borderRadius: 16, boxShadow: "0 20px 40px rgba(0,0,0,0.4)",
-        display: "flex", flexDirection: "column", gap: 24,
+        display: "flex", flexDirection: "column", gap: 24, boxSizing: "border-box"
       }}>
         {/* Header Section */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
