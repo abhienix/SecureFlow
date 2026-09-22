@@ -18,7 +18,12 @@ def run_zap_scan(scan_id: str, target_url: str, **kwargs):
         send_results(scan_id, findings)
         print("[+] Results sent to backend")
     except Exception as e:
+        # Don't swallow this: if the callback fails (e.g. auth rejected, backend
+        # down past retry limit), the findings never reach the database and the
+        # scan row stays stuck at "running". Re-raise so Celery marks the task
+        # failed and it's visible in monitoring instead of silently vanishing.
         print(f"[!] Failed to send results: {e}")
+        raise
 
     return {
         "status": "completed",

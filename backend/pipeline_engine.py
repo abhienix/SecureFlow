@@ -85,10 +85,6 @@ STAGE_DEFINITIONS = {
 }
 
 
-def validate_stage_order(stage_key: str) -> bool:
-    return stage_key in STAGE_ORDER
-
-
 class PipelineStateMachine:
     """Validates and enforces stage transitions."""
 

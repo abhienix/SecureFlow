@@ -148,15 +148,6 @@ class SecurityFinding(Base):
     ai_explanation = Column(Text, nullable=True)
     ai_fix = Column(Text, nullable=True)
 
-class ScanRun(Base):
-    __tablename__ = "scan_runs"
-    id = Column(String, primary_key=True, default=generate_uuid)
-    pipeline_run_id = Column(String, index=True)
-    scanner = Column(String)
-    status = Column(String)
-    duration = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
 class Deployment(Base):
     __tablename__ = "deployments"
     id = Column(String, primary_key=True, default=generate_uuid)

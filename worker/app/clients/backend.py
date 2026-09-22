@@ -4,6 +4,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 BACKEND_URL = os.getenv("BACKEND_URL", "https://your-backend.run.app/api/scan-results")
+BACKEND_API_SECRET = os.getenv("BACKEND_API_SECRET", "")
 
 
 def _build_session() -> requests.Session:
@@ -37,11 +38,16 @@ def send_results(scan_id: str, findings: list):
         "findings": findings,
     }
 
+    headers = {}
+    if BACKEND_API_SECRET:
+        headers["Authorization"] = f"Bearer {BACKEND_API_SECRET}"
+
     session = _build_session()
     # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
     response = session.post(
         BACKEND_URL,
         json=payload,
+        headers=headers,
         timeout=60,
     )
 

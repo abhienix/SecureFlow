@@ -36,11 +36,11 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 
 from models import (
     Base, ScanResult, Repository, PipelineRun, PipelineStage,
-    PipelineStep, SecurityFinding, ScanRun, Deployment, Policy,
+    PipelineStep, SecurityFinding, Deployment, Policy,
     PolicyViolation, Notification, Event, MetricSnapshot
 )
 from redis_pubsub import RedisPubSubManager, REDIS_BROADCAST_CHANNEL
-from policy_engine import evaluate_policy, get_highest_cvss_score, get_highest_severity_label, load_policy_file
+from policy_engine import evaluate_policy, load_policy_file
 from ai_analysis import analyze_scan, analyze_code_scan_failure, answer_copilot_question, smart_fallback
 from pipeline_engine import (
     PipelineStateMachine, StageStatus, STAGE_ORDER, STAGE_DEFINITIONS, build_stage_log,
@@ -162,7 +162,10 @@ class ConnectionManager:
         """Send to local clients only (no Redis publish)."""
         message = json.dumps(data)
         dead = set()
-        for ws in self.active:
+        # Iterate a snapshot: connect()/disconnect() can mutate self.active
+        # between the awaits below (a client connecting mid-broadcast), and
+        # mutating a set while iterating it raises RuntimeError.
+        for ws in list(self.active):
             try:
                 await ws.send_text(message)
             except Exception:
@@ -994,11 +997,11 @@ _default_cors_origins = [
     "https://secureflow-backend-1083585992526.us-central1.run.app"
 ]
 _env_cors = os.getenv("BACKEND_CORS_ORIGINS", "")
-CORS_ALLOW_ORIGINS = [o.strip() for o in _env_cors.split(",") if o.strip()] or ["*"]
+CORS_ALLOW_ORIGINS = [o.strip() for o in _env_cors.split(",") if o.strip()] or _default_cors_origins
 CORS_ORIGIN_REGEX = os.getenv("BACKEND_CORS_ORIGIN_REGEX", r"https://.*\.trycloudflare\.com|https://.*\.cloudflare\.com|https://.*\.ngrok-free\.(dev|app)|https://.*\.run\.app|http://localhost:.*|http://127\.0\.0\.1:.*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # nosemgrep: python.fastapi.security.wildcard-cors.wildcard-cors
+    allow_origins=CORS_ALLOW_ORIGINS,
     allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
@@ -2557,14 +2560,14 @@ async def copilot_ask(data: dict, db: AsyncSession = Depends(get_db)):
 
 
 async def verify_user_or_api_secret(request: Request):
-    """Permit requests from authenticated UI users (JWT/Bearer) or BACKEND_API_SECRET."""
-    auth = request.headers.get("Authorization", "")
-    if auth:
-        return
-    if BACKEND_API_SECRET:
-        token = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else ""
-        if not token or not secrets.compare_digest(token, BACKEND_API_SECRET):
-            raise HTTPException(status_code=403, detail="Forbidden: invalid or missing API secret")
+    """Require a valid BACKEND_API_SECRET bearer token.
+
+    There is no JWT/session auth implemented in this service yet, so this is
+    currently identical to verify_api_secret — it exists as its own dependency
+    so a real user-session check can be added here later without touching the
+    CI-facing verify_api_secret path.
+    """
+    await verify_api_secret(request)
 
 # ---------------------------------------------------------------------------
 # AI Copilot — re-analyze a single scan

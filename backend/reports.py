@@ -10,6 +10,7 @@ step executions, and AI remediation patches.
 import io
 import json
 import logging
+import secrets
 from datetime import datetime, timezone
 
 import os
@@ -23,16 +24,21 @@ logger = logging.getLogger("secureflow.reports")
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
-EXPORT_PASSWORD = os.getenv("EXPORT_PASSWORD", "xoxo")
+EXPORT_PASSWORD = os.getenv("EXPORT_PASSWORD", "")
 
 
 def _verify_export_password(password: str = "", x_password: str = ""):
-    """Verify that password equals 'xoxo' before allowing export downloads."""
-    pwd = (password or x_password or "").strip().lower()
-    if pwd != EXPORT_PASSWORD.lower():
+    """Verify the caller supplied the configured EXPORT_PASSWORD before allowing export downloads."""
+    if not EXPORT_PASSWORD:
+        raise HTTPException(
+            status_code=503,
+            detail="Report export is disabled: EXPORT_PASSWORD is not configured on the server.",
+        )
+    pwd = (password or x_password or "").strip()
+    if not secrets.compare_digest(pwd, EXPORT_PASSWORD):
         raise HTTPException(
             status_code=403,
-            detail="Access Denied: Invalid export password. Enter password 'xoxo' to download report.",
+            detail="Access Denied: Invalid export password.",
         )
 
 
@@ -314,7 +320,7 @@ async def export_pipeline_json(
 ):
     """
     Download a complete pipeline audit report as detailed structured JSON.
-    Requires password 'xoxo' to export.
+    Requires the EXPORT_PASSWORD configured on the server.
     """
     _verify_export_password(password, x_export_password)
     scan = await _fetch_scan(scan_id, db)
@@ -339,7 +345,7 @@ async def export_pipeline_pdf(
 ):
     """
     Download a formatted, publication-ready PDF of the pipeline security report.
-    Requires password 'xoxo' to export.
+    Requires the EXPORT_PASSWORD configured on the server.
     """
     _verify_export_password(password, x_export_password)
     try:

@@ -38,7 +38,19 @@ class GuardrailsEngine:
         else:
             target_text = message.lower().strip()
 
-        # Whitelist technical and DevSecOps queries — if any tech keyword is present, allow it!
+        # 1. Check Prompt Injection Guardrail — runs first and unconditionally,
+        # so it can't be bypassed by padding an injection attempt with a
+        # whitelisted tech term (e.g. "ignore previous instructions ... code").
+        injection_keywords = ["ignore previous instructions", "system prompt", "you are now DAN", "bypass rules"]
+        if any(kw in target_text for kw in injection_keywords):
+            logger.warning(f"[guardrails] Blocked potential prompt injection: {message[:50]}...")
+            return {
+                "is_valid": False,
+                "reason": "PROMPT_INJECTION",
+                "blocked_response": "🛡️ **Guardrail Triggered**: Prompt injection or system instruction bypass attempt detected."
+            }
+
+        # 2. Whitelist technical and DevSecOps queries — if any tech keyword is present, allow it!
         tech_keywords = [
             "pipeline", "scan", "commit", "cve", "finding", "vulnerability", "block",
             "semgrep", "gitleaks", "trivy", "zap", "docker", "fix", "code", "repo",
@@ -48,7 +60,7 @@ class GuardrailsEngine:
         if any(re.search(r'\b' + re.escape(kw) + r'\b', target_text) for kw in tech_keywords):
             return {"is_valid": True, "reason": None}
 
-        # 1. Check Off-Topic Guardrail
+        # 3. Check Off-Topic Guardrail
         if any(re.search(r'\b' + re.escape(term) + r'\b', target_text) for term in OFF_TOPIC_TERMS):
             return {
                 "is_valid": False,
@@ -58,16 +70,6 @@ class GuardrailsEngine:
                     "I can only assist with DevSecOps pipelines, security scans, vulnerability remediation, "
                     "and codebase safety. How can I help with your security posture today?"
                 )
-            }
-
-        # 2. Check Prompt Injection Guardrail
-        injection_keywords = ["ignore previous instructions", "system prompt", "you are now DAN", "bypass rules"]
-        if any(kw in target_text for kw in injection_keywords):
-            logger.warning(f"[guardrails] Blocked potential prompt injection: {message[:50]}...")
-            return {
-                "is_valid": False,
-                "reason": "PROMPT_INJECTION",
-                "blocked_response": "🛡️ **Guardrail Triggered**: Prompt injection or system instruction bypass attempt detected."
             }
 
         return {"is_valid": True, "reason": None}
