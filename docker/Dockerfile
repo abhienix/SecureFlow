@@ -1,21 +1,33 @@
-FROM python:3.11-alpine3.22
+# ---- builder: compiles/installs Python deps into a venv ----
+FROM python:3.11-alpine3.22 AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Install build dependencies and git, upgrade all Alpine packages
-RUN apk add --no-cache gcc musl-dev libffi-dev git && \
-    apk upgrade --no-cache --available
+# Build-time only: gcc/musl-dev/libffi-dev are needed to compile any
+# dependency that ships no musllinux wheel; git is needed by pip for
+# some source installs. None of this ships in the final image.
+RUN apk add --no-cache gcc musl-dev libffi-dev git
 
-# Copy requirements and install Python dependencies with pinned security fixes
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir --upgrade \
+RUN python -m venv /venv && \
+    /venv/bin/pip install --no-cache-dir --upgrade \
     "pip>=26.1.2" \
     "setuptools>=83.0.0" \
     "wheel>=0.46.2" && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir --upgrade \
+    /venv/bin/pip install --no-cache-dir -r requirements.txt && \
+    /venv/bin/pip install --no-cache-dir --upgrade \
     "jaraco.context>=6.1.0"
+
+# ---- runtime: slim final image, no compilers, no pip cache ----
+FROM python:3.11-alpine3.22
+
+# Security patches for the base OS packages; no build tooling installed here.
+RUN apk upgrade --no-cache --available
+
+WORKDIR /app
+
+COPY --from=builder /venv /venv
+ENV PATH="/venv/bin:$PATH"
 
 # Copy application code and policy
 COPY backend/ .

@@ -1,0 +1,33 @@
+# Git
+.git/
+.gitignore
+.github/
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node caches and builds
+**/node_modules/
+frontend/build/
+frontend/dist/
+
+# Local databases and runtime state
+*.db
+*.sqlite
+*.sqlite3
+*.log
+scratch/
+chromadb_data/
+ai-server/data/
+
+# Environment files
+**/.env*
+!**/.env.example
